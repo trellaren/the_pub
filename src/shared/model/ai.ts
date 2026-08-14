@@ -84,12 +84,32 @@ export const chatMessageSchema = z.object({
 })
 export type ChatMessage = z.infer<typeof chatMessageSchema>
 
+/**
+ * Per-chat overrides of the project's settings.
+ *
+ * Spelled out as optionals rather than `aiSettingsSchema.partial()`, which
+ * looks equivalent and is not: a partial of a schema whose every field carries
+ * a default still *fills in* those defaults, so an untouched chat would come
+ * back holding a complete settings object and silently override the project's
+ * provider with the schema default. An override that is absent must stay
+ * absent.
+ */
+export const aiSettingsOverrideSchema = z.object({
+  provider: aiProviderIdSchema.optional(),
+  model: z.string().optional(),
+  baseUrl: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().min(64).max(32_000).optional(),
+  systemPrompt: z.string().optional()
+})
+export type AiSettingsOverride = z.infer<typeof aiSettingsOverrideSchema>
+
 export const chatSchema = z.object({
   id: z.string(),
   title: z.string(),
   messages: z.array(chatMessageSchema).default(() => []),
   /** Per-chat overrides, so one conversation can use a different model. */
-  settings: aiSettingsSchema.partial().prefault({}),
+  settings: aiSettingsOverrideSchema.prefault({}),
   created: z.string(),
   modified: z.string()
 })
@@ -157,7 +177,7 @@ export const streamEventSchema = z.discriminatedUnion('type', [
 export type StreamEvent = z.infer<typeof streamEventSchema>
 
 /** Merge project defaults with a chat's overrides. */
-export function resolveSettings(base: AiSettings, overrides: Partial<AiSettings> = {}): AiSettings {
+export function resolveSettings(base: AiSettings, overrides: AiSettingsOverride = {}): AiSettings {
   const merged = { ...base, ...clean(overrides) }
   const info = providerInfo(merged.provider)
   return {
@@ -167,9 +187,9 @@ export function resolveSettings(base: AiSettings, overrides: Partial<AiSettings>
   }
 }
 
-/** Drop keys explicitly set to undefined, which would otherwise erase a default. */
-function clean(overrides: Partial<AiSettings>): Partial<AiSettings> {
+/** Drop keys explicitly set to undefined or blank, which must not erase a default. */
+function clean(overrides: AiSettingsOverride): AiSettingsOverride {
   return Object.fromEntries(
     Object.entries(overrides).filter(([, value]) => value !== undefined && value !== '')
-  ) as Partial<AiSettings>
+  ) as AiSettingsOverride
 }

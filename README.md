@@ -6,7 +6,7 @@ formatting, and the notes a long story needs, in one desktop app.
 ## What works today
 
 Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
-and Phase 4 maps.
+Phase 4 maps, and Phase 5 AI assistance.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -53,6 +53,12 @@ slips through — because a noisy suggestion list is how a feature like this get
   than pixels. A marker can name the location record that describes the place *and* open a map
   of its own, so a world map, a city map and the location pane are three views of one place
   rather than three copies of it.
+
+- **AI assistance** from Anthropic, OpenAI, Hugging Face or a local LM Studio server, with as
+  many conversations as you like. Ask about the selection or the whole document, watch the reply
+  stream in, and insert it into the manuscript as an ordinary, undoable edit. Keys are yours:
+  they are encrypted into the app's own data directory, never the project folder, and no channel
+  hands one back to the interface.
 
 In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
 are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps

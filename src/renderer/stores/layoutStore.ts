@@ -45,6 +45,7 @@ export type PanelComponent =
   | 'timeline'
   | 'storyboard'
   | 'maps'
+  | 'ai'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

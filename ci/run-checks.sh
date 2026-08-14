@@ -150,10 +150,17 @@ stage "Unit tests"       npm test
 # npm scripts enforces that ordering.
 stage "Build"            npm run build
 
+# Windows and macOS always have a display; only Linux can be genuinely headless.
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*|Darwin) HAS_DISPLAY=1 ;;
+  *) HAS_DISPLAY=0 ;;
+esac
+[ -n "${OS:-}" ] && [ "${OS:-}" = "Windows_NT" ] && HAS_DISPLAY=1
+
 if [ "$SKIP_E2E" -eq 1 ]; then
   record_skip "End-to-end tests"
   warn "End-to-end tests skipped (--skip-e2e)."
-elif [ -n "${DISPLAY:-}" ]; then
+elif [ "$HAS_DISPLAY" -eq 1 ] || [ -n "${DISPLAY:-}" ]; then
   stage "End-to-end tests" npm run e2e
 elif command -v xvfb-run >/dev/null 2>&1; then
   stage "End-to-end tests" xvfb-run -a npm run e2e

@@ -15,6 +15,8 @@ import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
 import { BeatService } from './beatService.js'
 import { MapService } from './mapService.js'
+import { ChatService } from './chatService.js'
+import { AiRunner } from '../ai/aiRunner.js'
 import { MentionService } from './mentionService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSION } from '../../shared/constants.js'
 
@@ -36,6 +38,8 @@ export class ProjectSession {
   readonly entities: EntityService
   readonly beats: BeatService
   readonly maps: MapService
+  readonly chats: ChatService
+  readonly ai = new AiRunner()
   readonly mentions: MentionService
   private unwatch: Unwatch | null = null
 
@@ -51,6 +55,7 @@ export class ProjectSession {
     this.entities = new EntityService(adapter)
     this.beats = new BeatService(adapter)
     this.maps = new MapService(adapter)
+    this.chats = new ChatService(adapter)
     this.search = new SearchIndexService(
       adapter,
       indexDbPath(uri, adapter.root),
@@ -78,6 +83,7 @@ export class ProjectSession {
     await this.entities.load().catch(() => {})
     await this.beats.load().catch(() => {})
     await this.maps.load().catch(() => {})
+    await this.chats.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))
     // Index in the background: a large project must not delay the first paint.
     void this.search.syncAll().catch(() => {})
@@ -112,6 +118,8 @@ export class ProjectSession {
   async close(): Promise<void> {
     if (this.unwatch) await this.unwatch()
     this.unwatch = null
+    // Stop paying for replies nobody will read.
+    this.ai.cancelAll()
     this.search.close()
     await this.adapter.dispose()
   }

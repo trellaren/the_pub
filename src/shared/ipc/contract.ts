@@ -9,6 +9,15 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
+import { connectionProfileSchema } from '../model/connection.js'
+import {
+  chatFileSchema,
+  chatSchema,
+  chatMessageSchema,
+  aiSettingsSchema,
+  aiProviderIdSchema,
+  streamEventSchema
+} from '../model/ai.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -120,6 +129,64 @@ export const ipcContract = defineContract({
     'maps:save': { req: z.object({ map: storyMapSchema }), res: storyMapSchema },
     'maps:delete': { req: z.object({ id: z.string() }), res: ok },
 
+    /** Chats and the project's AI settings in one round trip. */
+    'ai:list': { req: empty, res: chatFileSchema },
+    'ai:createChat': { req: z.object({ title: z.string() }), res: chatSchema },
+    'ai:saveChat': { req: z.object({ chat: chatSchema }), res: chatSchema },
+    'ai:deleteChat': { req: z.object({ id: z.string() }), res: ok },
+    'ai:saveSettings': { req: z.object({ settings: aiSettingsSchema }), res: aiSettingsSchema },
+    /**
+     * Start a reply. Resolves as soon as the request is accepted; the reply
+     * itself arrives as `ai:stream` events keyed by this request id.
+     */
+    'ai:send': {
+      req: z.object({
+        chatId: z.string(),
+        text: z.string(),
+        context: z.string().default('')
+      }),
+      res: z.object({ requestId: z.string(), message: chatMessageSchema })
+    },
+    'ai:cancel': { req: z.object({ requestId: z.string() }), res: ok },
+    /** Which providers hold a key. Never the keys themselves. */
+    'ai:keyStatus': {
+      req: empty,
+      res: z.object({ configured: z.array(aiProviderIdSchema), secureStorage: z.boolean() })
+    },
+    'ai:setKey': {
+      req: z.object({ provider: aiProviderIdSchema, key: z.string() }),
+      res: z.object({ ok: z.boolean(), reason: z.string().optional() })
+    },
+    'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },
+
+    /** Saved servers. Profiles only — no channel ever returns a secret. */
+    'connections:list': {
+      req: empty,
+      res: z.object({
+        connections: z.array(connectionProfileSchema),
+        secureStorage: z.boolean()
+      })
+    },
+    'connections:save': {
+      req: z.object({
+        profile: connectionProfileSchema.partial().extend({
+          name: z.string(),
+          protocol: connectionProfileSchema.shape.protocol,
+          host: z.string(),
+          user: z.string()
+        }),
+        /** Omitted to keep the stored one; empty string to forget it. */
+        secret: z.string().optional()
+      }),
+      res: connectionProfileSchema
+    },
+    'connections:delete': { req: z.object({ id: z.string() }), res: ok },
+    /** Open a connection and list its root, so a mistake is caught before a project is. */
+    'connections:test': {
+      req: z.object({ id: z.string() }),
+      res: z.object({ ok: z.boolean(), message: z.string(), entries: z.number().int() })
+    },
+
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },
     'layout:savePreset': { req: z.object({ name: z.string(), layout: dockLayoutSchema }), res: layoutPresetSchema },
@@ -144,6 +211,8 @@ export const ipcContract = defineContract({
      * true of the manifest today.
      */
     'mentions:changed': z.object({}),
+    /** Deltas, completion and failure of an in-flight reply. */
+    'ai:stream': streamEventSchema,
     'app:stateChanged': appStateSchema,
     /** Native menu / accelerator dispatch into the renderer command registry. */
     'command:invoke': z.object({ commandId: z.string() }),

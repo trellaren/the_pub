@@ -3,6 +3,7 @@ import type { StoryEntity } from '../src/shared/model/entity.js'
 import type { MentionHit } from '../src/shared/model/mention.js'
 import type { Beat, BoardColumn } from '../src/shared/model/beat.js'
 import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/model/map.js'
+import type { Chat, AiSettings } from '../src/shared/model/ai.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -60,6 +61,18 @@ interface PubTestHook {
       ) => MapShape | null
       patchShape: (mapId: string, shapeId: string, changes: Partial<MapShape>) => void
       flush: () => Promise<void>
+    }
+  }
+  chats: {
+    getState: () => {
+      chats: Chat[]
+      settings: AiSettings | null
+      activeChatId: string | null
+      load: () => Promise<void>
+      createChat: (title?: string) => Promise<Chat | null>
+      deleteChat: (id: string) => Promise<void>
+      saveSettings: (settings: AiSettings) => Promise<void>
+      send: (chatId: string, text: string, context: string) => Promise<void>
     }
   }
   confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>

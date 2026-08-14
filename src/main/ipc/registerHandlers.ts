@@ -5,6 +5,12 @@ import type { WindowManager } from '../windows/windowManager.js'
 import type { AppStateService } from '../services/appState.js'
 import { ProjectSession } from '../services/projectSession.js'
 import { assetUrl } from '../protocol/assetProtocol.js'
+import { AiKeyStore } from '../services/aiKeyStore.js'
+import { ConnectionStore } from '../services/connectionStore.js'
+import { createAdapter } from '../vfs/vfsRegistry.js'
+import { projectUri, defaultPort } from '../../shared/model/connection.js'
+import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
+import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 
 /** One open project per top-level window; popouts resolve to their opener's. */
@@ -39,6 +45,9 @@ export interface HandlerContext {
 
 export function registerHandlers(context: HandlerContext): void {
   const { windows, sessions, appState } = context
+  // App-wide, not per project: a key belongs to the person, not the manuscript.
+  const keys = new AiKeyStore()
+  const connections = new ConnectionStore()
 
   /**
    * Bind a contract channel. The request is parsed with the channel's schema
@@ -249,6 +258,125 @@ export function registerHandlers(context: HandlerContext): void {
   handle('maps:delete', async ({ id }, event) => {
     await requireSession(event).maps.remove(id)
     return { ok: true as const }
+  })
+
+  handle('ai:list', (_payload, event) => requireSession(event).chats.snapshot())
+  handle('ai:createChat', ({ title }, event) => requireSession(event).chats.create(title))
+  handle('ai:saveChat', ({ chat }, event) => requireSession(event).chats.save(chat))
+  handle('ai:deleteChat', async ({ id }, event) => {
+    await requireSession(event).chats.remove(id)
+    return { ok: true as const }
+  })
+  handle('ai:saveSettings', ({ settings }, event) =>
+    requireSession(event).chats.saveSettings(settings)
+  )
+
+  handle('ai:keyStatus', () => ({
+    configured: keys.configured(),
+    secureStorage: keys.available()
+  }))
+  handle('ai:setKey', ({ provider, key }) => keys.set(provider, key))
+  handle('ai:listModels', ({ settings }, event) => {
+    const resolved = resolveSettings(settings)
+    return requireSession(event).ai.listModels(resolved, keys.get(resolved.provider))
+  })
+
+  /**
+   * Send a message and stream the reply.
+   *
+   * The user's message is stored before the request goes out, so a failed or
+   * cancelled reply still leaves what they wrote in the conversation.
+   */
+  handle('ai:send', async ({ chatId, text, context: attached }, event) => {
+    const session = requireSession(event)
+    const chat = session.chats.get(chatId)
+    if (!chat) throw new Error('That chat no longer exists')
+
+    const settings = resolveSettings(session.chats.settings(), chat.settings)
+    const info = providerInfo(settings.provider)
+    const apiKey = keys.get(settings.provider)
+    if (info.needsKey && !apiKey) {
+      throw new Error(`No API key is set for ${info.name}. Add one in the AI panel's settings.`)
+    }
+
+    const body = attached.trim() ? `${text}\n\n---\n${attached.trim()}` : text
+    const message: ChatMessage = {
+      id: ulid(),
+      role: 'user',
+      text: body,
+      model: '',
+      created: new Date().toISOString()
+    }
+    const updated = await session.chats.append(chatId, message)
+    if (!updated) throw new Error('That chat no longer exists')
+
+    const requestId = ulid()
+    const ownerId = windows.ownerWindowId(event.sender)
+    void session.ai
+      .run({
+        requestId,
+        settings,
+        system: settings.systemPrompt,
+        messages: updated.messages.map((item) => ({ role: item.role, text: item.text })),
+        apiKey,
+        onEvent: (streamEvent) => {
+          if (ownerId !== null) windows.sendToSession(ownerId, 'ai:stream', streamEvent)
+          // Persist only the finished reply: writing every delta would rewrite
+          // the whole chat file on each token.
+          if (streamEvent.type === 'done') {
+            void session.chats.append(chatId, streamEvent.message).catch(() => {})
+          }
+        }
+      })
+      .catch(() => {})
+
+    return { requestId, message }
+  })
+
+  handle('ai:cancel', ({ requestId }, event) => {
+    requireSession(event).ai.cancel(requestId)
+    return { ok: true as const }
+  })
+
+  handle('connections:list', () => ({
+    connections: connections.list(),
+    secureStorage: connections.secureStorageAvailable()
+  }))
+
+  handle('connections:save', ({ profile, secret }) =>
+    connections.save(
+      { ...profile, port: profile.port || defaultPort(profile.protocol) },
+      secret
+    )
+  )
+
+  handle('connections:delete', ({ id }) => {
+    connections.remove(id)
+    return { ok: true as const }
+  })
+
+  /**
+   * Open the connection and read its root.
+   *
+   * Worth its own channel: a typo in a host or a path otherwise surfaces as a
+   * project that opens empty, which reads like data loss rather than a mistake.
+   */
+  handle('connections:test', async ({ id }) => {
+    const profile = connections.get(id)
+    if (!profile) return { ok: false, message: 'That server is no longer saved.', entries: 0 }
+    const adapter = createAdapter(projectUri(profile))
+    try {
+      const entries = await adapter.list('')
+      return { ok: true, message: `Connected to ${profile.host}.`, entries: entries.length }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        entries: 0
+      }
+    } finally {
+      await adapter.dispose().catch(() => {})
+    }
   })
 
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())

@@ -18,6 +18,8 @@ export const ENTITIES_FILE = `${PUB_DIR}/entities.json`
 export const BEATS_FILE = `${PUB_DIR}/beats.json`
 /** Vector maps, including their drill-down links. */
 export const MAPS_FILE = `${PUB_DIR}/maps.json`
+/** AI conversations about this manuscript. Never API keys — see AiKeyStore. */
+export const CHATS_FILE = `${PUB_DIR}/chats.json`
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']

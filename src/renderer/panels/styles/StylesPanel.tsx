@@ -16,12 +16,23 @@ import {
 } from '@renderer/ui/primitives.js'
 import { previewStyle } from '@renderer/panels/editor/extensions/namedStyles.js'
 
+/**
+ * Faces that exist on the platforms this ships to, each with a fallback of the
+ * right shape. Naming a font the machine does not have silently substitutes
+ * something else, so the list stays to faces Windows and macOS both have, or
+ * that degrade to a sibling rather than to a different kind of type.
+ */
 const FONTS = [
   'Georgia, serif',
-  'Iowan Old Style, serif',
-  'Times New Roman, serif',
+  'Cambria, Georgia, serif',
+  'Constantia, Georgia, serif',
+  'Palatino Linotype, Palatino, serif',
+  'Times New Roman, Times, serif',
+  'Calibri, Helvetica, Arial, sans-serif',
+  'Segoe UI, Helvetica, Arial, sans-serif',
   'Helvetica, Arial, sans-serif',
-  'Courier New, monospace'
+  'Consolas, Courier New, monospace',
+  'Courier New, Courier, monospace'
 ]
 
 /**

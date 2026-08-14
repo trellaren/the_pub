@@ -6,7 +6,7 @@ formatting, and the notes a long story needs, in one desktop app.
 ## What works today
 
 Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
-and Phase 4 maps.
+Phase 4 maps, Phase 5 AI assistance, and Phase 6 remote projects.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -53,6 +53,16 @@ slips through — because a noisy suggestion list is how a feature like this get
   than pixels. A marker can name the location record that describes the place *and* open a map
   of its own, so a world map, a city map and the location pane are three views of one place
   rather than three copies of it.
+
+- **AI assistance** from Anthropic, OpenAI, Hugging Face or a local LM Studio server, with as
+  many conversations as you like. Ask about the selection or the whole document, watch the reply
+  stream in, and insert it into the manuscript as an ordinary, undoable edit. Keys are yours:
+  they are encrypted into the app's own data directory, never the project folder, and no channel
+  hands one back to the interface.
+
+- **Projects on a server.** Open a project over SFTP or FTP and everything works unchanged —
+  the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
+  credentials encrypted on this machine, outside any project folder.
 
 In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
 are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps
@@ -117,9 +127,11 @@ opaque origin, and a torn-off pane must be able to share the opener's JS context
 built renderer from `127.0.0.1` on an OS-assigned port behind a per-launch path token gives the
 app a real origin — which is also what makes its `'self'` content-security-policy mean anything.
 
-**Everything reaches the filesystem through `VfsAdapter`.** The local backend is the only one
-implemented, but the tree, editor, autosave and indexer are written against the interface, and
-the registry already emulates change events for backends that can't watch.
+**Everything reaches the filesystem through `VfsAdapter`.** Local, SFTP and FTP backends all
+satisfy it, so no feature above knows which one a project is on. Backends that cannot report
+changes are wrapped in a polling watcher by the registry, so every consumer calls `watch`
+unconditionally. Remote writes are still atomic: a temporary sibling, then a rename over the
+target, with a delete-then-rename fallback for servers that refuse to replace.
 
 **The search index is a cache, never a source of truth.** Delete `.thepub/index.db` and reopening
 the project rebuilds it. That is also the migration strategy: the schema carries a version, and a

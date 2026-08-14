@@ -8,6 +8,7 @@ import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
+import { useChatStore } from './stores/chatStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { invoke, on, onError } from './lib/ipc.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
@@ -40,6 +41,7 @@ export function App() {
     void useEntityStore.getState().load()
     void useBeatStore.getState().load()
     void useMapStore.getState().load()
+    void useChatStore.getState().load()
   }, [project?.root])
 
   useEffect(() => {

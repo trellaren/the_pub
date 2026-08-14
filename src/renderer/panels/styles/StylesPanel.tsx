@@ -1,7 +1,19 @@
 import { useState } from 'react'
 import type { NamedStyle } from '@shared/model/style.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
-import { PanelShell, PanelHeader, EmptyState, Select, TextInput, ToolbarButton, cx } from '@renderer/ui/primitives.js'
+import {
+  PanelShell,
+  PanelHeader,
+  EmptyState,
+  Select,
+  TextInput,
+  ToolbarButton,
+  Field,
+  NumberField,
+  Checkbox,
+  SectionTitle,
+  cx
+} from '@renderer/ui/primitives.js'
 import { previewStyle } from '@renderer/panels/editor/extensions/namedStyles.js'
 
 const FONTS = [
@@ -238,64 +250,5 @@ export function StylesPanel() {
         )}
       </div>
     </PanelShell>
-  )
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="mt-4 mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">{children}</h3>
-  )
-}
-
-/**
- * Label above control rather than beside it: this panel is usually docked to a
- * narrow sidebar, where a side-by-side layout pushes the input out of view.
- */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="mb-2 flex flex-col gap-1 text-[12px] text-muted">
-      <span>{label}</span>
-      {children}
-    </label>
-  )
-}
-
-function NumberField({
-  label,
-  value,
-  step = 1,
-  onChange
-}: {
-  label: string
-  value: number | undefined
-  step?: number
-  onChange: (value: number | undefined) => void
-}) {
-  return (
-    <Field label={label}>
-      <TextInput
-        type="number"
-        step={step}
-        value={value ?? ''}
-        onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
-      />
-    </Field>
-  )
-}
-
-function Checkbox({
-  label,
-  checked,
-  onChange
-}: {
-  label: string
-  checked: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <label className="flex items-center gap-1 text-[12px] text-muted">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      {label}
-    </label>
   )
 }

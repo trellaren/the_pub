@@ -1,18 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SearchHit, IndexProgress } from '@shared/model/search.js'
 import { SEARCH_DEBOUNCE_MS } from '@shared/constants.js'
 import { invoke, on } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
-import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
-import { useLayoutStore } from '@renderer/stores/layoutStore.js'
-import { revealBlock } from '@renderer/panels/editor/editorActions.js'
-import { PanelShell, PanelHeader, EmptyState, TextInput, ToolbarButton, cx } from '@renderer/ui/primitives.js'
+import { openLocation } from '@renderer/lib/openLocation.js'
+import { Snippet } from '@renderer/ui/Snippet.js'
+import { PanelShell, PanelHeader, EmptyState, TextInput, ToolbarButton } from '@renderer/ui/primitives.js'
 
 /** Project-wide search over document text and filenames. */
 export function SearchPanel() {
   const project = useProjectStore((store) => store.project)
-  const openPath = useDocumentStore((store) => store.openPath)
-  const openEditor = useLayoutStore((store) => store.openEditor)
   const [term, setTerm] = useState('')
   const [matchCase, setMatchCase] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
@@ -56,17 +53,14 @@ export function SearchPanel() {
 
   const openHit = useCallback(
     async (hit: SearchHit) => {
-      const docId = await openPath(hit.path)
-      if (!docId) return
-      const state = useDocumentStore.getState().docs[docId]
-      openEditor(docId, hit.path, state?.title ?? hit.title)
-      // The editor may have only just been created; let it mount before scrolling.
-      requestAnimationFrame(() => {
-        const editor = getEditor(docId)
-        if (editor) revealBlock(editor, hit.blockIndex, hit.kind === 'content' ? term : undefined)
+      await openLocation({
+        path: hit.path,
+        title: hit.title,
+        blockIndex: hit.blockIndex,
+        term: hit.kind === 'content' ? term : undefined
       })
     },
-    [openPath, openEditor, term]
+    [term]
   )
 
   const grouped = useMemo(() => groupByFile(hits), [hits])
@@ -130,7 +124,11 @@ export function SearchPanel() {
                   onClick={() => void openHit(hit)}
                   className="block w-full px-2 py-1 pl-4 text-left text-[12px] text-muted hover:bg-surface-2 hover:text-text"
                 >
-                  <Snippet hit={hit} />
+                  {hit.kind === 'filename' ? (
+                    <span className="italic text-faint">filename match</span>
+                  ) : (
+                    <Snippet hit={hit} />
+                  )}
                 </button>
               ))}
             </div>
@@ -139,27 +137,6 @@ export function SearchPanel() {
       </div>
     </PanelShell>
   )
-}
-
-function Snippet({ hit }: { hit: SearchHit }) {
-  if (hit.kind === 'filename') {
-    return <span className="italic text-faint">filename match</span>
-  }
-  if (hit.ranges.length === 0) return <span className="line-clamp-2">{hit.snippet}</span>
-
-  const parts: ReactNode[] = []
-  let cursor = 0
-  hit.ranges.forEach((range, index) => {
-    if (range.start > cursor) parts.push(hit.snippet.slice(cursor, range.start))
-    parts.push(
-      <mark key={index} className="rounded-sm bg-accent-soft px-0.5 text-accent">
-        {hit.snippet.slice(range.start, range.end)}
-      </mark>
-    )
-    cursor = range.end
-  })
-  if (cursor < hit.snippet.length) parts.push(hit.snippet.slice(cursor))
-  return <span className={cx('line-clamp-2')}>{parts}</span>
 }
 
 function groupByFile(hits: SearchHit[]): [string, SearchHit[]][] {

@@ -17,6 +17,7 @@ import {
   cx
 } from '@renderer/ui/primitives.js'
 import { MentionList } from './MentionList.js'
+import { EntityNotes } from './EntityNotes.js'
 
 const LABELS: Record<EntityKind, { title: string; singular: string }> = {
   character: { title: 'Characters', singular: 'character' },
@@ -258,6 +259,13 @@ function EntityDetail({
           ＋ custom
         </ToolbarButton>
       </div>
+
+      <SectionTitle>Notes</SectionTitle>
+      <EntityNotes
+        entityId={entity.id}
+        notes={entity.notes}
+        onChange={(notes) => onPatch({ notes })}
+      />
 
       <MentionList entity={entity} />
     </div>

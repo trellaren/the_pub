@@ -197,6 +197,24 @@ body {
   cursor: default;
 }
 
+/* Record notes: a compact editor, not a manuscript sheet. */
+.pub-notes {
+  min-height: 80px;
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
+}
+.pub-notes p {
+  margin: 0 0 6px;
+}
+.pub-notes p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint, #8a8378);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 /* Search and find-in-document decorations. */
 .pub-find-match {
   background: color-mix(in srgb, var(--color-accent) 45%, transparent);

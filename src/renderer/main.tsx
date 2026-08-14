@@ -4,6 +4,9 @@ import { App } from './App.js'
 import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
+import { useEntityStore } from './stores/entityStore.js'
+import { confirmMentionHere } from './panels/editor/mentionActions.js'
+import { openLocation } from './lib/openLocation.js'
 import { runCommand } from './commands/registry.js'
 import './styles.css'
 
@@ -23,6 +26,9 @@ Object.assign(window, {
     project: useProjectStore,
     documents: useDocumentStore,
     layout: useLayoutStore,
+    entities: useEntityStore,
+    confirmMention: confirmMentionHere,
+    openLocation,
     runCommand
   }
 })

@@ -5,6 +5,7 @@ import { ulid } from 'ulid'
 import type { VfsAdapter, Unwatch } from './types.js'
 import type { VfsEntry, VfsCapabilities, FileChangeEvent } from '../../shared/model/vfs.js'
 import { resolveInRoot, relativeToRoot, joinRelative, normalizeRelative } from './paths.js'
+import { IGNORED_DIRS } from '../../shared/constants.js'
 
 const CAPS: VfsCapabilities = {
   watch: true,
@@ -16,6 +17,28 @@ const CAPS: VfsCapabilities = {
 
 /** Coalesce watcher bursts (a save touches several files) into one renderer message. */
 const WATCH_BATCH_MS = 120
+
+/**
+ * Paths the watcher never reports.
+ *
+ * The directory list is derived from `IGNORED_DIRS` rather than spelled out
+ * again, so the walker and the watcher cannot drift apart. That drift was a real
+ * bug: `.thepub` was missing here, so `index.db-wal` — rewritten on every single
+ * index write — fired a change event and an IPC round trip on every autosave.
+ * Nothing depends on `.thepub` watcher events; the file tree filters it out, the
+ * document store tracks only `.pubdoc` paths, and the services owning files in
+ * there are each their own only writer.
+ *
+ * The `.tmp-` half is unanchored because `writeFileAtomic` names its temp file
+ * `<original>.tmp-<ulid>` — a leading path separator was never going to match it.
+ */
+const IGNORED_PATH = new RegExp(
+  `\\.tmp-|(^|[/\\\\])(${IGNORED_DIRS.map(escapeForRegExp).join('|')})([/\\\\]|$)`
+)
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 export class LocalAdapter implements VfsAdapter {
   readonly caps = CAPS
@@ -160,7 +183,7 @@ export class LocalAdapter implements VfsAdapter {
       // Atomic saves land as write-temp + rename; without a settle window the
       // renderer sees the temp file appear and vanish on every keystroke-batch.
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-      ignored: (candidate: string) => /(^|[/\\])\.tmp-|(^|[/\\])(\.git|node_modules)([/\\]|$)/.test(candidate)
+      ignored: (candidate: string) => IGNORED_PATH.test(candidate)
     })
 
     watcher

@@ -12,6 +12,8 @@ import { DocumentService } from './documentService.js'
 import { SnapshotService } from './snapshotService.js'
 import { SearchIndexService } from './searchIndexService.js'
 import { LayoutService } from './layoutService.js'
+import { EntityService } from './entityService.js'
+import { MentionService } from './mentionService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSION } from '../../shared/constants.js'
 
 export interface SessionHooks {
@@ -29,6 +31,8 @@ export class ProjectSession {
   readonly snapshots: SnapshotService
   readonly search: SearchIndexService
   readonly layout: LayoutService
+  readonly entities: EntityService
+  readonly mentions: MentionService
   private unwatch: Unwatch | null = null
 
   private constructor(
@@ -40,7 +44,17 @@ export class ProjectSession {
     this.snapshots = new SnapshotService(adapter)
     this.documents = new DocumentService(adapter, this.snapshots)
     this.layout = new LayoutService(adapter)
-    this.search = new SearchIndexService(adapter, indexDbPath(uri, adapter.root), hooks.onIndexProgress)
+    this.entities = new EntityService(adapter)
+    this.search = new SearchIndexService(
+      adapter,
+      indexDbPath(uri, adapter.root),
+      hooks.onIndexProgress,
+      // A lambda, constructed before the service that reads it: the indexer
+      // pulls the roster when it needs it rather than being handed one, so
+      // there is no window in which it runs against an empty set.
+      () => this.entities.snapshot()
+    )
+    this.mentions = new MentionService(this.documents, this.search, this.entities)
   }
 
   static async open(uri: string, hooks: SessionHooks): Promise<ProjectSession> {
@@ -53,6 +67,9 @@ export class ProjectSession {
 
   private async start(): Promise<void> {
     await this.adapter.mkdir(ASSETS_DIR).catch(() => {})
+    // Before the first index pass, so documents are scanned against the real
+    // roster rather than an empty one.
+    await this.entities.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))
     // Index in the background: a large project must not delay the first paint.
     void this.search.syncAll().catch(() => {})

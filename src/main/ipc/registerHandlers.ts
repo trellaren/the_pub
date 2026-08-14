@@ -176,6 +176,60 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  /**
+   * Re-scan suggestions after a change to the records, and tell the window's
+   * backlink lists to refetch. Confirmed mentions are untouched by this, so a
+   * rename costs no file reads at all.
+   */
+  function rescan(event: IpcMainInvokeEvent): void {
+    const session = requireSession(event)
+    session.search.invalidateRoster()
+    session.search.rescanSuggestions()
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'mentions:changed', {})
+  }
+
+  handle('entities:list', (_payload, event) => requireSession(event).entities.snapshot())
+  handle('entities:create', async ({ kind, name }, event) => {
+    const entity = await requireSession(event).entities.create(kind, name)
+    rescan(event)
+    return entity
+  })
+  handle('entities:save', async ({ entity }, event) => {
+    const saved = await requireSession(event).entities.save(entity)
+    rescan(event)
+    return saved
+  })
+  handle('entities:delete', async ({ id }, event) => {
+    const session = requireSession(event)
+    await session.entities.remove(id)
+    rescan(event)
+    return { ok: true as const }
+  })
+
+  handle('mentions:forEntity', (request, event) =>
+    requireSession(event).search.mentionsForEntity(request)
+  )
+  handle('mentions:summary', (_payload, event) => requireSession(event).search.mentionSummary())
+  handle('mentions:confirm', async (ref, event) => {
+    const result = await requireSession(event).mentions.confirm(ref)
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (result.ok && ownerId !== null) windows.sendToSession(ownerId, 'mentions:changed', {})
+    return result
+  })
+  handle('mentions:confirmAll', async ({ entityId }, event) => {
+    const result = await requireSession(event).mentions.confirmAll(entityId)
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'mentions:changed', {})
+    return result
+  })
+  handle('mentions:dismiss', async ({ entityId, docId, surface }, event) => {
+    await requireSession(event).mentions.dismiss(entityId, docId, surface)
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'mentions:changed', {})
+    return { ok: true as const }
+  })
+
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())
   handle('layout:saveLast', async ({ layout }, event) => {
     await requireSession(event).layout.saveLast(layout)

@@ -26,6 +26,15 @@ export const INVOKE_CHANNELS = [
   'search:query',
   'search:reindex',
   'search:status',
+  'entities:list',
+  'entities:create',
+  'entities:save',
+  'entities:delete',
+  'mentions:forEntity',
+  'mentions:summary',
+  'mentions:confirm',
+  'mentions:confirmAll',
+  'mentions:dismiss',
   'layout:load',
   'layout:saveLast',
   'layout:savePreset',
@@ -39,6 +48,7 @@ export const INVOKE_CHANNELS = [
 export const EVENT_CHANNELS = [
   'vfs:changed',
   'search:indexProgress',
+  'mentions:changed',
   'app:stateChanged',
   'command:invoke',
   'window:requestClose'

@@ -5,7 +5,7 @@ formatting, and the notes a long story needs, in one desktop app.
 
 ## What works today
 
-This is Phase 1 — the editing shell that everything else is built on.
+Phase 1 built the editing shell; Phase 2 added story records on top of it.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -29,10 +29,23 @@ This is Phase 1 — the editing shell that everything else is built on.
   paragraph.
 - **Persisted layouts** — the arrangement of a project comes back when you reopen it, popout
   windows included, and named presets can be saved and reapplied.
+- **Character and location records**, with aliases, a colour, free-form details you name
+  yourself, and notes. Both kinds are the same record and share one panel.
+- **Mentions.** Type `@` to link a name to a record, or let The Pub *suggest* the links by
+  finding names in the prose. A suggestion is only ever an index entry — it never edits your
+  document. Confirming one writes a mark that carries the record's id, so renaming a character
+  never touches a single manuscript file, and the name in the prose stays ordinary text that
+  search, word count and export treat like any other.
+- **Backlinks.** Every record lists each paragraph it appears in, and clicking one opens the
+  document there.
 
-Later phases add character, location, timeline, storyboard and map panes; AI assistance
-(Anthropic, OpenAI, Hugging Face, LM Studio); OneDrive/FTP/SFTP projects; and DOCX import and
-export. The file system, index and data model are already built as the abstractions those need.
+Name scanning is deliberately conservative — three characters minimum, capitalised names matched
+case-sensitively, per-record and per-alias switches, and a dismissal for anything that still
+slips through — because a noisy suggestion list is how a feature like this gets turned off.
+
+Later phases add timeline, storyboard and map panes; AI assistance (Anthropic, OpenAI, Hugging
+Face, LM Studio); OneDrive/FTP/SFTP projects; and DOCX import and export. The file system, index
+and data model are already built as the abstractions those need.
 
 ## Running it
 
@@ -53,17 +66,26 @@ npm run e2e        # end-to-end tests driving the real app (Playwright + Electro
 
 On a headless machine, run the end-to-end tests under a virtual display: `xvfb-run -a npm run e2e`.
 
+Before merging, run the whole suite against a clean clone of committed history:
+
+```sh
+bash ci/run-checks.sh
+```
+
+GitHub Actions is switched off for this repository on purpose, so that script is the gate rather
+than a workflow. See [`ci/README.md`](ci/README.md).
+
 ## How it fits together
 
 ```
 src/
 ├─ shared/     types, zod schemas and pure logic used by both processes
 │  ├─ ipc/     the typed channel contract both sides derive from
-│  ├─ model/   the on-disk formats: manifest, document, styles, layouts
-│  └─ pm/      ProseMirror JSON utilities (text extraction, word count)
+│  ├─ model/   the on-disk formats: manifest, document, styles, layouts, records
+│  └─ pm/      ProseMirror JSON utilities (text, word count, mention scanning)
 ├─ main/       privileged process: files, search index, snapshots, windows
 │  ├─ vfs/     the filesystem abstraction every feature is written against
-│  ├─ services/  project session, documents, search, snapshots, layouts
+│  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
 └─ renderer/   React UI: dock shell, panels, editor, stores
@@ -85,4 +107,14 @@ implemented, but the tree, editor, autosave and indexer are written against the 
 the registry already emulates change events for backends that can't watch.
 
 **The search index is a cache, never a source of truth.** Delete `.thepub/index.db` and reopening
-the project rebuilds it.
+the project rebuilds it. That is also the migration strategy: the schema carries a version, and a
+mismatch drops the derived tables so the next open refills them.
+
+**There is one text path, and every offset outside it means the same thing.** Block text is built
+by a single walker in `shared/pm/extractText.ts`, and everything that leaves it — search
+snippets, mention ranges, the offsets written to the database — is in normalised block
+coordinates. A second implementation of that normalisation would drift silently, and only for
+documents with hard breaks or lists.
+
+**A mention mark stores an id, never a name.** That is what makes renaming a character free: no
+document is touched, and the backlinks re-point from the index without reading a single file.

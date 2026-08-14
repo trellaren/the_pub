@@ -3,12 +3,34 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { VfsAdapter } from '../vfs/types.js'
 import type { SearchQuery, SearchHit, IndexProgress } from '../../shared/model/search.js'
+import type { MentionHit, MentionQuery, MentionCounts } from '../../shared/model/mention.js'
+import type { EntityFile } from '../../shared/model/entity.js'
 import { pubDocumentSchema } from '../../shared/model/document.js'
-import { extractBlocks } from '../../shared/pm/extractText.js'
-import { DOC_EXT, IGNORED_DIRS } from '../../shared/constants.js'
+import {
+  buildScanForms,
+  scanBlockText,
+  dismissKey,
+  extractDocumentMentions,
+  type ScanForm
+} from '../../shared/pm/mentions.js'
+import { DOC_EXT, IGNORED_DIRS, MAX_SUGGESTIONS_PER_DOC } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
 
 const SNIPPET_RADIUS = 60
+
+/**
+ * Bumped whenever the schema below changes.
+ *
+ * The guard that reads it is not optional. `syncAll` diffs mtimes, so adding a
+ * table without dropping `files` would leave the new table permanently empty on
+ * every existing project — a silent failure with no error to notice. Dropping
+ * `files` is what forces the mtime diff to re-index everything. The database is
+ * a pure cache, so a rebuild is the cheapest correct migration.
+ */
+const SCHEMA_VERSION = 2
+
+/** How the indexer reaches the current roster; see the constructor. */
+export type RosterSource = () => EntityFile
 
 /**
  * Full-text index over the project's documents.
@@ -27,16 +49,28 @@ export class SearchIndexService {
   private upsertFile: StatementSync
   private deleteBlocks: StatementSync
   private deleteFile: StatementSync
+  private insertMention: StatementSync
+  private deleteMentions: StatementSync
+  /** Compiled forms and dismissals, rebuilt on demand; see `invalidateRoster`. */
+  private compiled: { forms: ScanForm[]; dismissed: Map<string, Set<string>> } | null = null
 
+  /**
+   * @param getRoster reaches the records for name scanning. A callback rather
+   * than a setter or a service reference: a setter leaves a window in which
+   * indexing runs against an empty roster, and holding an `EntityService` here
+   * would invert the dependency between the two.
+   */
   constructor(
     private readonly adapter: VfsAdapter,
     dbPath: string,
-    private readonly onProgress: (progress: IndexProgress) => void
+    private readonly onProgress: (progress: IndexProgress) => void,
+    private readonly getRoster: RosterSource
   ) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true })
     this.db = new DatabaseSync(dbPath)
+    this.db.exec('PRAGMA journal_mode = WAL')
+    this.migrate()
     this.db.exec(`
-      PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS files (
         doc_id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -50,6 +84,22 @@ export class SearchIndexService {
         block_index UNINDEXED,
         tokenize = 'unicode61 remove_diacritics 2'
       );
+      CREATE TABLE IF NOT EXISTS mentions (
+        doc_id        TEXT    NOT NULL,
+        block_index   INTEGER NOT NULL,
+        start_offset  INTEGER NOT NULL,
+        end_offset    INTEGER NOT NULL,
+        entity_id     TEXT    NOT NULL,
+        ordinal       INTEGER NOT NULL,
+        surface       TEXT    NOT NULL,
+        confirmed     INTEGER NOT NULL,
+        snippet       TEXT    NOT NULL,
+        snippet_start INTEGER NOT NULL,
+        snippet_end   INTEGER NOT NULL,
+        PRIMARY KEY (doc_id, block_index, start_offset, entity_id)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS mentions_by_entity
+        ON mentions (entity_id, confirmed, doc_id, block_index);
     `)
     this.insertBlock = this.db.prepare('INSERT INTO blocks (text, doc_id, block_index) VALUES (?, ?, ?)')
     this.upsertFile = this.db.prepare(
@@ -59,6 +109,51 @@ export class SearchIndexService {
     )
     this.deleteBlocks = this.db.prepare('DELETE FROM blocks WHERE doc_id = ?')
     this.deleteFile = this.db.prepare('DELETE FROM files WHERE doc_id = ?')
+    // The snippet is stored rather than joined from `blocks` at read time:
+    // `blocks` is an FTS5 table whose doc_id is UNINDEXED, so any lookup by it
+    // is a full scan. It cannot go stale — a document's mentions and its blocks
+    // are always rebuilt in the same transaction.
+    this.insertMention = this.db.prepare(
+      `INSERT OR REPLACE INTO mentions
+         (doc_id, block_index, start_offset, end_offset, entity_id, ordinal, surface,
+          confirmed, snippet, snippet_start, snippet_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    this.deleteMentions = this.db.prepare('DELETE FROM mentions WHERE doc_id = ?')
+  }
+
+  /** Drop everything derived when the schema moves on. See `SCHEMA_VERSION`. */
+  private migrate(): void {
+    const row = this.db.prepare('PRAGMA user_version').get() as { user_version: number } | undefined
+    if (Number(row?.user_version ?? 0) === SCHEMA_VERSION) return
+    this.db.exec(`
+      DROP TABLE IF EXISTS mentions;
+      DROP TABLE IF EXISTS blocks;
+      DROP TABLE IF EXISTS files;
+    `)
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  }
+
+  /**
+   * Forget the compiled roster. Call after any change to records — a rename, a
+   * new alias, a scan flag — before rescanning.
+   */
+  invalidateRoster(): void {
+    this.compiled = null
+  }
+
+  private roster(): { forms: ScanForm[]; dismissed: Map<string, Set<string>> } {
+    if (!this.compiled) {
+      const file = this.getRoster()
+      const dismissed = new Map<string, Set<string>>()
+      for (const item of file.dismissed) {
+        const set = dismissed.get(item.docId) ?? new Set<string>()
+        set.add(dismissKey(item.entityId, item.surface))
+        dismissed.set(item.docId, set)
+      }
+      this.compiled = { forms: buildScanForms(file.entities), dismissed }
+    }
+    return this.compiled
   }
 
   getProgress(): IndexProgress {
@@ -83,7 +178,7 @@ export class SearchIndexService {
     this.setProgress({ indexing: true, done: 0, total: 0 })
     try {
       if (force) {
-        this.db.exec('DELETE FROM blocks; DELETE FROM files;')
+        this.db.exec('DELETE FROM mentions; DELETE FROM blocks; DELETE FROM files;')
       }
       const files = (await this.adapter.walk('', IGNORED_DIRS)).filter((entry) =>
         entry.path.endsWith(DOC_EXT)
@@ -139,14 +234,27 @@ export class SearchIndexService {
       return
     }
     const resolvedMtime = mtime ?? (await this.adapter.stat(docPath))?.mtime ?? Date.now()
-    const blocks = extractBlocks(parsed.content).filter((block) => block.text.length > 0)
+    const { forms, dismissed } = this.roster()
+    const extracted = extractDocumentMentions(parsed.content, {
+      forms,
+      dismissed: dismissed.get(parsed.docId)
+    })
+    const blocks = extracted.blocks.filter((block) => block.text.length > 0)
+    const blockText = new Map(extracted.blocks.map((block) => [block.index, block.text]))
 
+    // One transaction for both tables. Delete-then-reinsert is what keeps double
+    // indexing idempotent — the doc:write handler and the watcher both index
+    // every save today.
     this.db.exec('BEGIN')
     try {
       this.deleteBlocks.run(parsed.docId)
+      this.deleteMentions.run(parsed.docId)
       this.upsertFile.run(parsed.docId, docPath, parsed.title, resolvedMtime, parsed.wordCount)
       for (const block of blocks) {
         this.insertBlock.run(block.text, parsed.docId, block.index)
+      }
+      for (const mention of extracted.mentions) {
+        this.writeMention(parsed.docId, mention, blockText.get(mention.blockIndex) ?? '')
       }
       this.db.exec('COMMIT')
     } catch (error) {
@@ -155,8 +263,31 @@ export class SearchIndexService {
     }
   }
 
+  private writeMention(
+    docId: string,
+    mention: { blockIndex: number; start: number; end: number; entityId: string; ordinal: number; surface: string; confirmed: boolean },
+    text: string
+  ): void {
+    const { snippet, ranges } = buildSnippet(text, [{ start: mention.start, end: mention.end }])
+    const range = ranges[0] ?? { start: 0, end: 0 }
+    this.insertMention.run(
+      docId,
+      mention.blockIndex,
+      mention.start,
+      mention.end,
+      mention.entityId,
+      mention.ordinal,
+      mention.surface,
+      mention.confirmed ? 1 : 0,
+      snippet,
+      range.start,
+      range.end
+    )
+  }
+
   removeDoc(docId: string): void {
     this.deleteBlocks.run(docId)
+    this.deleteMentions.run(docId)
     this.deleteFile.run(docId)
   }
 
@@ -246,6 +377,175 @@ export class SearchIndexService {
     return hits
   }
 
+  /** Every occurrence of one record, newest-shaped like a search hit. */
+  mentionsForEntity(request: MentionQuery): MentionHit[] {
+    const clauses = ['m.entity_id = ?']
+    const params: (string | number)[] = [request.entityId]
+    if (request.confirmed !== undefined) {
+      clauses.push('m.confirmed = ?')
+      params.push(request.confirmed ? 1 : 0)
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT m.doc_id, m.block_index, m.ordinal, m.surface, m.confirmed,
+                m.snippet, m.snippet_start, m.snippet_end, f.path, f.title
+         FROM mentions m JOIN files f ON f.doc_id = m.doc_id
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY m.confirmed DESC, f.path, m.block_index, m.start_offset
+         LIMIT ?`
+      )
+      .all(...params, request.limit) as {
+      doc_id: string
+      block_index: number
+      ordinal: number
+      surface: string
+      confirmed: number
+      snippet: string
+      snippet_start: number
+      snippet_end: number
+      path: string
+      title: string
+    }[]
+
+    return rows.map((row) => ({
+      entityId: request.entityId,
+      docId: row.doc_id,
+      path: row.path,
+      title: row.title,
+      blockIndex: row.block_index,
+      ordinal: row.ordinal,
+      surface: row.surface,
+      confirmed: row.confirmed === 1,
+      snippet: row.snippet,
+      ranges: [{ start: row.snippet_start, end: row.snippet_end }]
+    }))
+  }
+
+  /** Counts for every record that appears anywhere, for the list badges. */
+  mentionSummary(): Record<string, MentionCounts> {
+    const rows = this.db
+      .prepare(
+        `SELECT entity_id,
+                SUM(confirmed) AS confirmed,
+                SUM(1 - confirmed) AS unconfirmed,
+                COUNT(DISTINCT doc_id) AS documents
+         FROM mentions GROUP BY entity_id`
+      )
+      .all() as { entity_id: string; confirmed: number; unconfirmed: number; documents: number }[]
+    const summary: Record<string, MentionCounts> = {}
+    for (const row of rows) {
+      summary[row.entity_id] = {
+        confirmed: Number(row.confirmed),
+        unconfirmed: Number(row.unconfirmed),
+        documents: Number(row.documents)
+      }
+    }
+    return summary
+  }
+
+  /**
+   * Rebuild every suggestion from the indexed block text, reading no files at
+   * all. This is what makes renaming a record cheap: the prose has not changed,
+   * only what we are looking for in it.
+   *
+   * Confirmed mentions are never touched — they are anchored to marks in the
+   * document rather than to a spelling, which is the whole point of storing the
+   * record's id in the mark.
+   *
+   * Not pure SQL, because SQLite's LIKE and GLOB cannot express word
+   * boundaries, possessives or the capitalisation rule. FTS narrows the work to
+   * candidate blocks; the same `scanBlockText` used at index time then decides.
+   */
+  rescanSuggestions(): void {
+    const { forms, dismissed } = this.roster()
+    this.db.exec('BEGIN')
+    try {
+      this.db.exec('DELETE FROM mentions WHERE confirmed = 0')
+      if (forms.length > 0) {
+        // Same cap as indexing, and counted the same way: per record per
+        // document, not per block.
+        const stored = new Map<string, number>()
+        for (const block of this.candidateBlocks(forms).values()) {
+          const confirmed = this.confirmedRanges(block.doc_id, block.block_index)
+          const silenced = dismissed.get(block.doc_id)
+          for (const hit of scanBlockText(block.text, forms, confirmed)) {
+            if (silenced?.has(dismissKey(hit.entityId, hit.surface))) continue
+            const key = `${block.doc_id} ${hit.entityId}`
+            const count = stored.get(key) ?? 0
+            if (count >= MAX_SUGGESTIONS_PER_DOC) continue
+            stored.set(key, count + 1)
+            this.writeMention(
+              block.doc_id,
+              {
+                blockIndex: block.block_index,
+                start: hit.start,
+                end: hit.end,
+                entityId: hit.entityId,
+                ordinal: ordinalIn(block.text, hit.surface, hit.start),
+                surface: hit.surface,
+                confirmed: false
+              },
+              block.text
+            )
+          }
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /** Blocks that could contain any form, keyed so each is scanned once. */
+  private candidateBlocks(
+    forms: readonly ScanForm[]
+  ): Map<string, { doc_id: string; block_index: number; text: string }> {
+    const blocks = new Map<string, { doc_id: string; block_index: number; text: string }>()
+    const expressions = new Set<string>()
+    let needsFullScan = false
+    for (const form of forms) {
+      const expression = formMatchExpression(form.form)
+      if (expression) expressions.add(expression)
+      // A form with no indexable token cannot be narrowed by FTS at all.
+      else needsFullScan = true
+    }
+
+    const collect = (rows: { doc_id: string; block_index: number; text: string }[]): void => {
+      for (const row of rows) blocks.set(`${row.doc_id} ${row.block_index}`, row)
+    }
+
+    if (needsFullScan) {
+      collect(
+        this.db.prepare('SELECT doc_id, block_index, text FROM blocks').all() as never
+      )
+      return blocks
+    }
+
+    for (const expression of expressions) {
+      try {
+        collect(
+          this.db
+            .prepare('SELECT doc_id, block_index, text FROM blocks WHERE blocks MATCH ?')
+            .all(expression) as never
+        )
+      } catch {
+        // A form that will not compile into a MATCH expression contributes
+        // nothing rather than failing the whole rescan.
+      }
+    }
+    return blocks
+  }
+
+  private confirmedRanges(docId: string, blockIndex: number): { start: number; end: number }[] {
+    const rows = this.db
+      .prepare(
+        'SELECT start_offset, end_offset FROM mentions WHERE doc_id = ? AND block_index = ? AND confirmed = 1'
+      )
+      .all(docId, blockIndex) as { start_offset: number; end_offset: number }[]
+    return rows.map((row) => ({ start: row.start_offset, end: row.end_offset }))
+  }
+
   close(): void {
     try {
       this.db.close()
@@ -253,6 +553,29 @@ export class SearchIndexService {
       // Already closed.
     }
   }
+}
+
+/** Ordinal of the occurrence at `start`, counting literal matches before it. */
+function ordinalIn(text: string, surface: string, start: number): number {
+  let seen = 0
+  for (let i = 0; i + surface.length <= start; i++) {
+    if (text.startsWith(surface, i)) seen++
+  }
+  return seen
+}
+
+/**
+ * A MATCH expression that finds every block a form could appear in.
+ *
+ * Deliberately over-broad: it ANDs the form's tokens with no prefix wildcard
+ * and no phrase constraint, so the false positives it lets through are then
+ * rejected by the real scanner. Under-narrowing costs a little CPU; over-
+ * narrowing would silently lose mentions.
+ */
+export function formMatchExpression(form: string): string | null {
+  const terms = form.match(/[\p{L}\p{N}]+/gu)
+  if (!terms || terms.length === 0) return null
+  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' AND ')
 }
 
 /**

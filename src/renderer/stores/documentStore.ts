@@ -5,6 +5,7 @@ import { AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '@shared/constants.js
 import { invoke, attempt, reportError, errorMessage } from '@renderer/lib/ipc.js'
 import { createEditor } from '@renderer/panels/editor/createEditor.js'
 import { useProjectStore, currentStyles } from './projectStore.js'
+import { currentEntities } from './entityStore.js'
 
 export interface OpenDocument {
   docId: string
@@ -90,6 +91,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     const editor = createEditor({
       content: doc.content,
       getStyles: currentStyles,
+      getEntities: currentEntities,
       onUpdate: () => {
         const state = get().docs[doc.docId]
         if (!state) return

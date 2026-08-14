@@ -1,4 +1,6 @@
 import type { TypedPubBridge } from '../src/preload/index.js'
+import type { StoryEntity } from '../src/shared/model/entity.js'
+import type { MentionHit } from '../src/shared/model/mention.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -19,6 +21,21 @@ interface PubTestHook {
       api: { panels: { id: string }[]; toJSON: () => unknown } | null
     }
   }
+  entities: {
+    getState: () => {
+      entities: StoryEntity[]
+      create: (kind: 'character' | 'location', name: string) => Promise<StoryEntity | null>
+      patch: (id: string, changes: Partial<StoryEntity>) => void
+      flush: () => Promise<void>
+    }
+  }
+  confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>
+  openLocation: (location: {
+    path: string
+    title: string
+    blockIndex: number
+    term?: string
+  }) => Promise<boolean>
   runCommand: (id: string) => boolean
 }
 

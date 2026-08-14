@@ -34,7 +34,14 @@ interface LayoutStore {
   reset: () => void
 }
 
-export type PanelComponent = 'explorer' | 'search' | 'editor' | 'welcome' | 'styles'
+export type PanelComponent =
+  | 'explorer'
+  | 'search'
+  | 'editor'
+  | 'welcome'
+  | 'styles'
+  | 'characters'
+  | 'locations'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

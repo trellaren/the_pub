@@ -60,6 +60,101 @@ export function TextInput({ className, ...rest }: ComponentPropsWithRef<'input'>
   )
 }
 
+export function TextArea({ className, ...rest }: ComponentPropsWithRef<'textarea'>) {
+  return (
+    <textarea
+      className={cx(
+        'pub-focus-ring w-full resize-y rounded border border-border bg-surface-2 px-2 py-1 text-[12px] leading-relaxed text-text',
+        'placeholder:text-faint hover:border-faint',
+        className
+      )}
+      {...rest}
+    />
+  )
+}
+
+/** Native colour well plus the hex, since the well alone is unreadable at 12px. */
+export function ColorInput({
+  value,
+  onChange,
+  className
+}: {
+  value: string
+  onChange: (value: string) => void
+  className?: string
+}) {
+  return (
+    <span className={cx('flex items-center gap-2', className)}>
+      <input
+        type="color"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="pub-focus-ring h-7 w-10 shrink-0 cursor-pointer rounded border border-border bg-surface-2"
+      />
+      <TextInput value={value} onChange={(event) => onChange(event.target.value)} />
+    </span>
+  )
+}
+
+export function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="mt-4 mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">{children}</h3>
+  )
+}
+
+/**
+ * Label above the control rather than beside it: these panels are usually docked
+ * to a narrow sidebar, where a side-by-side layout pushes the input out of view.
+ */
+export function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="mb-2 flex flex-col gap-1 text-[12px] text-muted">
+      <span>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+export function NumberField({
+  label,
+  value,
+  step = 1,
+  onChange
+}: {
+  label: string
+  value: number | undefined
+  step?: number
+  onChange: (value: number | undefined) => void
+}) {
+  return (
+    <Field label={label}>
+      <TextInput
+        type="number"
+        step={step}
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+      />
+    </Field>
+  )
+}
+
+export function Checkbox({
+  label,
+  checked,
+  onChange
+}: {
+  label: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-center gap-1 text-[12px] text-muted">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  )
+}
+
 export function PanelShell({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cx('flex h-full min-h-0 flex-col bg-surface text-text', className)}>{children}</div>
 }

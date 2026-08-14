@@ -31,7 +31,7 @@ const projectPath = z.object({ path: z.string() })
 export const ipcContract = defineContract({
   invoke: {
     'app:getState': { req: empty, res: appStateSchema },
-    'app:setTheme': { req: z.object({ theme: z.enum(['dark', 'light']) }), res: appStateSchema },
+    'app:setTheme': { req: z.object({ theme: appStateSchema.shape.theme }), res: appStateSchema },
 
     'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },

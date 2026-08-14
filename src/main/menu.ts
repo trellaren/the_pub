@@ -1,5 +1,6 @@
 import { Menu, BrowserWindow } from 'electron'
 import type { WindowManager } from './windows/windowManager.js'
+import { THEMES } from '../shared/themes.js'
 
 /**
  * Native menu. Every item dispatches a command id into the renderer's command
@@ -63,7 +64,13 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Reset Layout', click: send('layout.reset') },
         { label: 'Move Tab to New Window', click: send('layout.popout') },
         { type: 'separator' },
-        { label: 'Toggle Theme', click: send('app.toggleTheme') },
+        {
+          label: 'Theme',
+          submenu: THEMES.map(({ id, label }) => ({
+            label,
+            click: send(`app.setTheme.${id}`)
+          }))
+        },
         { role: 'toggleDevTools' },
         { role: 'reload' },
         { type: 'separator' },

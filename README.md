@@ -5,8 +5,8 @@ formatting, and the notes a long story needs, in one desktop app.
 
 ## What works today
 
-Phase 1 built the editing shell, Phase 2 added story records, and Phase 3 the two planning
-views.
+Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
+and Phase 4 maps.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -49,11 +49,16 @@ Name scanning is deliberately conservative — three characters minimum, capital
 case-sensitively, per-record and per-alias switches, and a dismissal for anything that still
 slips through — because a noisy suggestion list is how a feature like this gets turned off.
 
+- **Maps** you draw: markers, routes, regions and labels, panned and zoomed, in vectors rather
+  than pixels. A marker can name the location record that describes the place *and* open a map
+  of its own, so a world map, a city map and the location pane are three views of one place
+  rather than three copies of it.
+
 In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
 are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps
 the position you dragged it to, rather than being guessed at.
 
-Later phases add map panes; AI assistance (Anthropic, OpenAI, Hugging Face, LM Studio);
+Later phases add AI assistance (Anthropic, OpenAI, Hugging Face, LM Studio);
 OneDrive/FTP/SFTP projects; and DOCX import and export. The file system, index
 and data model are already built as the abstractions those need.
 

@@ -2,6 +2,7 @@ import type { TypedPubBridge } from '../src/preload/index.js'
 import type { StoryEntity } from '../src/shared/model/entity.js'
 import type { MentionHit } from '../src/shared/model/mention.js'
 import type { Beat, BoardColumn } from '../src/shared/model/beat.js'
+import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/model/map.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -40,6 +41,24 @@ interface PubTestHook {
       patch: (id: string, changes: Partial<Beat>) => void
       moveInColumn: (id: string, columnId: string, index: number) => void
       moveInChronology: (id: string, index: number) => void
+      flush: () => Promise<void>
+    }
+  }
+  maps: {
+    getState: () => {
+      maps: StoryMap[]
+      activeMapId: string | null
+      load: () => Promise<void>
+      setActive: (id: string | null) => void
+      create: (name: string) => Promise<StoryMap | null>
+      remove: (id: string) => Promise<void>
+      addShape: (
+        mapId: string,
+        kind: MapShapeKind,
+        points: Point[],
+        text?: string
+      ) => MapShape | null
+      patchShape: (mapId: string, shapeId: string, changes: Partial<MapShape>) => void
       flush: () => Promise<void>
     }
   }

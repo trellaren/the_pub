@@ -12,6 +12,8 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { TableKit } from '@tiptap/extension-table'
 import type { PmDoc } from '@shared/model/document.js'
 import type { NamedStyle } from '@shared/model/style.js'
+import type { StoryEntity } from '@shared/model/entity.js'
+import { Mention } from './extensions/mention.js'
 import { NamedStyles } from './extensions/namedStyles.js'
 import { ParagraphFormat } from './extensions/paragraphFormat.js'
 import { FindHighlight } from './extensions/findHighlight.js'
@@ -19,6 +21,9 @@ import { FindHighlight } from './extensions/findHighlight.js'
 export interface CreateEditorOptions {
   content: PmDoc
   getStyles: () => NamedStyle[]
+  /** Live getter for the same reason `getStyles` is one: a record created a
+   *  moment ago must be @-mentionable in every open editor without a rebuild. */
+  getEntities: () => StoryEntity[]
   onUpdate: () => void
 }
 
@@ -55,9 +60,17 @@ export function createEditor(options: CreateEditorOptions): Editor {
       Typography,
       Placeholder.configure({ placeholder: 'Begin writing…' }),
       NamedStyles.configure({ getStyles: options.getStyles }),
+      Mention.configure({ getEntities: options.getEntities }),
       ParagraphFormat,
       FindHighlight
     ],
+    // ProseMirror *throws* on an unknown mark type rather than degrading, so
+    // without this a document containing mentions would refuse to open in any
+    // build lacking the extension. Reporting beats a blank panel.
+    enableContentCheck: true,
+    onContentError: ({ error }) => {
+      console.error('Document contains content this build cannot render', error)
+    },
     editorProps: {
       attributes: {
         class: 'pub-prose',

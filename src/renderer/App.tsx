@@ -5,26 +5,43 @@ import { useAppStore } from './stores/appStore.js'
 import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
+import { useEntityStore } from './stores/entityStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { invoke, on, onError } from './lib/ipc.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
 import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
+import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
 import { DOC_EXT } from '@shared/constants.js'
 
 const STYLE_ELEMENT_ID = 'pub-named-styles'
+const MENTION_STYLE_ELEMENT_ID = 'pub-mention-colors'
 
 export function App() {
   const loadAppState = useAppStore((store) => store.load)
   const toggleTheme = useAppStore((store) => store.toggleTheme)
   const openDialog = useProjectStore((store) => store.openDialog)
+  const project = useProjectStore((store) => store.project)
   const styles = useProjectStore((store) => store.project?.manifest.styles)
   const defaultStyleId = useProjectStore((store) => store.project?.manifest.settings.defaultStyleId)
+  const entities = useEntityStore((store) => store.entities)
   const [palette, setPalette] = useState<'hidden' | 'commands' | 'files'>('hidden')
   const [errors, setErrors] = useState<string[]>([])
 
   useEffect(() => {
     void loadAppState()
   }, [loadAppState])
+
+  /* Records belong to the open project, so they are (re)loaded with it. */
+  useEffect(() => {
+    if (!project) return
+    void useEntityStore.getState().load()
+  }, [project?.root])
+
+  useEffect(() => {
+    return on('mentions:changed', () => {
+      void useEntityStore.getState().refreshCounts()
+    })
+  }, [])
 
   useEffect(() => {
     return onError((message) => {
@@ -42,6 +59,12 @@ export function App() {
     const css = styles ? generateStyleSheet(styles, defaultStyleId) : ''
     return registerDocumentEffect((target) => setStyleElement(target, STYLE_ELEMENT_ID, css))
   }, [styles, defaultStyleId])
+
+  /* Mention colours ride the same mechanism, and so reach popouts too. */
+  useEffect(() => {
+    const css = generateMentionStyleSheet(entities)
+    return registerDocumentEffect((target) => setStyleElement(target, MENTION_STYLE_ELEMENT_ID, css))
+  }, [entities])
 
   useEffect(() => {
     const unregister = [
@@ -93,10 +116,12 @@ export function App() {
    */
   useEffect(() => {
     return on('window:requestClose', () => {
-      void useDocumentStore
-        .getState()
-        .flushAll()
-        .finally(() => void invoke('window:closeConfirmed', {}))
+      void Promise.all([
+        useDocumentStore.getState().flushAll(),
+        // Record edits are debounced the same way typing is, and are just as
+        // easy to lose on the way out.
+        useEntityStore.getState().flush()
+      ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])
 

@@ -87,6 +87,14 @@ function walk(
   return cursor
 }
 
+/**
+ * One node's text before normalisation — the coordinate space `forEachTextNode`
+ * reports offsets in.
+ */
+export function rawBlockText(node: PmNode): string {
+  return nodeText(node)
+}
+
 /** A top-level block with its text *before* normalisation. */
 export interface RawBlock {
   index: number

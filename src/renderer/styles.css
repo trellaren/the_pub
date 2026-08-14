@@ -185,6 +185,18 @@ body {
   pointer-events: none;
 }
 
+/*
+ * Mentions. Deliberately quiet — a manuscript full of coloured names is
+ * unreadable — so it is a dotted underline in the record's own colour, with the
+ * colour itself injected per record by the generated stylesheet.
+ */
+.pub-mention {
+  border-bottom: 1px dotted var(--pub-mention-color, var(--color-accent));
+}
+.pub-sheet .ProseMirror .pub-mention {
+  cursor: default;
+}
+
 /* Search and find-in-document decorations. */
 .pub-find-match {
   background: color-mix(in srgb, var(--color-accent) 45%, transparent);

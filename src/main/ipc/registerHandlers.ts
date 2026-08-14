@@ -6,6 +6,9 @@ import type { AppStateService } from '../services/appState.js'
 import { ProjectSession } from '../services/projectSession.js'
 import { assetUrl } from '../protocol/assetProtocol.js'
 import { AiKeyStore } from '../services/aiKeyStore.js'
+import { ConnectionStore } from '../services/connectionStore.js'
+import { createAdapter } from '../vfs/vfsRegistry.js'
+import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
@@ -44,6 +47,7 @@ export function registerHandlers(context: HandlerContext): void {
   const { windows, sessions, appState } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
+  const connections = new ConnectionStore()
 
   /**
    * Bind a contract channel. The request is parsed with the channel's schema
@@ -332,6 +336,47 @@ export function registerHandlers(context: HandlerContext): void {
   handle('ai:cancel', ({ requestId }, event) => {
     requireSession(event).ai.cancel(requestId)
     return { ok: true as const }
+  })
+
+  handle('connections:list', () => ({
+    connections: connections.list(),
+    secureStorage: connections.secureStorageAvailable()
+  }))
+
+  handle('connections:save', ({ profile, secret }) =>
+    connections.save(
+      { ...profile, port: profile.port || defaultPort(profile.protocol) },
+      secret
+    )
+  )
+
+  handle('connections:delete', ({ id }) => {
+    connections.remove(id)
+    return { ok: true as const }
+  })
+
+  /**
+   * Open the connection and read its root.
+   *
+   * Worth its own channel: a typo in a host or a path otherwise surfaces as a
+   * project that opens empty, which reads like data loss rather than a mistake.
+   */
+  handle('connections:test', async ({ id }) => {
+    const profile = connections.get(id)
+    if (!profile) return { ok: false, message: 'That server is no longer saved.', entries: 0 }
+    const adapter = createAdapter(projectUri(profile))
+    try {
+      const entries = await adapter.list('')
+      return { ok: true, message: `Connected to ${profile.host}.`, entries: entries.length }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        entries: 0
+      }
+    } finally {
+      await adapter.dispose().catch(() => {})
+    }
   })
 
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())

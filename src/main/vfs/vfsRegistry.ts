@@ -2,7 +2,10 @@ import { fileURLToPath } from 'node:url'
 import type { VfsAdapter, Unwatch } from './types.js'
 import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import { LocalAdapter } from './localAdapter.js'
+import { SftpAdapter } from './sftpAdapter.js'
+import { FtpAdapter } from './ftpAdapter.js'
 import { pollingWatch } from './pollingWatcher.js'
+import { parseProjectUri, defaultPort, type ConnectionProfile } from '../../shared/model/connection.js'
 
 /**
  * Wraps an adapter so `watch()` works even when the backend has none, letting
@@ -35,6 +38,25 @@ class WatchableAdapter implements VfsAdapter {
   }
 }
 
+/**
+ * How the registry reaches saved servers.
+ *
+ * Injected once at startup rather than imported, so this module stays free of
+ * Electron and remains unit-testable, and so the connection store is
+ * constructed once by the process that owns it.
+ */
+export interface ConnectionResolver {
+  profile: (id: string) => ConnectionProfile | null
+  secret: (id: string) => string | null
+  privateKey: (profile: ConnectionProfile) => string | null
+}
+
+let resolver: ConnectionResolver | null = null
+
+export function setConnectionResolver(next: ConnectionResolver): void {
+  resolver = next
+}
+
 /** Parse a project URI into a scheme and a backend-specific location. */
 export function parseUri(uri: string): { scheme: string; location: string } {
   const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(uri)
@@ -45,20 +67,58 @@ export function parseUri(uri: string): { scheme: string; location: string } {
 }
 
 /**
- * Build the adapter for a project URI. Remote schemes land here in a later
- * phase; the registry exists now so nothing above it is written against the
- * local filesystem directly.
+ * Build the adapter for a project URI.
+ *
+ * Remote adapters are wrapped in the same watch emulation as everything else,
+ * so the file tree and the indexer keep calling `watch` unconditionally and
+ * neither knows the difference.
  */
 export function createAdapter(uri: string): VfsAdapter {
   const { scheme, location } = parseUri(uri)
-  switch (scheme) {
-    case 'local':
-      return new WatchableAdapter(new LocalAdapter(location))
-    case 'sftp':
-    case 'ftp':
-    case 'onedrive':
-      throw new Error(`The ${scheme} backend is not available yet`)
-    default:
-      throw new Error(`Unknown project location: ${uri}`)
+  if (scheme === 'local') return new WatchableAdapter(new LocalAdapter(location))
+  if (scheme === 'sftp' || scheme === 'ftp') return new WatchableAdapter(createRemote(uri))
+  if (scheme === 'onedrive') throw new Error('The OneDrive backend is not available yet')
+  throw new Error(`Unknown project location: ${uri}`)
+}
+
+function createRemote(uri: string): VfsAdapter {
+  const parsed = parseProjectUri(uri)
+  if (!parsed) throw new Error(`Unknown project location: ${uri}`)
+  if (!resolver) throw new Error('Saved servers are unavailable in this process')
+
+  const profile = resolver.profile(parsed.profileId)
+  // The URI names a profile by id, so a server that has been deleted -- or a
+  // recents entry from another machine -- fails with something an author can
+  // act on rather than a connection timeout.
+  if (!profile) throw new Error('That saved server no longer exists on this machine')
+
+  // A path in the URI overrides the profile's own root, so one server can hold
+  // several projects.
+  const remotePath = parsed.path || profile.remotePath
+  const port = profile.port || defaultPort(profile.protocol)
+  const secret = resolver.secret(profile.id) ?? ''
+
+  if (profile.protocol === 'ftp') {
+    return new FtpAdapter({
+      host: profile.host,
+      port,
+      user: profile.user,
+      password: secret,
+      secure: profile.secure,
+      remotePath
+    })
   }
+
+  const privateKey = profile.auth === 'key' ? resolver.privateKey(profile) : null
+  if (profile.auth === 'key' && !privateKey) {
+    throw new Error(`Could not read the private key at ${profile.privateKeyPath}`)
+  }
+
+  return new SftpAdapter({
+    host: profile.host,
+    port,
+    user: profile.user,
+    remotePath,
+    ...(privateKey ? { privateKey, passphrase: secret || undefined } : { password: secret })
+  })
 }

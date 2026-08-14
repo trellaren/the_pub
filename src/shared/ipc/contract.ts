@@ -9,6 +9,7 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
+import { connectionProfileSchema } from '../model/connection.js'
 import {
   chatFileSchema,
   chatSchema,
@@ -157,6 +158,34 @@ export const ipcContract = defineContract({
       res: z.object({ ok: z.boolean(), reason: z.string().optional() })
     },
     'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },
+
+    /** Saved servers. Profiles only — no channel ever returns a secret. */
+    'connections:list': {
+      req: empty,
+      res: z.object({
+        connections: z.array(connectionProfileSchema),
+        secureStorage: z.boolean()
+      })
+    },
+    'connections:save': {
+      req: z.object({
+        profile: connectionProfileSchema.partial().extend({
+          name: z.string(),
+          protocol: connectionProfileSchema.shape.protocol,
+          host: z.string(),
+          user: z.string()
+        }),
+        /** Omitted to keep the stored one; empty string to forget it. */
+        secret: z.string().optional()
+      }),
+      res: connectionProfileSchema
+    },
+    'connections:delete': { req: z.object({ id: z.string() }), res: ok },
+    /** Open a connection and list its root, so a mistake is caught before a project is. */
+    'connections:test': {
+      req: z.object({ id: z.string() }),
+      res: z.object({ ok: z.boolean(), message: z.string(), entries: z.number().int() })
+    },
 
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },

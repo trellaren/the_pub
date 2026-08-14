@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, session } from 'electron'
 import { WindowManager } from './windows/windowManager.js'
 import { startRendererServer, type RendererServer } from './server/rendererServer.js'
+import fs from 'node:fs'
 import { registerHandlers, SessionRegistry } from './ipc/registerHandlers.js'
+import { ConnectionStore } from './services/connectionStore.js'
+import { setConnectionResolver } from './vfs/vfsRegistry.js'
 import { AppStateService } from './services/appState.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
 import { buildMenu } from './menu.js'
@@ -35,6 +38,22 @@ app.whenReady().then(async () => {
 
   registerAssetProtocol(() => sessions.roots())
   applyContentSecurityPolicy()
+
+  // The registry builds remote adapters, so it needs a way to reach saved
+  // servers — injected here rather than imported, so the vfs layer stays free
+  // of Electron and testable on its own.
+  const connections = new ConnectionStore()
+  setConnectionResolver({
+    profile: (id) => connections.get(id),
+    secret: (id) => connections.secret(id),
+    privateKey: (profile) => {
+      try {
+        return fs.readFileSync(profile.privateKeyPath, 'utf8')
+      } catch {
+        return null
+      }
+    }
+  })
 
   registerHandlers({ windows, sessions, appState })
   appState.onChange((state) => windows.broadcast('app:stateChanged', state))

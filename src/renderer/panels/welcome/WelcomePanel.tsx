@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import type { RecentProject } from '@shared/model/app.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
 import { PanelShell } from '@renderer/ui/primitives.js'
+import { ConnectDialog } from './ConnectDialog.js'
 
 const NO_RECENTS: RecentProject[] = []
 
@@ -12,6 +14,7 @@ export function WelcomePanel() {
   // Shared constant rather than a fresh `[]`: zustand compares selector results
   // by identity, so a new array every render loops forever.
   const recents = useAppStore((store) => store.state?.recentProjects) ?? NO_RECENTS
+  const [connecting, setConnecting] = useState(false)
 
   return (
     <PanelShell className="bg-bg">
@@ -31,8 +34,17 @@ export function WelcomePanel() {
           >
             Open a project folder…
           </button>
+          <button
+            type="button"
+            onClick={() => setConnecting(true)}
+            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text"
+            data-testid="open-connect"
+          >
+            Connect to a server…
+          </button>
           <p className="text-[12px] text-faint">
-            Any folder becomes a project. The Pub keeps its notes in <code>.thepub</code> beside your work.
+            Any folder becomes a project — on this machine, or over SFTP or FTP. The Pub keeps its
+            notes in <code>.thepub</code> beside your work.
           </p>
         </div>
 
@@ -57,6 +69,7 @@ export function WelcomePanel() {
           </div>
         ) : null}
       </div>
+      {connecting ? <ConnectDialog onClose={() => setConnecting(false)} /> : null}
     </PanelShell>
   )
 }

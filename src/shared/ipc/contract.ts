@@ -6,6 +6,13 @@ import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
 import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
+import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
+import {
+  mentionHitSchema,
+  mentionQuerySchema,
+  mentionRefSchema,
+  mentionCountsSchema
+} from '../model/mention.js'
 import { layoutFileSchema, layoutPresetSchema, dockLayoutSchema } from '../model/layout.js'
 import { snapshotSchema } from '../model/snapshot.js'
 import { appStateSchema } from '../model/app.js'
@@ -62,6 +69,33 @@ export const ipcContract = defineContract({
     'search:reindex': { req: empty, res: ok },
     'search:status': { req: empty, res: indexProgressSchema },
 
+    /** Records and dismissals in one round trip: the panel always needs both. */
+    'entities:list': { req: empty, res: entityFileSchema },
+    'entities:create': { req: z.object({ kind: entityKindSchema, name: z.string() }), res: storyEntitySchema },
+    'entities:save': { req: z.object({ entity: storyEntitySchema }), res: storyEntitySchema },
+    'entities:delete': { req: z.object({ id: z.string() }), res: ok },
+
+    'mentions:forEntity': { req: mentionQuerySchema, res: z.array(mentionHitSchema) },
+    'mentions:summary': { req: empty, res: z.record(z.string(), mentionCountsSchema) },
+    'mentions:confirm': {
+      req: mentionRefSchema,
+      res: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), mtime: z.number() }),
+        z.object({
+          ok: z.literal(false),
+          reason: z.enum(['missing-document', 'missing-entity', 'not-found', 'conflict'])
+        })
+      ])
+    },
+    'mentions:confirmAll': {
+      req: z.object({ entityId: z.string() }),
+      res: z.object({ confirmed: z.number().int(), failed: z.number().int() })
+    },
+    'mentions:dismiss': {
+      req: z.object({ entityId: z.string(), docId: z.string(), surface: z.string() }),
+      res: ok
+    },
+
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },
     'layout:savePreset': { req: z.object({ name: z.string(), layout: dockLayoutSchema }), res: layoutPresetSchema },
@@ -77,6 +111,15 @@ export const ipcContract = defineContract({
   events: {
     'vfs:changed': z.array(fileChangeEventSchema),
     'search:indexProgress': indexProgressSchema,
+    /**
+     * Mentions were re-indexed; backlink lists should refetch.
+     *
+     * There is deliberately no `entities:changed` counterpart: popout windows
+     * share their opener's JS context and therefore the same store, so only two
+     * separate project windows on one folder can go stale — which is already
+     * true of the manifest today.
+     */
+    'mentions:changed': z.object({}),
     'app:stateChanged': appStateSchema,
     /** Native menu / accelerator dispatch into the renderer command registry. */
     'command:invoke': z.object({ commandId: z.string() }),

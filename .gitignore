@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+release/
+.vite/
+*.log
+npm-debug.log*
+.DS_Store
+tsconfig.*.tsbuildinfo
+*.tsbuildinfo
+test-results/
+playwright-report/
+coverage/
+e2e/.tmp/

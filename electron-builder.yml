@@ -1,0 +1,25 @@
+appId: com.thepub.app
+productName: The Pub
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+# The renderer is served over loopback at runtime, so its assets must stay
+# unpacked and readable rather than living inside the asar archive.
+asarUnpack:
+  - out/renderer/**
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+linux:
+  category: Office
+  target:
+    - AppImage
+    - deb

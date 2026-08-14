@@ -1,0 +1,103 @@
+import { z } from 'zod'
+import { defineContract } from './defineContract.js'
+import type { ContractShape, InvokeChannel, InvokeReq, InvokeRes, EventChannel, EventPayload } from './defineContract.js'
+import type { InvokeChannelName, EventChannelName } from './channels.js'
+import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
+import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
+import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
+import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
+import { layoutFileSchema, layoutPresetSchema, dockLayoutSchema } from '../model/layout.js'
+import { snapshotSchema } from '../model/snapshot.js'
+import { appStateSchema } from '../model/app.js'
+
+const empty = z.object({})
+const ok = z.object({ ok: z.literal(true) })
+const projectPath = z.object({ path: z.string() })
+
+/**
+ * The complete renderer↔main surface. Every channel is validated against these
+ * schemas in the main process, and the preload bridge is generated from the keys,
+ * so a channel that exists here but is unimplemented is a type error.
+ */
+export const ipcContract = defineContract({
+  invoke: {
+    'app:getState': { req: empty, res: appStateSchema },
+    'app:setTheme': { req: z.object({ theme: z.enum(['dark', 'light']) }), res: appStateSchema },
+
+    'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
+    'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },
+    'project:close': { req: empty, res: ok },
+    'project:updateManifest': { req: z.object({ manifest: projectManifestSchema }), res: projectManifestSchema },
+
+    'vfs:list': { req: projectPath, res: z.array(vfsEntrySchema) },
+    'vfs:stat': { req: projectPath, res: vfsEntrySchema.nullable() },
+    'vfs:mkdir': { req: projectPath, res: ok },
+    'vfs:rename': { req: z.object({ from: z.string(), to: z.string() }), res: ok },
+    'vfs:delete': { req: z.object({ path: z.string(), recursive: z.boolean().default(false) }), res: ok },
+    'vfs:revealInOs': { req: projectPath, res: ok },
+
+    'doc:read': { req: projectPath, res: loadedDocumentSchema },
+    /** Current path of a document by its stable id — lets restored panels survive a file move. */
+    'doc:resolve': { req: z.object({ docId: z.string() }), res: z.object({ path: z.string() }).nullable() },
+    'doc:create': { req: z.object({ path: z.string(), title: z.string().optional() }), res: loadedDocumentSchema },
+    'doc:write': {
+      req: z.object({
+        path: z.string(),
+        doc: pubDocumentSchema,
+        /** Guards against clobbering an edit made outside the app. */
+        expectedMtime: z.number().nullable()
+      }),
+      res: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), mtime: z.number() }),
+        z.object({ ok: z.literal(false), reason: z.literal('conflict'), diskMtime: z.number() })
+      ])
+    },
+    /** Writes a pasted/imported image into the project's assets directory. */
+    'doc:writeAsset': {
+      req: z.object({ dataBase64: z.string(), ext: z.string() }),
+      res: z.object({ path: z.string(), url: z.string() })
+    },
+
+    'search:query': { req: searchQuerySchema, res: z.array(searchHitSchema) },
+    'search:reindex': { req: empty, res: ok },
+    'search:status': { req: empty, res: indexProgressSchema },
+
+    'layout:load': { req: empty, res: layoutFileSchema },
+    'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },
+    'layout:savePreset': { req: z.object({ name: z.string(), layout: dockLayoutSchema }), res: layoutPresetSchema },
+    'layout:deletePreset': { req: z.object({ id: z.string() }), res: ok },
+
+    'snapshot:list': { req: z.object({ docId: z.string() }), res: z.array(snapshotSchema) },
+    'snapshot:read': { req: z.object({ docId: z.string(), timestamp: z.string() }), res: pubDocumentSchema },
+
+    'window:newProject': { req: z.object({ uri: z.string().optional() }), res: ok },
+    /** Renderer's answer to `window:requestClose` once pending saves have flushed. */
+    'window:closeConfirmed': { req: empty, res: ok }
+  },
+  events: {
+    'vfs:changed': z.array(fileChangeEventSchema),
+    'search:indexProgress': indexProgressSchema,
+    'app:stateChanged': appStateSchema,
+    /** Native menu / accelerator dispatch into the renderer command registry. */
+    'command:invoke': z.object({ commandId: z.string() }),
+    /** Close was requested; flush unsaved documents, then confirm. */
+    'window:requestClose': z.object({})
+  }
+} satisfies ContractShape)
+
+export type IpcContract = typeof ipcContract
+export type IpcInvokeChannel = InvokeChannel<IpcContract>
+export type IpcEventChannel = EventChannel<IpcContract>
+export type IpcReq<K extends IpcInvokeChannel> = InvokeReq<IpcContract, K>
+export type IpcRes<K extends IpcInvokeChannel> = InvokeRes<IpcContract, K>
+export type IpcEvent<K extends IpcEventChannel> = EventPayload<IpcContract, K>
+
+export const invokeChannels = Object.keys(ipcContract.invoke) as IpcInvokeChannel[]
+export const eventChannels = Object.keys(ipcContract.events) as IpcEventChannel[]
+
+// Compile-time guard: the preload allow-list in `channels.ts` must match this
+// contract exactly. Adding a channel above without listing it there fails here.
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+type Assert<T extends true> = T
+export type _InvokeChannelsMatch = Assert<Exact<IpcInvokeChannel, InvokeChannelName>>
+export type _EventChannelsMatch = Assert<Exact<IpcEventChannel, EventChannelName>>

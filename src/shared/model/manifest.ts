@@ -1,0 +1,37 @@
+import { z } from 'zod'
+import { FORMAT_VERSION, AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
+import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
+
+export const projectSettingsSchema = z.object({
+  autosaveDebounceMs: z.number().int().min(100).max(30_000).default(AUTOSAVE_DEBOUNCE_MS),
+  autosaveMaxWaitMs: z.number().int().min(500).max(120_000).default(AUTOSAVE_MAX_WAIT_MS),
+  snapshotsEnabled: z.boolean().default(true),
+  /** Editor "sheet" width in points. Not true pagination — a readable measure. */
+  pageWidth: z.number().default(612),
+  pageMargin: z.number().default(72),
+  defaultStyleId: z.string().default('body')
+})
+export type ProjectSettings = z.infer<typeof projectSettingsSchema>
+
+export const projectManifestSchema = z.object({
+  formatVersion: z.number().int().default(FORMAT_VERSION),
+  id: z.string(),
+  name: z.string(),
+  created: z.string(),
+  modified: z.string(),
+  // `prefault` (not `default`) so an absent or partial settings block still gets
+  // each field's own default filled in rather than requiring the whole object.
+  settings: projectSettingsSchema.prefault({}),
+  /** Project-wide named styles shared by every document. */
+  styles: z.array(namedStyleSchema).default(BUILTIN_STYLES)
+})
+export type ProjectManifest = z.infer<typeof projectManifestSchema>
+
+/** A manifest plus the location it was loaded from. */
+export const openProjectSchema = z.object({
+  /** Absolute filesystem path (local backend) or backend URI. */
+  uri: z.string(),
+  root: z.string(),
+  manifest: projectManifestSchema
+})
+export type OpenProject = z.infer<typeof openProjectSchema>

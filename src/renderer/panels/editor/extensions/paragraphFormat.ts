@@ -1,0 +1,135 @@
+import { Extension, type CommandProps, type SingleCommands } from '@tiptap/core'
+
+export const INDENT_STEP_PT = 24
+const MAX_INDENT_PT = 240
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    paragraphFormat: {
+      setParagraphLineHeight: (value: number | null) => ReturnType
+      setSpaceBefore: (value: number | null) => ReturnType
+      setSpaceAfter: (value: number | null) => ReturnType
+      setFirstLineIndent: (value: number | null) => ReturnType
+      indent: () => ReturnType
+      outdent: () => ReturnType
+      clearParagraphFormat: () => ReturnType
+    }
+  }
+}
+
+/** One attribute → one CSS declaration. TipTap merges them into a single style attribute. */
+function pointAttribute(cssProperty: string, dataName: string) {
+  return {
+    default: null as number | null,
+    parseHTML: (element: HTMLElement): number | null => {
+      const raw = element.getAttribute(`data-${dataName}`)
+      return raw === null ? null : Number(raw)
+    },
+    renderHTML: (attributes: Record<string, unknown>): Record<string, string> => {
+      const value = attributes[camel(dataName)]
+      if (value === null || value === undefined) return {}
+      return { style: `${cssProperty}: ${value}pt`, [`data-${dataName}`]: String(value) }
+    }
+  }
+}
+
+function camel(dashed: string): string {
+  return dashed.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+}
+
+/**
+ * Direct paragraph formatting — the manual overrides a writer applies on top of
+ * a named style (Word's "direct formatting"). Stored per block and rendered as
+ * inline styles, so they win over the generated style sheet.
+ */
+export const ParagraphFormat = Extension.create({
+  name: 'paragraphFormat',
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph', 'heading'],
+        attributes: {
+          indentLeft: pointAttribute('margin-left', 'indent-left'),
+          spaceBefore: pointAttribute('margin-top', 'space-before'),
+          spaceAfter: pointAttribute('margin-bottom', 'space-after'),
+          firstLineIndent: pointAttribute('text-indent', 'first-line-indent'),
+          lineHeight: {
+            default: null as number | null,
+            parseHTML: (element: HTMLElement): number | null => {
+              const raw = element.getAttribute('data-line-height')
+              return raw === null ? null : Number(raw)
+            },
+            renderHTML: (attributes: Record<string, unknown>): Record<string, string> => {
+              const value = attributes.lineHeight
+              if (value === null || value === undefined) return {}
+              return { style: `line-height: ${value}`, 'data-line-height': String(value) }
+            }
+          }
+        }
+      }
+    ]
+  },
+
+  addCommands() {
+    // Applies to whichever block type the selection is in; `updateAttributes`
+    // returns false when the node type doesn't match, so the fallback covers
+    // headings without needing to inspect the selection.
+    const setOnBlocks =
+      (attribute: string) =>
+      (value: number | null) =>
+      ({ commands }: { commands: SingleCommands }): boolean => {
+        const update = { [attribute]: value }
+        return (
+          commands.updateAttributes('paragraph', update) ||
+          commands.updateAttributes('heading', update)
+        )
+      }
+
+    const shiftIndent =
+      (direction: 1 | -1) =>
+      () =>
+      ({ editor, commands }: CommandProps): boolean => {
+        const current = (editor.getAttributes('paragraph').indentLeft ??
+          editor.getAttributes('heading').indentLeft ??
+          0) as number
+        const next = Math.min(MAX_INDENT_PT, Math.max(0, current + direction * INDENT_STEP_PT))
+        const value = next === 0 ? null : next
+        return (
+          commands.updateAttributes('paragraph', { indentLeft: value }) ||
+          commands.updateAttributes('heading', { indentLeft: value })
+        )
+      }
+
+    return {
+      setParagraphLineHeight: setOnBlocks('lineHeight'),
+      setSpaceBefore: setOnBlocks('spaceBefore'),
+      setSpaceAfter: setOnBlocks('spaceAfter'),
+      setFirstLineIndent: setOnBlocks('firstLineIndent'),
+      indent: shiftIndent(1),
+      outdent: shiftIndent(-1),
+      clearParagraphFormat:
+        () =>
+        ({ commands }) => {
+          const cleared = {
+            indentLeft: null,
+            spaceBefore: null,
+            spaceAfter: null,
+            firstLineIndent: null,
+            lineHeight: null
+          }
+          return (
+            commands.updateAttributes('paragraph', cleared) ||
+            commands.updateAttributes('heading', cleared)
+          )
+        }
+    }
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      'Mod-]': () => this.editor.commands.indent(),
+      'Mod-[': () => this.editor.commands.outdent()
+    }
+  }
+})

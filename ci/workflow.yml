@@ -1,0 +1,65 @@
+# The Pub — check pipeline, as a GitHub Actions workflow.
+#
+# THIS FILE IS DORMANT. It lives in ci/ rather than .github/workflows/, and
+# GitHub only auto-discovers workflows in the latter — so nothing here runs, or
+# bills, while it sits at this path. Actions is deliberately switched off for
+# this repository; `ci/run-checks.sh` is the gate that actually gets used.
+#
+# It is kept so the pipeline is written down in a portable form: to enable it,
+#
+#     cp ci/workflow.yml .github/workflows/checks.yml
+#
+# after which it still only runs when triggered by hand from the Actions tab
+# (`workflow_dispatch`) — never on push or pull_request. Add those triggers
+# deliberately if the cost is ever acceptable.
+
+name: Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip-e2e:
+        description: Skip the end-to-end tests
+        type: boolean
+        default: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Playwright launches the built app, so this must precede the e2e step.
+      - name: Build
+        run: npm run build
+
+      - name: End-to-end tests
+        if: ${{ !inputs.skip-e2e }}
+        # The runner is headless; Electron needs a display.
+        run: xvfb-run -a npm run e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

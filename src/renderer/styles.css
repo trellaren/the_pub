@@ -1,0 +1,202 @@
+@import 'tailwindcss';
+@import 'dockview-react/dist/styles/dockview.css';
+
+/*
+ * Dark is the default palette; the light theme overrides the same tokens, so
+ * every utility class re-themes without any component knowing about themes.
+ */
+@theme {
+  --color-bg: #14110f;
+  --color-surface: #1c1815;
+  --color-surface-2: #241f1b;
+  --color-surface-3: #2e2823;
+  --color-border: #3a322c;
+  --color-text: #ece5db;
+  --color-muted: #a2968a;
+  --color-faint: #6f645b;
+  --color-accent: #d19a4e;
+  --color-accent-soft: #4a3720;
+  --color-danger: #d97066;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='light'] {
+  --color-bg: #efe9df;
+  --color-surface: #f7f2ea;
+  --color-surface-2: #ede6da;
+  --color-surface-3: #e2d9cb;
+  --color-border: #d2c6b4;
+  --color-text: #2a231d;
+  --color-muted: #6b5f52;
+  --color-faint: #93867a;
+  --color-accent: #96601c;
+  --color-accent-soft: #e6d5ba;
+  --color-danger: #a8382c;
+  --color-paper: #ffffff;
+  --color-paper-ink: #241f1b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Map dockview's chrome onto the app palette. */
+.dockview-theme-pub {
+  --dv-background-color: var(--color-bg);
+  --dv-paneview-active-outline-color: var(--color-accent);
+  --dv-tabs-and-actions-container-background-color: var(--color-surface);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--color-surface-2);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--color-surface);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-surface-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--color-surface);
+  --dv-tab-divider-color: var(--color-border);
+  --dv-activegroup-visiblepanel-tab-color: var(--color-text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--color-muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--color-muted);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--color-faint);
+  --dv-separator-border: var(--color-border);
+  --dv-paneview-header-border-color: var(--color-border);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --dv-drag-over-border-color: var(--color-accent);
+  --dv-group-view-background-color: var(--color-bg);
+  --dv-tabs-container-scrollbar-color: var(--color-surface-3);
+  --dv-icon-hover-background-color: var(--color-surface-3);
+  --dv-floating-box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+  height: 100%;
+}
+
+.dockview-theme-pub .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--color-border);
+  height: 34px;
+}
+
+/* --- Editor sheet ------------------------------------------------------- */
+
+.pub-sheet {
+  background: var(--color-paper);
+  color: var(--color-paper-ink);
+  box-shadow: 0 2px 24px rgb(0 0 0 / 0.28);
+  margin: 24px auto 96px;
+  border-radius: 2px;
+}
+
+.pub-sheet .ProseMirror {
+  outline: none;
+  font-family: var(--font-read);
+  caret-color: var(--color-accent);
+}
+
+.pub-sheet .ProseMirror p {
+  margin: 0;
+}
+
+.pub-sheet .ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 12px 0;
+  overflow: hidden;
+}
+.pub-sheet .ProseMirror td,
+.pub-sheet .ProseMirror th {
+  border: 1px solid #b9ae9c;
+  padding: 6px 8px;
+  vertical-align: top;
+  position: relative;
+}
+.pub-sheet .ProseMirror th {
+  background: #ece4d6;
+  font-weight: 600;
+}
+.pub-sheet .ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  pointer-events: none;
+}
+.pub-sheet .ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+
+.pub-sheet .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+
+.pub-sheet .ProseMirror blockquote {
+  margin: 0;
+  border-left: 3px solid #c3b7a4;
+  padding-left: 16px;
+}
+
+.pub-sheet .ProseMirror hr {
+  border: none;
+  border-top: 1px solid #c3b7a4;
+  margin: 20px 0;
+}
+
+.pub-sheet .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #a3988a;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Search and find-in-document decorations. */
+.pub-find-match {
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 2px;
+}
+.pub-find-match-current {
+  background: var(--color-accent);
+  color: #1a1512;
+  border-radius: 2px;
+}
+
+.pub-focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}

@@ -12,6 +12,21 @@ export const appStateSchema = z.object({
   version: z.string(),
   platform: z.string(),
   recentProjects: z.array(recentProjectSchema).default([]),
-  theme: z.enum(['dark', 'light']).default('dark')
+  theme: z
+    .enum([
+      'dark',
+      'light',
+      'blue',
+      'dark-purple',
+      'edinburgh-cafe',
+      'gloomy-castle',
+      'gritty-philadelphia',
+      'hokkaido',
+      'ocean',
+      'red',
+      'scottish-highlands',
+      'tokyo'
+    ])
+    .default('dark')
 })
 export type AppState = z.infer<typeof appStateSchema>

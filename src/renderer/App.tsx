@@ -13,13 +13,14 @@ import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
 import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
 import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
 import { DOC_EXT } from '@shared/constants.js'
+import { THEMES } from '@shared/themes.js'
 
 const STYLE_ELEMENT_ID = 'pub-named-styles'
 const MENTION_STYLE_ELEMENT_ID = 'pub-mention-colors'
 
 export function App() {
   const loadAppState = useAppStore((store) => store.load)
-  const toggleTheme = useAppStore((store) => store.toggleTheme)
+  const setTheme = useAppStore((store) => store.setTheme)
   const openDialog = useProjectStore((store) => store.openDialog)
   const project = useProjectStore((store) => store.project)
   const styles = useProjectStore((store) => store.project?.manifest.styles)
@@ -71,7 +72,13 @@ export function App() {
   useEffect(() => {
     const unregister = [
       registerCommand({ id: 'project.open', title: 'Open Folder…', run: () => void openDialog() }),
-      registerCommand({ id: 'app.toggleTheme', title: 'Toggle Theme', run: () => void toggleTheme() }),
+      ...THEMES.map(({ id, label }) =>
+        registerCommand({
+          id: `app.setTheme.${id}`,
+          title: `Theme: ${label}`,
+          run: () => void setTheme(id)
+        })
+      ),
       registerCommand({
         id: 'palette.commands',
         title: 'Command Palette',
@@ -102,7 +109,7 @@ export function App() {
       })
     ]
     return () => unregister.forEach((dispose) => dispose())
-  }, [openDialog, toggleTheme])
+  }, [openDialog, setTheme])
 
   // Menu items and accelerators arrive as command ids so they run the same code
   // as the palette.

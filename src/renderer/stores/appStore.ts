@@ -6,7 +6,7 @@ import { applyToAllDocuments, registerDocumentEffect } from '@renderer/lib/docum
 interface AppStore {
   state: AppState | null
   setState: (state: AppState) => void
-  toggleTheme: () => Promise<void>
+  setTheme: (theme: AppState['theme']) => Promise<void>
   load: () => Promise<void>
 }
 
@@ -20,9 +20,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const state = await invoke('app:getState', {})
     get().setState(state)
   },
-  toggleTheme: async () => {
-    const current = get().state?.theme ?? 'dark'
-    const next = await invoke('app:setTheme', { theme: current === 'dark' ? 'light' : 'dark' })
+  setTheme: async (theme) => {
+    const next = await invoke('app:setTheme', { theme })
     get().setState(next)
   }
 }))

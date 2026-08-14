@@ -2,20 +2,22 @@
 @import 'dockview-react/dist/styles/dockview.css';
 
 /*
- * Dark is the default palette; the light theme overrides the same tokens, so
- * every utility class re-themes without any component knowing about themes.
+ * "Regular Dark" (the Pub brand spec) is the default palette; every other
+ * theme, including "Regular Light", overrides the same tokens via
+ * [data-theme='<id>'], so every utility class re-themes without any
+ * component knowing about themes. Theme ids/labels: src/shared/themes.ts.
  */
 @theme {
-  --color-bg: #14110f;
-  --color-surface: #1c1815;
-  --color-surface-2: #241f1b;
-  --color-surface-3: #2e2823;
-  --color-border: #3a322c;
-  --color-text: #ece5db;
-  --color-muted: #a2968a;
-  --color-faint: #6f645b;
-  --color-accent: #d19a4e;
-  --color-accent-soft: #4a3720;
+  --color-bg: #111315;
+  --color-surface: #1a1d21;
+  --color-surface-2: #232830;
+  --color-surface-3: #2b3037;
+  --color-border: #343a42;
+  --color-text: #e7eaf0;
+  --color-muted: #8d97a3;
+  --color-faint: #626d7e;
+  --color-accent: #7fa8c9;
+  --color-accent-soft: #263543;
   --color-danger: #d97066;
   --color-paper: #f6f1e7;
   --color-paper-ink: #241f1b;
@@ -26,19 +28,212 @@
 }
 
 [data-theme='light'] {
-  --color-bg: #efe9df;
-  --color-surface: #f7f2ea;
-  --color-surface-2: #ede6da;
-  --color-surface-3: #e2d9cb;
-  --color-border: #d2c6b4;
-  --color-text: #2a231d;
-  --color-muted: #6b5f52;
-  --color-faint: #93867a;
-  --color-accent: #96601c;
-  --color-accent-soft: #e6d5ba;
+  --color-bg: #f8f7f3;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f0e6;
+  --color-surface-3: #eee8dd;
+  --color-border: #e0dcd3;
+  --color-text: #25272a;
+  --color-muted: #696f75;
+  --color-faint: #979b7f;
+  --color-accent: #8a6a3f;
+  --color-accent-soft: #ebe0cd;
   --color-danger: #a8382c;
   --color-paper: #ffffff;
   --color-paper-ink: #241f1b;
+
+  --font-ui: 'Aptos', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='blue'] {
+  --color-bg: #0e1726;
+  --color-surface: #172a46;
+  --color-surface-2: #1e3860;
+  --color-surface-3: #28558a;
+  --color-border: #2a4162;
+  --color-text: #f1f5f8;
+  --color-muted: #a9c7df;
+  --color-faint: #6b8098;
+  --color-accent: #4d82b8;
+  --color-accent-soft: #1e3550;
+  --color-danger: #c65b52;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+  --font-read: 'Palatino Linotype', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='dark-purple'] {
+  --color-bg: #160f1e;
+  --color-surface: #24152f;
+  --color-surface-2: #382656;
+  --color-surface-3: #633e8a;
+  --color-border: #4a315a;
+  --color-text: #f2edf4;
+  --color-muted: #bca9cb;
+  --color-faint: #7c6a8c;
+  --color-accent: #9f7cc0;
+  --color-accent-soft: #322045;
+  --color-danger: #c65f5f;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+  --font-read: Garamond, Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='edinburgh-cafe'] {
+  --color-bg: #2a201c;
+  --color-surface: #382a24;
+  --color-surface-2: #45322a;
+  --color-surface-3: #5b3a29;
+  --color-border: #5b3a29;
+  --color-text: #f3e8d2;
+  --color-muted: #c9ae89;
+  --color-faint: #8a7460;
+  --color-accent: #b68a44;
+  --color-accent-soft: #3e2f22;
+  --color-danger: #b0503f;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Aptos', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='gloomy-castle'] {
+  --color-bg: #111214;
+  --color-surface: #1d1f23;
+  --color-surface-2: #2a2530;
+  --color-surface-3: #514052;
+  --color-border: #3b3e44;
+  --color-text: #d8d0bf;
+  --color-muted: #8e9094;
+  --color-faint: #5e5f63;
+  --color-accent: #d7b56d;
+  --color-accent-soft: #362d1e;
+  --color-danger: #b8564a;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Aptos Narrow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Book Antiqua', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='gritty-philadelphia'] {
+  --color-bg: #232323;
+  --color-surface: #30302e;
+  --color-surface-2: #443633;
+  --color-surface-3: #8d3b2f;
+  --color-border: #57534c;
+  --color-text: #e5ddcb;
+  --color-muted: #b8b09f;
+  --color-faint: #797467;
+  --color-accent: #b55a38;
+  --color-accent-soft: #3c2a20;
+  --color-danger: #c1443a;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: Arial, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='hokkaido'] {
+  --color-bg: #f3f5f1;
+  --color-surface: #ffffff;
+  --color-surface-2: #e6ecec;
+  --color-surface-3: #d9e3e5;
+  --color-border: #d2dbd8;
+  --color-text: #282a28;
+  --color-muted: #67706b;
+  --color-faint: #98a099;
+  --color-accent: #a86145;
+  --color-accent-soft: #ece2dc;
+  --color-danger: #b0503f;
+  --color-paper: #ffffff;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Yu Gothic UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Yu Mincho', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='ocean'] {
+  --color-bg: #071a26;
+  --color-surface: #0c2a38;
+  --color-surface-2: #123a49;
+  --color-surface-3: #23665e;
+  --color-border: #1b4a58;
+  --color-text: #eaf5f1;
+  --color-muted: #a4d7d4;
+  --color-faint: #5f8b87;
+  --color-accent: #2c8d9a;
+  --color-accent-soft: #103642;
+  --color-danger: #c1584f;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+  --font-read: 'Book Antiqua', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='red'] {
+  --color-bg: #1b1112;
+  --color-surface: #2a1517;
+  --color-surface-2: #451c20;
+  --color-surface-3: #7c2025;
+  --color-border: #5a292c;
+  --color-text: #f6ece8;
+  --color-muted: #d6aaa5;
+  --color-faint: #8c6a66;
+  --color-accent: #c64449;
+  --color-accent-soft: #37191b;
+  --color-danger: #c64449;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Aptos', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='scottish-highlands'] {
+  --color-bg: #24251f;
+  --color-surface: #30342d;
+  --color-surface-2: #333c33;
+  --color-surface-3: #394b3d;
+  --color-border: #4b5149;
+  --color-text: #d9ddd5;
+  --color-muted: #b0b58a;
+  --color-faint: #767f61;
+  --color-accent: #77627c;
+  --color-accent-soft: #2c2732;
+  --color-danger: #b0574a;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Aptos', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Palatino Linotype', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='tokyo'] {
+  --color-bg: #171719;
+  --color-surface: #232326;
+  --color-surface-2: #332d38;
+  --color-surface-3: #493045;
+  --color-border: #42454b;
+  --color-text: #f4f1eb;
+  --color-muted: #a9a7a2;
+  --color-faint: #6c6b6d;
+  --color-accent: #e65032;
+  --color-accent-soft: #331d16;
+  --color-danger: #e65032;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: 'Yu Gothic UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Yu Mincho', Georgia, 'Iowan Old Style', serif;
 }
 
 html,

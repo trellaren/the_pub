@@ -1,0 +1,7 @@
+# Shell scripts must keep LF endings even when checked out on Windows: bash
+# refuses a script whose lines end with CR, and Git for Windows converts by
+# default. The check gate is run from Git Bash on the Windows host.
+*.sh text eol=lf
+
+# Fixtures and documents are compared byte-for-byte in tests.
+*.pubdoc -text

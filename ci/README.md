@@ -50,9 +50,12 @@ failed run's copy is the thing worth poking at.
   `~/.cache/electron`, so they are much faster.
 - The build must precede the end-to-end tests: Playwright launches the *built*
   app, and nothing in the npm scripts enforces that ordering.
-- On a headless machine the end-to-end stage is wrapped in `xvfb-run`. If there
-  is no display and no `xvfb-run`, the stage is reported as **skipped**, never
-  as passed.
+- On Windows and macOS the end-to-end stage runs directly. Only Linux can be
+  genuinely headless, so that is the only case where the stage is wrapped in
+  `xvfb-run` — and if there is no display and no `xvfb-run`, it is reported as
+  **skipped**, never as passed.
+- On Windows, run it from Git Bash (or WSL). `.gitattributes` keeps the script
+  checked out with LF endings, which bash requires.
 - The script is plain bash and git, so it runs anywhere the project builds —
   a laptop, a build box, or some other CI system later — without carrying a
   dependency on any particular CI product.

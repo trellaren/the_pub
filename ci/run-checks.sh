@@ -2,13 +2,15 @@
 #
 # The Pub — pre-merge check gate.
 #
-# Runs the full suite against a *fresh clone* of committed history in a throwaway
-# directory. Running in place would reuse the existing node_modules/ and out/, so
-# it could pass on a tree that would not build for anyone else — which is exactly
-# the failure this is meant to catch. A clone only ever contains committed state,
-# so a file that was never `git add`-ed simply is not there.
+# Runs the full suite against a *fresh full clone* of committed history in a
+# throwaway directory. Running in place would reuse the existing node_modules/
+# and out/, so it could pass on a tree that would not build for anyone else —
+# which is exactly the failure this is meant to catch. A clone only ever
+# contains committed state, so a file that was never `git add`-ed simply is not
+# there.
 #
-# See ci/README.md for why this is not a GitHub Actions workflow.
+# GitHub Actions is deliberately off for this repository and there is no
+# workflow file in the repo; this script is the gate. See ci/README.md.
 
 set -uo pipefail
 
@@ -118,7 +120,9 @@ cleanup() {
 trap cleanup EXIT
 
 head2 "Clone"
-# --local hardlinks the object store: near-instant, and needs no network.
+# A full clone — every branch and the whole object store, so --ref can name
+# anything. --no-hardlinks copies the objects rather than linking them, so a
+# broken run in the clone can never damage the real repository.
 if ! git clone --local --no-hardlinks --quiet "$REPO_ROOT" "$CLONE"; then
   echo "${RED}Clone failed${RESET}" >&2
   FAILED=1

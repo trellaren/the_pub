@@ -5,7 +5,8 @@ formatting, and the notes a long story needs, in one desktop app.
 
 ## What works today
 
-Phase 1 built the editing shell; Phase 2 added story records on top of it.
+Phase 1 built the editing shell, Phase 2 added story records, and Phase 3 the two planning
+views.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -38,13 +39,22 @@ Phase 1 built the editing shell; Phase 2 added story records on top of it.
   search, word count and export treat like any other.
 - **Backlinks.** Every record lists each paragraph it appears in, and clicking one opens the
   document there.
+- **A storyboard and a timeline over the same beats.** The board holds cards in the order the
+  story is *told*, dragged between columns you name; the timeline holds them in the order they
+  *happen*. Those orders differ exactly when there is a flashback — which is why both views
+  exist, and why they are two orderings of one set of records rather than two things to keep in
+  step. A beat can name who is in it, carry a status, and link to the paragraph it covers.
 
 Name scanning is deliberately conservative — three characters minimum, capitalised names matched
 case-sensitively, per-record and per-alias switches, and a dismissal for anything that still
 slips through — because a noisy suggestion list is how a feature like this gets turned off.
 
-Later phases add timeline, storyboard and map panes; AI assistance (Anthropic, OpenAI, Hugging
-Face, LM Studio); OneDrive/FTP/SFTP projects; and DOCX import and export. The file system, index
+In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
+are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps
+the position you dragged it to, rather than being guessed at.
+
+Later phases add map panes; AI assistance (Anthropic, OpenAI, Hugging Face, LM Studio);
+OneDrive/FTP/SFTP projects; and DOCX import and export. The file system, index
 and data model are already built as the abstractions those need.
 
 ## Running it
@@ -115,6 +125,9 @@ by a single walker in `shared/pm/extractText.ts`, and everything that leaves it 
 snippets, mention ranges, the offsets written to the database — is in normalised block
 coordinates. A second implementation of that normalisation would drift silently, and only for
 documents with hard breaks or lists.
+
+**Records link by id, everywhere.** A mention mark, a beat's cast list, a beat's scene link —
+all ids. Renaming a character or moving a chapter in Finder cannot break any of them.
 
 **A mention mark stores an id, never a name.** That is what makes renaming a character free: no
 document is touched, and the backlinks re-point from the index without reading a single file.

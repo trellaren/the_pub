@@ -13,6 +13,7 @@ import { SnapshotService } from './snapshotService.js'
 import { SearchIndexService } from './searchIndexService.js'
 import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
+import { BeatService } from './beatService.js'
 import { MentionService } from './mentionService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSION } from '../../shared/constants.js'
 
@@ -32,6 +33,7 @@ export class ProjectSession {
   readonly search: SearchIndexService
   readonly layout: LayoutService
   readonly entities: EntityService
+  readonly beats: BeatService
   readonly mentions: MentionService
   private unwatch: Unwatch | null = null
 
@@ -45,6 +47,7 @@ export class ProjectSession {
     this.documents = new DocumentService(adapter, this.snapshots)
     this.layout = new LayoutService(adapter)
     this.entities = new EntityService(adapter)
+    this.beats = new BeatService(adapter)
     this.search = new SearchIndexService(
       adapter,
       indexDbPath(uri, adapter.root),
@@ -70,6 +73,7 @@ export class ProjectSession {
     // Before the first index pass, so documents are scanned against the real
     // roster rather than an empty one.
     await this.entities.load().catch(() => {})
+    await this.beats.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))
     // Index in the background: a large project must not delay the first paint.
     void this.search.syncAll().catch(() => {})

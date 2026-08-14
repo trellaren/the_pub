@@ -42,6 +42,8 @@ export type PanelComponent =
   | 'styles'
   | 'characters'
   | 'locations'
+  | 'timeline'
+  | 'storyboard'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

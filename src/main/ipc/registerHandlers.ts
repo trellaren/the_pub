@@ -230,6 +230,19 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  handle('beats:list', (_payload, event) => requireSession(event).beats.snapshot())
+  handle('beats:create', ({ title, columnId, docId }, event) =>
+    requireSession(event).beats.create({ title, columnId, docId })
+  )
+  handle('beats:save', ({ beat }, event) => requireSession(event).beats.save(beat))
+  handle('beats:delete', async ({ id }, event) => {
+    await requireSession(event).beats.remove(id)
+    return { ok: true as const }
+  })
+  handle('beats:saveColumns', ({ columns }, event) =>
+    requireSession(event).beats.saveColumns(columns)
+  )
+
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())
   handle('layout:saveLast', async ({ layout }, event) => {
     await requireSession(event).layout.saveLast(layout)

@@ -14,6 +14,8 @@ export const SNAPSHOTS_DIR = `${PUB_DIR}/snapshots`
 export const INDEX_FILE = `${PUB_DIR}/index.db`
 /** Characters and locations. Kept out of the manifest: see model/entity.ts. */
 export const ENTITIES_FILE = `${PUB_DIR}/entities.json`
+/** Story beats, shared by the timeline and the storyboard. */
+export const BEATS_FILE = `${PUB_DIR}/beats.json`
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']
@@ -41,6 +43,8 @@ export const SEARCH_DEBOUNCE_MS = 250
  * file write *and* a project-wide mention rescan.
  */
 export const ENTITY_SAVE_DEBOUNCE_MS = 600
+/** Beats are edited through the same write-through forms; same reasoning. */
+export const BEAT_SAVE_DEBOUNCE_MS = 600
 
 /**
  * Shortest name or alias the scanner will look for. A character called "Al"

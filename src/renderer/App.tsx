@@ -6,6 +6,7 @@ import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
+import { useBeatStore } from './stores/beatStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { invoke, on, onError } from './lib/ipc.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
@@ -35,6 +36,7 @@ export function App() {
   useEffect(() => {
     if (!project) return
     void useEntityStore.getState().load()
+    void useBeatStore.getState().load()
   }, [project?.root])
 
   useEffect(() => {
@@ -120,7 +122,8 @@ export function App() {
         useDocumentStore.getState().flushAll(),
         // Record edits are debounced the same way typing is, and are just as
         // easy to lose on the way out.
-        useEntityStore.getState().flush()
+        useEntityStore.getState().flush(),
+        useBeatStore.getState().flush()
       ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])

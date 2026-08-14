@@ -7,6 +7,7 @@ import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
+import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -94,6 +95,23 @@ export const ipcContract = defineContract({
     'mentions:dismiss': {
       req: z.object({ entityId: z.string(), docId: z.string(), surface: z.string() }),
       res: ok
+    },
+
+    /** Beats and columns together: both views need the whole board at once. */
+    'beats:list': { req: empty, res: beatFileSchema },
+    'beats:create': {
+      req: z.object({
+        title: z.string(),
+        columnId: z.string().optional(),
+        docId: z.string().nullable().optional()
+      }),
+      res: beatSchema
+    },
+    'beats:save': { req: z.object({ beat: beatSchema }), res: beatSchema },
+    'beats:delete': { req: z.object({ id: z.string() }), res: ok },
+    'beats:saveColumns': {
+      req: z.object({ columns: z.array(boardColumnSchema) }),
+      res: z.array(boardColumnSchema)
     },
 
     'layout:load': { req: empty, res: layoutFileSchema },

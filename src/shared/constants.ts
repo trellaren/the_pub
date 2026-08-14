@@ -12,6 +12,8 @@ export const MANIFEST_FILE = `${PUB_DIR}/project.json`
 export const LAYOUTS_FILE = `${PUB_DIR}/layouts.json`
 export const SNAPSHOTS_DIR = `${PUB_DIR}/snapshots`
 export const INDEX_FILE = `${PUB_DIR}/index.db`
+/** Characters and locations. Kept out of the manifest: see model/entity.ts. */
+export const ENTITIES_FILE = `${PUB_DIR}/entities.json`
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']
@@ -32,3 +34,24 @@ export const ASSET_PROTOCOL = 'pub-asset'
 export const LAYOUT_SAVE_DEBOUNCE_MS = 1000
 /** Debounce for search-as-you-type. */
 export const SEARCH_DEBOUNCE_MS = 250
+
+/**
+ * Debounce for writing entities.json. The record forms write straight through
+ * with no draft state, so without this every keystroke in a Name field is a
+ * file write *and* a project-wide mention rescan.
+ */
+export const ENTITY_SAVE_DEBOUNCE_MS = 600
+
+/**
+ * Shortest name or alias the scanner will look for. A character called "Al"
+ * would otherwise match half the manuscript; short names stay reachable
+ * through an explicit @-mention, which is the authoritative source anyway.
+ */
+export const MIN_SCAN_LENGTH = 3
+
+/**
+ * Cap on unconfirmed suggestions stored per (entity, document). The true count
+ * is still reported in the summary — this only bounds what the index holds for
+ * a name that appears on every page.
+ */
+export const MAX_SUGGESTIONS_PER_DOC = 50

@@ -243,6 +243,14 @@ export function registerHandlers(context: HandlerContext): void {
     requireSession(event).beats.saveColumns(columns)
   )
 
+  handle('maps:list', (_payload, event) => requireSession(event).maps.snapshot())
+  handle('maps:create', ({ name }, event) => requireSession(event).maps.create(name))
+  handle('maps:save', ({ map }, event) => requireSession(event).maps.save(map))
+  handle('maps:delete', async ({ id }, event) => {
+    await requireSession(event).maps.remove(id)
+    return { ok: true as const }
+  })
+
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())
   handle('layout:saveLast', async ({ layout }, event) => {
     await requireSession(event).layout.saveLast(layout)

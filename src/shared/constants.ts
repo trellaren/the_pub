@@ -16,6 +16,8 @@ export const INDEX_FILE = `${PUB_DIR}/index.db`
 export const ENTITIES_FILE = `${PUB_DIR}/entities.json`
 /** Story beats, shared by the timeline and the storyboard. */
 export const BEATS_FILE = `${PUB_DIR}/beats.json`
+/** Vector maps, including their drill-down links. */
+export const MAPS_FILE = `${PUB_DIR}/maps.json`
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']
@@ -45,6 +47,8 @@ export const SEARCH_DEBOUNCE_MS = 250
 export const ENTITY_SAVE_DEBOUNCE_MS = 600
 /** Beats are edited through the same write-through forms; same reasoning. */
 export const BEAT_SAVE_DEBOUNCE_MS = 600
+/** Drawing emits changes far faster than typing, so maps wait a little longer. */
+export const MAP_SAVE_DEBOUNCE_MS = 800
 
 /**
  * Shortest name or alias the scanner will look for. A character called "Al"

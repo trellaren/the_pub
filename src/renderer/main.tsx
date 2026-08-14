@@ -6,6 +6,7 @@ import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useBeatStore } from './stores/beatStore.js'
+import { useMapStore } from './stores/mapStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand } from './commands/registry.js'
@@ -29,6 +30,7 @@ Object.assign(window, {
     layout: useLayoutStore,
     entities: useEntityStore,
     beats: useBeatStore,
+    maps: useMapStore,
     confirmMention: confirmMentionHere,
     openLocation,
     runCommand

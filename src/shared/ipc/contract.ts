@@ -8,6 +8,7 @@ import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
+import { mapFileSchema, storyMapSchema } from '../model/map.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -113,6 +114,11 @@ export const ipcContract = defineContract({
       req: z.object({ columns: z.array(boardColumnSchema) }),
       res: z.array(boardColumnSchema)
     },
+
+    'maps:list': { req: empty, res: mapFileSchema },
+    'maps:create': { req: z.object({ name: z.string() }), res: storyMapSchema },
+    'maps:save': { req: z.object({ map: storyMapSchema }), res: storyMapSchema },
+    'maps:delete': { req: z.object({ id: z.string() }), res: ok },
 
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },

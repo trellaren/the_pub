@@ -44,6 +44,7 @@ export type PanelComponent =
   | 'locations'
   | 'timeline'
   | 'storyboard'
+  | 'maps'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

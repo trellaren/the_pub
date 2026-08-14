@@ -55,6 +55,8 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Search', click: send('panel.search') },
         { label: 'Characters', click: send('panel.characters') },
         { label: 'Locations', click: send('panel.locations') },
+        { label: 'Timeline', click: send('panel.timeline') },
+        { label: 'Storyboard', click: send('panel.storyboard') },
         { type: 'separator' },
         { label: 'Save Layout As…', click: send('layout.savePreset') },
         { label: 'Reset Layout', click: send('layout.reset') },

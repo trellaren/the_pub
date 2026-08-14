@@ -6,6 +6,8 @@ import { EditorPanel } from '@renderer/panels/editor/EditorPanel.js'
 import { WelcomePanel } from '@renderer/panels/welcome/WelcomePanel.js'
 import { StylesPanel } from '@renderer/panels/styles/StylesPanel.js'
 import { CharactersPanel, LocationsPanel } from '@renderer/panels/entities/EntityPanel.js'
+import { TimelinePanel } from '@renderer/panels/beats/TimelinePanel.js'
+import { StoryboardPanel } from '@renderer/panels/beats/StoryboardPanel.js'
 
 /**
  * Panel type → component. Dockview stores only the string in a saved layout, so
@@ -20,5 +22,8 @@ export const panelComponents: Record<string, FunctionComponent<IDockviewPanelPro
   // Two keys, one component: `showPanel` takes no parameters, so a pair of
   // one-line wrappers is the honest way to give each kind its own panel.
   characters: CharactersPanel as FunctionComponent<IDockviewPanelProps>,
-  locations: LocationsPanel as FunctionComponent<IDockviewPanelProps>
+  locations: LocationsPanel as FunctionComponent<IDockviewPanelProps>,
+  // Two views of one set of beats: chronology and manuscript order.
+  timeline: TimelinePanel as FunctionComponent<IDockviewPanelProps>,
+  storyboard: StoryboardPanel as FunctionComponent<IDockviewPanelProps>
 }

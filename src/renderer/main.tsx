@@ -5,6 +5,7 @@ import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
+import { useBeatStore } from './stores/beatStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand } from './commands/registry.js'
@@ -27,6 +28,7 @@ Object.assign(window, {
     documents: useDocumentStore,
     layout: useLayoutStore,
     entities: useEntityStore,
+    beats: useBeatStore,
     confirmMention: confirmMentionHere,
     openLocation,
     runCommand

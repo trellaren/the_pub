@@ -68,7 +68,13 @@ export class ConnectionStore {
     const id = existing?.id ?? incoming.id ?? ulid()
     if (secret !== undefined) {
       if (secret === '') delete secrets[id]
-      else if (safeStorage.isEncryptionAvailable()) {
+      // A password is dropped rather than written in the clear when there is no
+      // keychain — a project folder that syncs to the very server it holds the
+      // credentials for is the case this rule exists for. The profile still
+      // saves, and `hasSecret` below reports the truth, which is what the
+      // connect dialog shows; it also warns before anything is typed, from
+      // `secureStorageAvailable`.
+      else if (this.secureStorageAvailable()) {
         secrets[id] = safeStorage.encryptString(secret).toString('base64')
       }
     }

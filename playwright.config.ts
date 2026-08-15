@@ -7,5 +7,8 @@ export default defineConfig({
   // Electron instances contend for the same user-data directory and display.
   fullyParallel: false,
   workers: 1,
+  // The packaged suite needs an artifact from `npm run package`, which is not
+  // there by default. It runs from playwright.packaged.config.ts instead.
+  testIgnore: '**/packaged.spec.ts',
   reporter: [['list']]
 })

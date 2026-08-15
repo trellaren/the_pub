@@ -96,7 +96,11 @@ export class WindowManager {
    */
   private hardenWebContents(contents: WebContents, ownerId: number): void {
     contents.setWindowOpenHandler(({ url }) => {
-      if (isPopoutUrl(url)) {
+      // Both halves matter. The path alone would let any host serving a
+      // `/popout.html` inherit the opener's webPreferences — the preload bridge
+      // included — and a manuscript's links are written by the author and by
+      // the AI, so `target="_blank"` to such a URL is a real route in.
+      if (this.isInternalUrl(url) && isPopoutUrl(url)) {
         // Only cosmetic options are overridden. The child deliberately inherits
         // the opener's webPreferences: giving it its own would put it in a
         // separate context, and a torn-off pane has to keep sharing the
@@ -185,7 +189,12 @@ export class WindowManager {
   }
 }
 
-/** Dockview opens popout groups at our own `popout.html`, same-origin with the app. */
+/**
+ * Dockview opens popout groups at `popout.html`.
+ *
+ * The origin is checked separately by the caller — this only answers "is that
+ * the popout page", and on its own it is not an authorisation.
+ */
 function isPopoutUrl(url: string): boolean {
   try {
     return new URL(url).pathname.endsWith('/popout.html')

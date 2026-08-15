@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, dialog, session } from 'electron'
 import { WindowManager } from './windows/windowManager.js'
 import { startRendererServer, type RendererServer } from './server/rendererServer.js'
 import fs from 'node:fs'
@@ -15,8 +15,18 @@ import { buildMenu } from './menu.js'
 // Must run before `app.whenReady()`.
 registerAssetSchemePrivileges()
 
+/*
+ * A second copy of the app hands its arguments to the first and stops here.
+ *
+ * `app.quit()` alone is not enough: it is asynchronous, so this module would
+ * keep evaluating and `whenReady` could still fire — binding a second loopback
+ * server and opening a second window before the quit lands. `app.exit` is
+ * immediate, and this process has nothing to flush because it has not opened
+ * anything yet. Far more likely with a packaged app, which gets double-clicked,
+ * than with `npm run dev`.
+ */
 if (!app.requestSingleInstanceLock()) {
-  app.quit()
+  app.exit(0)
 }
 
 const windows = new WindowManager()
@@ -73,6 +83,26 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+/*
+ * Say so when startup fails.
+ *
+ * Everything above runs inside one `then`, and most of it — the loopback
+ * server, the asset protocol, the IPC handlers, the first window — only runs in
+ * a packaged build. An exception anywhere in there used to reject silently: no
+ * window, no message, a dock icon that bounces once and stops. That is the
+ * worst failure this app has, because there is nothing at all to go on.
+ *
+ * `showErrorBox` works before any window exists, which is exactly the case here.
+ */
+app.whenReady().then(
+  () => undefined,
+  (error: unknown) => {
+    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    dialog.showErrorBox('The Pub could not start', detail)
+    app.exit(1)
+  }
+)
 
 app.on('second-instance', () => {
   const [existing] = BrowserWindow.getAllWindows()

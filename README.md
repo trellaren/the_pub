@@ -116,18 +116,50 @@ and no channel hands it to the interface.
 npm install
 npm run dev        # development, with hot reload
 npm run build      # typecheck and build
-npm run package    # build an unpacked app in release/
 ```
+
+## Releasing
+
+```sh
+npm run package    # an unpacked app in release/, for this platform
+npm run dist       # the installers configured for this platform
+```
+
+`--dir` packing works on any host, including cross-platform: a Windows `The Pub.exe` builds
+correctly from Linux. **Installers do not cross platforms.** The NSIS installer shells out to Wine
+when built anywhere but Windows, the macOS DMG can only be built on macOS, and neither is
+code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an unsigned macOS
+build has to be opened from the context menu the first time. Signing needs certificates that only
+whoever ships the app can hold.
+
+So a real release means running `npm run dist` on each target platform, or on a machine with Wine
+for the Windows one.
+
+| | Builds on | Needs |
+|---|---|---|
+| Windows app (`--dir`) | any host | — |
+| Windows NSIS installer | Windows, or Linux with Wine | Wine off-Windows; a certificate to sign |
+| macOS `.dmg` / `.zip` | macOS only | a Developer ID to sign and notarise |
+| Linux AppImage / deb | Linux | — |
+
+The application icon is `resources/icon.png`, with its vector source beside it; electron-builder
+derives every platform's format from it.
 
 ## Tests
 
 ```sh
-npm run typecheck  # main, renderer and e2e projects
-npm test           # unit tests (vitest)
-npm run e2e        # end-to-end tests driving the real app (Playwright + Electron)
+npm run typecheck    # main, renderer and e2e projects
+npm test             # unit tests (vitest)
+npm run e2e          # end-to-end tests driving the real app (Playwright + Electron)
+npm run e2e:packaged # the same, against a packaged build — run `npm run package` first
 ```
 
 On a headless machine, run the end-to-end tests under a virtual display: `xvfb-run -a npm run e2e`.
+
+The packaged suite covers only what packaging changes — the asar archive, the production
+dependencies inside it, and the real executable's own profile directory. Everything else is already
+exercised against the development build, including the loopback renderer server and the production
+content-security-policy, because the test harness sets no `ELECTRON_RENDERER_URL`.
 
 Before merging, run the whole suite against a clean clone of committed history:
 
@@ -181,6 +213,15 @@ assumes the rename failed *because* the destination existed: a rename refused fo
 a lock, a permission, a throttled account — would then delete the previous version and fail anyway,
 and the chapter that was on the server a second ago would be gone. If even putting it back fails,
 the error names the file it is safe under.
+
+**A packaged app is a different program, and is tested as one.** Main and preload move inside
+`app.asar`, the six runtime dependencies the main bundle imports by name come from a pruned
+production `node_modules` inside that archive, and `userData` moves from `the-pub` to `The Pub`.
+That last one surprises people: saved servers, AI keys and recent projects from a development run do
+not appear in a packaged one, and secrets encrypted by one binary cannot be decrypted by the other,
+because `safeStorage` is keyed to the application's identity with the OS keychain. Both stores
+already treat an undecryptable secret as absent, so nothing breaks — it just looks like the keys
+went missing. `e2e/packaged.spec.ts` drives the real artifact and covers exactly this delta.
 
 **Nothing the renderer can reach holds a credential.** Server passwords, key passphrases, AI keys
 and the OneDrive refresh token all live encrypted in the app's own data directory, and every channel

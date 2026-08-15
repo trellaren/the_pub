@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { unzipSync, strFromU8 } from 'fflate'
 import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness } from './helpers.js'
 import { buildDocx, paragraph, run, WORD_STYLES } from '../src/main/docx/fixtures.js'
@@ -35,6 +37,63 @@ async function write(text: string): Promise<void> {
 
 function documentXml(bytes: Uint8Array): string {
   return strFromU8(unzipSync(bytes)['word/document.xml']!)
+}
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * LibreOffice, where this machine has one that can actually convert.
+ *
+ * Word is not scriptable and is not on any machine that builds this, so the
+ * closest available thing to "a real Word user opened it" is a different,
+ * independent OOXML implementation reading the file.
+ *
+ * The probe converts a scratch text file to `.docx` rather than just asking for
+ * `--version`. `libreoffice-core` alone answers `--version` perfectly happily
+ * and then fails every conversion with "source file could not be loaded",
+ * because the Writer module that provides the document filters is a separate
+ * package. Probing with a real conversion is what separates "LibreOffice cannot
+ * open anything here" — a reason to skip — from "LibreOffice cannot open *our*
+ * file", which is the failure this test exists to catch.
+ */
+async function findSoffice(probeDir: string): Promise<string | null> {
+  const candidates =
+    process.platform === 'darwin'
+      ? ['/Applications/LibreOffice.app/Contents/MacOS/soffice', 'soffice']
+      : process.platform === 'win32'
+        ? ['C:\\Program Files\\LibreOffice\\program\\soffice.exe', 'soffice']
+        : ['soffice', 'libreoffice']
+
+  const source = path.join(probeDir, 'probe.txt')
+  await fs.writeFile(source, 'probe\n')
+
+  for (const candidate of candidates) {
+    try {
+      await execFileAsync(candidate, [...sofficeArgs(probeDir, 'docx:MS Word 2007 XML', probeDir), source], {
+        timeout: 150_000
+      })
+      await fs.access(path.join(probeDir, 'probe.docx'))
+      return candidate
+    } catch {
+      // Either not installed here, or installed without the Writer filters.
+    }
+  }
+  return null
+}
+
+/** The switches every headless conversion needs, in one place. */
+function sofficeArgs(profileDir: string, filter: string, outDir: string): string[] {
+  return [
+    // Its own throwaway profile: a shared one races between runs and hangs when
+    // HOME is not writable.
+    `-env:UserInstallation=file://${path.join(profileDir, 'lo-profile')}`,
+    '--headless',
+    '--convert-to',
+    filter,
+    // Without this the output lands relative to cwd, which is the repo root.
+    '--outdir',
+    outDir
+  ]
 }
 
 test('a document exports to a .docx that carries the prose and the style', async () => {
@@ -184,6 +243,44 @@ test('several documents export into one file, page-broken between', async () => 
   expect(xml).toContain('The second chapter.')
   // One continuous manuscript is what an agent expects, not two files.
   expect(xml).toContain('pageBreakBefore')
+})
+
+test('an exported .docx is accepted by a real OOXML reader', async () => {
+  /*
+   * The one thing the rest of this suite cannot prove.
+   *
+   * Everything else here checks our exporter against our own importer and our
+   * own fixtures, so a shared misreading of the format would pass both ways.
+   * LibreOffice is a wholly independent implementation: if it can open the file
+   * and find the prose, the bytes are a real `.docx` and not merely one this
+   * app agrees with itself about.
+   */
+  // A first run builds a user profile, which takes far longer than converting.
+  test.setTimeout(240_000)
+  const probeDir = path.join(scratch, 'probe')
+  await fs.mkdir(probeDir, { recursive: true })
+  const soffice = await findSoffice(probeDir)
+  test.skip(soffice === null, 'no LibreOffice on this machine that can convert documents')
+
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+  await write('The lighthouse keeper counted the days.')
+
+  const target = path.join(scratch, 'chapter.docx')
+  await harness.page.evaluate(
+    (file) => window.pub.invoke('docx:export', { paths: ['chapter-01.pubdoc'], file }),
+    target
+  )
+
+  await execFileAsync(soffice!, [...sofficeArgs(scratch, 'txt:Text', scratch), target], {
+    timeout: 150_000
+  })
+
+  // Assert on the output, never on the exit code: soffice returns 0 having
+  // converted nothing more often than you would like.
+  const text = await fs.readFile(path.join(scratch, 'chapter.txt'), 'utf8')
+  expect(text).toContain('The lighthouse keeper counted the days.')
 })
 
 test('a name Windows cannot store is refused with something readable', async () => {

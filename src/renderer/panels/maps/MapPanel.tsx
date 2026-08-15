@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MapShape } from '@shared/model/map.js'
-import { breadcrumbTo, wouldCycle } from '@shared/model/map.js'
+import type { MapShape, MapIcon } from '@shared/model/map.js'
+import {
+  breadcrumbTo,
+  wouldCycle,
+  clampStrokeWidth,
+  DEFAULT_STROKE_WIDTH,
+  DEFAULT_AREA_OPACITY,
+  MIN_STROKE_WIDTH,
+  MAX_STROKE_WIDTH
+} from '@shared/model/map.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useMapStore } from '@renderer/stores/mapStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
@@ -14,6 +22,7 @@ import {
   TextArea,
   Select,
   Field,
+  NumberField,
   SectionTitle,
   Divider,
   cx
@@ -23,6 +32,8 @@ import { invoke, attempt, errorMessage, reportError } from '@renderer/lib/ipc.js
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 import { fitToMapBox } from '@shared/model/map.js'
 import { MapCanvas, type MapTool } from './MapCanvas.js'
+import { MAP_ICON_KEYS, MAP_ICON_LABELS } from './icons.js'
+import { MapIconGlyph } from './MapIconGlyph.js'
 import { NewMapDialog } from './NewMapDialog.js'
 
 const TOOLS: { id: MapTool; label: string; glyph: string }[] = [
@@ -49,6 +60,9 @@ export function MapPanel() {
 
   const [tool, setTool] = useState<MapTool>('select')
   const [color, setColor] = useState('#7aa2f7')
+  const [icon, setIcon] = useState<MapIcon | null>(null)
+  const [strokeWidth, setStrokeWidth] = useState(DEFAULT_STROKE_WIDTH)
+  const [opacity, setOpacity] = useState(DEFAULT_AREA_OPACITY)
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
   const [newMap, setNewMap] = useState<{ owner?: Document } | null>(null)
   /** Where this pane actually lives — the popout's document when torn off. */
@@ -119,7 +133,14 @@ export function MapPanel() {
     }
     const created = useMapStore.getState().addShape(map.id, kind, points, text)
     if (created) {
-      useMapStore.getState().patchShape(map.id, created.id, { color })
+      // How it was drawn, recorded on the shape — so the inspector can change
+      // any of it afterwards, the way colour already worked.
+      useMapStore.getState().patchShape(map.id, created.id, {
+        color,
+        strokeWidth,
+        opacity,
+        ...(kind === 'marker' ? { icon } : {})
+      })
       setSelectedShapeId(created.id)
     }
     // Back to selecting after one shape: the alternative is drawing a second
@@ -212,6 +233,48 @@ export function MapPanel() {
               title="Colour for new shapes"
               className="pub-focus-ring ml-1 h-6 w-8 cursor-pointer rounded border border-border bg-surface-2"
             />
+            {tool === 'marker' ? (
+              <Select
+                value={icon ?? ''}
+                onChange={(event) => setIcon((event.target.value || null) as MapIcon | null)}
+                title="Icon for new markers"
+                data-testid="map-tool-icon"
+                className="ml-1 h-6"
+              >
+                <option value="">Plain marker</option>
+                {MAP_ICON_KEYS.map((key) => (
+                  <option key={key} value={key}>
+                    {MAP_ICON_LABELS[key]}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+            {tool === 'path' || tool === 'area' ? (
+              <input
+                type="number"
+                min={MIN_STROKE_WIDTH}
+                max={MAX_STROKE_WIDTH}
+                step={0.5}
+                value={strokeWidth}
+                onChange={(event) => setStrokeWidth(clampStrokeWidth(Number(event.target.value)))}
+                title="Stroke width for new shapes"
+                data-testid="map-tool-stroke-width"
+                className="pub-focus-ring ml-1 h-6 w-14 rounded border border-border bg-surface-2 px-1 text-[12px] text-text"
+              />
+            ) : null}
+            {tool === 'area' ? (
+              <input
+                type="range"
+                min={0.05}
+                max={1}
+                step={0.05}
+                value={opacity}
+                onChange={(event) => setOpacity(Number(event.target.value))}
+                title="Fill opacity for new regions"
+                data-testid="map-tool-opacity"
+                className="ml-1 h-6 w-16 cursor-pointer"
+              />
+            ) : null}
           </div>
 
           {trail.length > 1 ? (
@@ -244,9 +307,13 @@ export function MapPanel() {
                   map={map}
                   tool={tool}
                   color={color}
+                  strokeWidth={strokeWidth}
                   selectedId={selectedShapeId}
                   onSelect={setSelectedShapeId}
                   onDraw={(kind, points) => void draw(kind, points)}
+                  onMove={(shapeId, point) =>
+                    useMapStore.getState().patchShape(map.id, shapeId, { points: [point] })
+                  }
                   onOpenShape={openShape}
                 />
               ) : null}
@@ -277,6 +344,83 @@ export function MapPanel() {
                     className="pub-focus-ring h-7 w-12 cursor-pointer rounded border border-border bg-surface-2"
                   />
                 </Field>
+
+                {shape.kind === 'marker' ? (
+                  <Field label="Icon">
+                    <div className="grid grid-cols-5 gap-1" data-testid="shape-icon-grid">
+                      <button
+                        type="button"
+                        title="Plain marker"
+                        aria-pressed={!shape.icon}
+                        data-testid="shape-icon-none"
+                        onClick={() =>
+                          useMapStore.getState().patchShape(map.id, shape.id, { icon: null })
+                        }
+                        className={cx(
+                          'pub-focus-ring flex h-7 w-7 items-center justify-center rounded border',
+                          !shape.icon
+                            ? 'border-accent bg-accent-soft text-accent'
+                            : 'border-border text-muted hover:bg-surface-3 hover:text-text'
+                        )}
+                      >
+                        ●
+                      </button>
+                      {MAP_ICON_KEYS.map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          title={MAP_ICON_LABELS[key]}
+                          aria-pressed={shape.icon === key}
+                          data-testid={`shape-icon-${key}`}
+                          onClick={() =>
+                            useMapStore.getState().patchShape(map.id, shape.id, { icon: key })
+                          }
+                          className={cx(
+                            'pub-focus-ring flex h-7 w-7 items-center justify-center rounded border',
+                            shape.icon === key
+                              ? 'border-accent bg-accent-soft text-accent'
+                              : 'border-border text-muted hover:bg-surface-3 hover:text-text'
+                          )}
+                        >
+                          <MapIconGlyph icon={key} size={16} />
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                ) : null}
+
+                {shape.kind !== 'label' ? (
+                  <NumberField
+                    label="Stroke width"
+                    value={shape.strokeWidth}
+                    step={0.5}
+                    onChange={(value) =>
+                      useMapStore.getState().patchShape(map.id, shape.id, {
+                        strokeWidth: value === undefined ? DEFAULT_STROKE_WIDTH : clampStrokeWidth(value)
+                      })
+                    }
+                  />
+                ) : null}
+
+                {shape.kind === 'area' ? (
+                  <Field label="Fill opacity">
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={1}
+                      step={0.05}
+                      value={shape.opacity ?? DEFAULT_AREA_OPACITY}
+                      onChange={(event) =>
+                        useMapStore
+                          .getState()
+                          .patchShape(map.id, shape.id, { opacity: Number(event.target.value) })
+                      }
+                      data-testid="shape-opacity"
+                      className="w-full cursor-pointer"
+                    />
+                  </Field>
+                ) : null}
+
 
                 <SectionTitle>Links</SectionTitle>
                 <Field label="Location record">

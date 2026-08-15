@@ -12,6 +12,12 @@ import {
   toMapSpace,
   zoomView,
   fitToMapBox,
+  mapShapeSchema,
+  clampStrokeWidth,
+  DEFAULT_STROKE_WIDTH,
+  DEFAULT_AREA_OPACITY,
+  MIN_STROKE_WIDTH,
+  MAX_STROKE_WIDTH,
   MAP_SIZE,
   type StoryMap
 } from './map.js'
@@ -245,5 +251,60 @@ describe('fitToMapBox', () => {
   it('falls back to the square default on degenerate input', () => {
     expect(fitToMapBox(0, 100)).toEqual({ width: MAP_SIZE, height: MAP_SIZE })
     expect(fitToMapBox(-5, 100)).toEqual({ width: MAP_SIZE, height: MAP_SIZE })
+  })
+})
+
+describe('shapes drawn before icons and brushes existed', () => {
+  /*
+   * Maps are read back through this schema on every load, so a shape saved by
+   * an older build has to survive the trip. Nothing here is a migration — the
+   * defaults are the migration.
+   */
+  it('takes the plain marker and the old stroke and fill it was drawn with', () => {
+    const legacy = {
+      id: 'a',
+      kind: 'area',
+      text: 'The moors',
+      points: [{ x: 0, y: 0 }],
+      entityId: null,
+      childMapId: null,
+      notes: ''
+    }
+    expect(mapShapeSchema.parse(legacy)).toMatchObject({
+      icon: null,
+      strokeWidth: DEFAULT_STROKE_WIDTH,
+      opacity: DEFAULT_AREA_OPACITY
+    })
+  })
+
+  it('refuses a stroke width that would vanish', () => {
+    expect(() => mapShapeSchema.parse({ id: 'a', kind: 'path', strokeWidth: 0 })).toThrow()
+    expect(() => mapShapeSchema.parse({ id: 'a', kind: 'path', strokeWidth: -3 })).toThrow()
+  })
+
+  it('refuses an icon it has no drawing for', () => {
+    expect(() => mapShapeSchema.parse({ id: 'a', kind: 'marker', icon: 'spaceport' })).toThrow()
+  })
+})
+
+describe('clampStrokeWidth', () => {
+  /*
+   * The panel clamps before storing rather than letting the schema refuse at
+   * save time: nothing validates an IPC request on the way out, so an
+   * out-of-range width would fail inside the debounced write, get swallowed
+   * into a toast, and retry forever against a store that had already moved on.
+   */
+  it('keeps a sane width untouched', () => {
+    expect(clampStrokeWidth(4)).toBe(4)
+  })
+
+  it('pulls an unusable one back into range', () => {
+    expect(clampStrokeWidth(0)).toBe(MIN_STROKE_WIDTH)
+    expect(clampStrokeWidth(-8)).toBe(MIN_STROKE_WIDTH)
+    expect(clampStrokeWidth(9999)).toBe(MAX_STROKE_WIDTH)
+  })
+
+  it('falls back to the default for an empty or unparseable field', () => {
+    expect(clampStrokeWidth(Number.NaN)).toBe(DEFAULT_STROKE_WIDTH)
   })
 })

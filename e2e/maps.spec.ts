@@ -314,6 +314,81 @@ test('a marker lands where the pointer was on a map that does not fill its panel
   await fs.rm(imagePath, { force: true })
 })
 
+test('a marker can be given an icon, and keeps it', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createMap('The world')
+  await showMaps()
+
+  await harness.page.getByTestId('map-tool-marker').click()
+  await harness.page.getByTestId('map-tool-icon').selectOption('castle')
+  const box = (await harness.page.getByTestId('map-canvas').boundingBox())!
+  await harness.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+
+  await harness.page.evaluate(() => window.__pub.maps.getState().flush())
+  await waitFor(async () => (await storedMaps())[0]?.shapes[0]?.icon === 'castle', 'the icon to be written')
+
+  // And it can be changed afterwards, from the inspector, without redrawing it.
+  await harness.page.getByTestId('shape-icon-lighthouse').click()
+  await harness.page.evaluate(() => window.__pub.maps.getState().flush())
+  await waitFor(
+    async () => (await storedMaps())[0]?.shapes[0]?.icon === 'lighthouse',
+    'the icon to be changed'
+  )
+})
+
+/*
+ * Repositioning used to mean deleting and drawing again, which threw away the
+ * record link, the drill-down and the notes — everything about the marker except
+ * where it was. This drags one that carries all three.
+ */
+test('a selected marker can be dragged, keeping everything it was linked to', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const world = await createMap('The world')
+  const city = await createMap('Ashfall')
+  await harness.page.evaluate(
+    ({ worldId, cityId }) => {
+      const store = window.__pub.maps.getState()
+      const marker = store.addShape(worldId, 'marker', [{ x: 200, y: 200 }], 'Ashfall')
+      if (marker) store.patchShape(worldId, marker.id, { childMapId: cityId, notes: 'Founded in winter' })
+      return store.flush()
+    },
+    { worldId: world!.id, cityId: city!.id }
+  )
+  await harness.page.evaluate((id) => window.__pub.maps.getState().setActive(id), world!.id)
+  await showMaps()
+
+  // Selected first: a press on an unselected shape still pans, so a stray drag
+  // on the way somewhere else cannot nudge the map about.
+  const marker = harness.page.locator('[data-testid="map-shape"]').first()
+  await marker.click()
+  await expect(harness.page.getByTestId('map-inspector')).toBeVisible()
+
+  // Start from where the marker actually is on screen rather than a fraction of
+  // the canvas: the map is letterboxed inside the panel, so those are not the
+  // same point.
+  const dot = (await marker.boundingBox())!
+  const box = (await harness.page.getByTestId('map-canvas').boundingBox())!
+  const from = { x: dot.x + dot.width / 2, y: dot.y + dot.height / 2 }
+  const to = { x: box.x + box.width * 0.65, y: box.y + box.height * 0.6 }
+  await harness.page.mouse.move(from.x, from.y)
+  await harness.page.mouse.down()
+  await harness.page.mouse.move(to.x, to.y, { steps: 8 })
+  await harness.page.mouse.up()
+
+  await harness.page.evaluate(() => window.__pub.maps.getState().flush())
+  await waitFor(async () => {
+    const point = (await storedMaps()).find((item) => item.id === world!.id)?.shapes[0]?.points[0]
+    return point ? Math.abs(point.x - 200) > 50 : false
+  }, 'the marker to move')
+
+  const moved = (await storedMaps()).find((item) => item.id === world!.id)!.shapes[0]!
+  expect(moved.childMapId).toBe(city!.id)
+  expect(moved.notes).toBe('Founded in winter')
+  expect(moved.text).toBe('Ashfall')
+})
+
 test('a background can be replaced and removed on an existing map', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

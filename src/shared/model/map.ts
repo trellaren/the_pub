@@ -17,6 +17,47 @@ export const mapShapeKinds = ['marker', 'path', 'area', 'label'] as const
 export const mapShapeKindSchema = z.enum(mapShapeKinds)
 export type MapShapeKind = z.infer<typeof mapShapeKindSchema>
 
+/**
+ * What a marker draws itself as.
+ *
+ * A closed set rather than a free string: these are drawn glyphs that have to
+ * exist to be rendered, so an unknown name is a blank marker rather than a
+ * useful one. Fantasy settlements and terrain first, since that is what most
+ * story maps are, then the handful of neutral pins a modern or contemporary map
+ * wants.
+ */
+export const mapIconKinds = [
+  'city',
+  'town',
+  'village',
+  'castle',
+  'tower',
+  'bridge',
+  'forest',
+  'mountain',
+  'cave',
+  'ruins',
+  'temple',
+  'farm',
+  'mine',
+  'port',
+  'lighthouse',
+  'camp',
+  'crossroads',
+  'flag',
+  'star',
+  'waypoint'
+] as const
+export const mapIconSchema = z.enum(mapIconKinds)
+export type MapIcon = z.infer<typeof mapIconSchema>
+
+/** How wide a stroke is drawn, before the zoom compensation in the canvas. */
+export const DEFAULT_STROKE_WIDTH = 2
+export const MIN_STROKE_WIDTH = 0.5
+export const MAX_STROKE_WIDTH = 20
+/** Matches the `33` hex alpha regions were drawn with before this was settable. */
+export const DEFAULT_AREA_OPACITY = 0.2
+
 export const mapShapeSchema = z.object({
   id: z.string(),
   kind: mapShapeKindSchema,
@@ -25,6 +66,16 @@ export const mapShapeSchema = z.object({
   /** Map-space coordinates. A marker or label has one; a path or area has many. */
   points: z.array(pointSchema).default(() => []),
   color: z.string().optional(),
+  /**
+   * The glyph a marker draws, or null for the plain dot.
+   *
+   * Null by default so every marker drawn before icons existed keeps the
+   * appearance it was given.
+   */
+  icon: mapIconSchema.nullable().default(null),
+  strokeWidth: z.number().positive().default(DEFAULT_STROKE_WIDTH),
+  /** Fill opacity, read only for regions. */
+  opacity: z.number().min(0).max(1).default(DEFAULT_AREA_OPACITY),
   /** Links a place on the map to the record that describes it. */
   entityId: z.string().nullable().default(null),
   /**
@@ -35,6 +86,12 @@ export const mapShapeSchema = z.object({
   notes: z.string().default('')
 })
 export type MapShape = z.infer<typeof mapShapeSchema>
+
+/** Keep a typed width inside what the schema will accept. */
+export function clampStrokeWidth(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_STROKE_WIDTH
+  return Math.min(MAX_STROKE_WIDTH, Math.max(MIN_STROKE_WIDTH, value))
+}
 
 export const storyMapSchema = z.object({
   id: z.string(),

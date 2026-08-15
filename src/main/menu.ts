@@ -63,6 +63,7 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Locations', click: send('panel.locations') },
         { label: 'Timeline', click: send('panel.timeline') },
         { label: 'Storyboard', click: send('panel.storyboard') },
+        { label: 'Manuscript', click: send('panel.manuscript') },
         { label: 'Maps', click: send('panel.maps') },
         { label: 'AI', click: send('panel.ai') },
         { type: 'separator' },

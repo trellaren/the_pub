@@ -129,6 +129,62 @@ test('layout and content are restored when the project is reopened', async () =>
   await expect(harness.page.locator('.pub-sheet .ProseMirror')).toContainText('Persisted across restarts.')
 })
 
+/*
+ * The reported bug: "adding a new view should not resize all of the panels".
+ * Every singleton panel asked for a bare left position, which dockview reads as
+ * an absolute one and answers by inserting a new column at the grid root — so
+ * opening anything shrank everything and pushed the Explorer inward. No test
+ * had ever looked at a panel's width or which group it joined.
+ */
+test('opening panels leaves the ones already on screen the size they were', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+
+  const widthOf = async (panelId: string): Promise<number> =>
+    harness.page.evaluate(
+      (id) => window.__pub.layout.getState().api?.getPanel(id)?.group.api.width ?? 0,
+      panelId
+    )
+  const groupOf = async (panelId: string): Promise<string> =>
+    harness.page.evaluate(
+      (id) => window.__pub.layout.getState().api?.getPanel(id)?.group.id ?? '',
+      panelId
+    )
+
+  const explorerBefore = await widthOf('explorer')
+  const editorId = await harness.page.evaluate(
+    () =>
+      window.__pub.layout
+        .getState()
+        .api?.panels.find((panel) => panel.id.startsWith('editor:'))?.id ?? ''
+  )
+  const editorBefore = await widthOf(editorId)
+  expect(explorerBefore).toBeGreaterThan(0)
+  expect(editorBefore).toBeGreaterThan(0)
+
+  const editorGroup = await groupOf(editorId)
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.ai'))
+  await expect(harness.page.getByTestId('chat-thread')).toBeVisible()
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.storyboard'))
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.styles'))
+
+  // Nothing was carved out of the window, so nothing had to give room up:
+  // every panel arrived as a tab in a group that was already there.
+  expect(await widthOf('explorer')).toBe(explorerBefore)
+  expect(await widthOf(editorId)).toBe(editorBefore)
+
+  // Working panels open over the documents, where there is room to use them,
+  // and are found on a tab you can drag elsewhere if you would rather.
+  expect(await groupOf('ai')).toBe(editorGroup)
+  expect(await groupOf('storyboard')).toBe(editorGroup)
+
+  // Consulting panels go to the sidebar, which is a different group.
+  expect(await groupOf('styles')).toBe(await groupOf('explorer'))
+  expect(await groupOf('styles')).not.toBe(editorGroup)
+})
+
 test('a document restored by id survives being renamed on disk', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

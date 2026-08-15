@@ -7,6 +7,7 @@ interface AppStore {
   state: AppState | null
   setState: (state: AppState) => void
   setTheme: (theme: AppState['theme']) => Promise<void>
+  setTimelineOrientation: (orientation: AppState['timelineOrientation']) => Promise<void>
   load: () => Promise<void>
 }
 
@@ -22,6 +23,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setTheme: async (theme) => {
     const next = await invoke('app:setTheme', { theme })
+    get().setState(next)
+  },
+  setTimelineOrientation: async (orientation) => {
+    const next = await invoke('app:setTimelineOrientation', { orientation })
     get().setState(next)
   }
 }))

@@ -111,9 +111,12 @@ test.describe('building the book by clicking', () => {
 
     await expect(harness.page.getByTestId('manuscript-document')).toHaveCount(0)
 
-    // Still opens normally through the Explorer.
+    // Still opens normally through the Explorer. Scoped to the tree rather than
+    // matched by text anywhere on screen: the editor's own status bar shows the
+    // same path, so an unscoped match found that instead and this never touched
+    // the Explorer it claims to be exercising.
     await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('explorer', 'Explorer'))
-    await harness.page.getByText('notes.pubdoc').click()
+    await harness.page.getByTestId('file-tree').getByText('notes.pubdoc').click()
     await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText('Just some notes.')
   })
 })

@@ -88,8 +88,19 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       existing.api.setActive()
       return
     }
-    api.addPanel({ id: component, component, title, position: { direction: 'left' } })
-    api.getPanel(component)?.api.setSize({ width: SIDEBAR_WIDTH })
+    const placement = placementFor(api, component)
+    api.addPanel({
+      id: component,
+      component,
+      title,
+      // Always positioned against a panel that already exists. A bare
+      // `{ direction }` is an absolute position, which dockview resolves against
+      // the grid root: it mints a fresh top-level column every time, so each
+      // panel opened shrank every other one and shouldered the Explorer further
+      // from the edge it is supposed to occupy.
+      ...(placement ? { position: placement } : {})
+    })
+    api.getPanel(component)?.api.setActive()
   },
 
   popoutActiveGroup: () => {
@@ -145,6 +156,62 @@ function editorGroupPanel(api: DockviewApi): IDockviewPanel | undefined {
     api.getPanel('welcome') ??
     undefined
   )
+}
+
+/**
+ * The panels that belong in the narrow column beside the manuscript.
+ *
+ * They are the ones you consult while writing — a file list, a search, a set of
+ * styles — and they read fine at sidebar width.
+ */
+const SIDEBAR_PANELS = new Set<PanelComponent>([
+  'explorer',
+  'search',
+  'styles',
+  'characters',
+  'locations'
+])
+
+/**
+ * The panels you work in rather than glance at.
+ *
+ * These want room, so they open where the documents are instead of being
+ * squeezed into the sidebar — a storyboard 280px wide is not a storyboard.
+ */
+const WORKSPACE_PANELS = new Set<PanelComponent>([
+  'ai',
+  'manuscript',
+  'timeline',
+  'storyboard',
+  'maps'
+])
+
+/**
+ * Where a singleton panel should open.
+ *
+ * Always a tab in a group that already exists — never a split, and never a new
+ * column. A tab takes no room from anything, so opening a panel cannot resize
+ * the layout at all, and it arrives somewhere obvious: at the front of a group,
+ * with a tab you can see and drag wherever you actually want it.
+ *
+ * Which group depends on what the panel is for. A file list, a search or a style
+ * sheet is something you consult while writing and reads fine in the sidebar; a
+ * binder, a board, a map or a chat is somewhere you work, and belongs where the
+ * documents are. Each falls back to the other's home, so a panel still lands
+ * somewhere sane in a layout with no sidebar or nothing open.
+ */
+function placementFor(
+  api: DockviewApi,
+  component: PanelComponent
+): { referencePanel: string; direction: 'within' } | undefined {
+  const sidebar = api.panels.find((panel) => SIDEBAR_PANELS.has(panel.id as PanelComponent))
+  const workspace = api.panels.find((panel) => WORKSPACE_PANELS.has(panel.id as PanelComponent))
+  const editor = editorGroupPanel(api)
+
+  const target = SIDEBAR_PANELS.has(component)
+    ? (sidebar ?? editor ?? workspace)
+    : (editor ?? workspace ?? sidebar)
+  return target ? { referencePanel: target.id, direction: 'within' } : undefined
 }
 
 export function buildDefaultLayout(api: DockviewApi): void {

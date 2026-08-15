@@ -111,8 +111,20 @@ test('the reply streams into the panel and can be inserted into the manuscript',
   expect(docId).toBeTruthy()
 
   await harness.page.locator('.pub-sheet .ProseMirror').click()
+
+  // The panel and the document share a group by default, so opening the
+  // document put it in front of the chat. Bring the chat back to click Insert —
+  // the reply goes to the document that is active, not the one on screen.
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
   await assistant.getByRole('button', { name: 'Insert this at the cursor' }).click()
-  await expect(harness.page.locator('.pub-sheet .ProseMirror')).toContainText('The storm broke at dusk.')
+
+  await harness.page.evaluate((id) => {
+    const state = window.__pub.documents.getState().docs[id]!
+    window.__pub.layout.getState().openEditor(id, state.path, state.title)
+  }, docId)
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText(
+    'The storm broke at dusk.'
+  )
 })
 
 test('settings and chats survive reopening the project', async () => {

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { ulid } from 'ulid'
 import type { StoryMap, MapShape, MapShapeKind, Point } from '@shared/model/map.js'
+import { DEFAULT_STROKE_WIDTH, DEFAULT_AREA_OPACITY } from '@shared/model/map.js'
 import { MAP_SAVE_DEBOUNCE_MS } from '@shared/constants.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 
@@ -89,6 +90,11 @@ export const useMapStore = create<MapStore>((set, get) => ({
       kind,
       text,
       points,
+      // The defaults; the panel patches in how it was actually drawn a moment
+      // later, the same way it already did for colour.
+      icon: null,
+      strokeWidth: DEFAULT_STROKE_WIDTH,
+      opacity: DEFAULT_AREA_OPACITY,
       entityId: null,
       childMapId: null,
       notes: ''

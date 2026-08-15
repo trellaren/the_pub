@@ -56,6 +56,12 @@ export class AppStateService {
     return this.state
   }
 
+  setTimelineOrientation(timelineOrientation: AppState['timelineOrientation']): AppState {
+    this.state = { ...this.state, timelineOrientation }
+    this.persist()
+    return this.state
+  }
+
   addRecent(uri: string, name: string): void {
     const entry: RecentProject = { uri, name, opened: new Date().toISOString() }
     this.state = {

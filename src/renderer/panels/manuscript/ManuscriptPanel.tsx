@@ -14,7 +14,8 @@ import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton } from '@renderer/ui/primitives.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { ContextMenu, type MenuEntry } from '@renderer/ui/Menu.js'
-import { invoke, attempt, reportError, reportNotice } from '@renderer/lib/ipc.js'
+import { invoke, attempt, on, reportError, reportNotice } from '@renderer/lib/ipc.js'
+import { DOC_EXT } from '@shared/constants.js'
 import { DocumentPicker } from './DocumentPicker.js'
 import { ManuscriptNodeRow, ManuscriptPlaceholderRow } from './ManuscriptRow.js'
 import { dropRows, resolveDrop, resolveMove, type DropTarget, type Move } from './dropTarget.js'
@@ -52,6 +53,20 @@ export function ManuscriptPanel() {
   useEffect(() => {
     if (!project) return
     void useManuscriptStore.getState().load()
+  }, [project?.root])
+
+  /*
+   * A document renamed, moved or deleted from outside the app has to be
+   * noticed without the author doing anything — that's the whole point of
+   * resolving by `docId` instead of by path. `load()` here is cheap: it
+   * re-fetches the resolved view against whatever the index now knows,
+   * it does not re-read `manuscript.json` from disk.
+   */
+  useEffect(() => {
+    if (!project) return
+    return on('vfs:changed', (events) => {
+      if (events.some((event) => event.path.endsWith(DOC_EXT))) void useManuscriptStore.getState().load()
+    })
   }, [project?.root])
 
   const rows = useMemo(() => dropRows(view.nodes, collapsed), [view.nodes, collapsed])
@@ -152,8 +167,16 @@ export function ManuscriptPanel() {
    */
   const compile = useCallback(async () => {
     const { items, skipped } = toExportItems(view.nodes)
-    if (items.length === 0) {
+    if (view.nodes.length === 0) {
       reportError('The book is empty — add a part or a document before compiling.')
+      return
+    }
+    // Distinct from an empty book: there is a structure, but every document in
+    // it is currently unresolvable. A blank .docx would not be useful, so this
+    // still refuses — but says what is missing rather than claiming the book
+    // itself is empty, which it is not.
+    if (items.length === 0) {
+      reportError(`Nothing could be exported. Could not find: ${skipped.join(', ')}.`)
       return
     }
     const result = await attempt(
@@ -220,7 +243,17 @@ export function ManuscriptPanel() {
           hint="Add a part or a document to start building the manuscript."
         />
       ) : (
-        <div role="tree" data-testid="manuscript-tree" className="flex flex-1 flex-col overflow-auto py-1">
+        <div
+          role="tree"
+          data-testid="manuscript-tree"
+          // The whole resolved target, mid-drag — so a test can assert *what*
+          // a drag is currently aimed at (not just that something moved after
+          // the drop), which is what turns a flaky native-drag test into a
+          // diagnosable one: it can tell a drag that never started apart from
+          // one that started but resolved to the wrong place.
+          data-drop-target={target ? JSON.stringify(target) : ''}
+          className="flex flex-1 flex-col overflow-auto py-1"
+        >
           {rows.map((row, index) => {
             const between =
               target?.indicator.kind === 'between' && target.indicator.row === index ? target.indicator.depth : null

@@ -7,6 +7,7 @@ import { FtpAdapter } from './ftpAdapter.js'
 import { OneDriveAdapter } from './oneDriveAdapter.js'
 import { GraphClient, type TokenSource } from '../onedrive/graph.js'
 import { pollingWatch } from './pollingWatcher.js'
+import type { HostKeyPolicy } from './hostKeys.js'
 import { parseProjectUri, defaultPort, type ConnectionProfile } from '../../shared/model/connection.js'
 
 /**
@@ -59,6 +60,8 @@ export interface ConnectionResolver {
    * so must not happen in here.
    */
   oneDriveTokens: (profileId: string) => TokenSource
+  /** Which SSH host keys this machine has accepted. */
+  hostKeys: HostKeyPolicy
 }
 
 let resolver: ConnectionResolver | null = null
@@ -83,16 +86,28 @@ export function parseUri(uri: string): { scheme: string; location: string } {
  * so the file tree and the indexer keep calling `watch` unconditionally and
  * neither knows the difference.
  */
-export function createAdapter(uri: string): VfsAdapter {
+export interface AdapterOverrides {
+  /**
+   * Replaces the resolver's host-key policy, for this adapter only.
+   *
+   * Exists for one caller: `connections:test` wraps the real policy so it can
+   * report *which* key was refused and offer it for review. The wrapper defers
+   * to the real policy for the verdict, so testing a connection can never
+   * accept something opening a project would not.
+   */
+  hostKeys?: HostKeyPolicy
+}
+
+export function createAdapter(uri: string, overrides: AdapterOverrides = {}): VfsAdapter {
   const { scheme, location } = parseUri(uri)
   if (scheme === 'local') return new WatchableAdapter(new LocalAdapter(location))
   if (scheme === 'sftp' || scheme === 'ftp' || scheme === 'onedrive') {
-    return new WatchableAdapter(createRemote(uri))
+    return new WatchableAdapter(createRemote(uri, overrides))
   }
   throw new Error(`Unknown project location: ${uri}`)
 }
 
-function createRemote(uri: string): VfsAdapter {
+function createRemote(uri: string, overrides: AdapterOverrides): VfsAdapter {
   const parsed = parseProjectUri(uri)
   if (!parsed) throw new Error(`Unknown project location: ${uri}`)
   if (!resolver) throw new Error('Saved servers are unavailable in this process')
@@ -142,6 +157,7 @@ function createRemote(uri: string): VfsAdapter {
     port,
     user: profile.user,
     remotePath,
+    hostKeys: overrides.hostKeys ?? resolver.hostKeys,
     ...(privateKey ? { privateKey, passphrase: secret || undefined } : { password: secret })
   })
 }

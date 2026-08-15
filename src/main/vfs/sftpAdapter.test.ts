@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { SftpAdapter, type SftpConnection } from './sftpAdapter.js'
 import { startSftpServer, type TestServer } from './sftpTestServer.js'
+import { KnownHostsPolicy, type HostKeyPolicy, type KnownHost } from './hostKeys.js'
 
 /**
  * `SftpAdapter` against a real SFTP server.
@@ -48,6 +49,17 @@ afterEach(async () => {
   adapters = []
 })
 
+/**
+ * A host-key policy that asks no questions.
+ *
+ * Every test below except the host-key ones is about something else, and the
+ * server generates a fresh key each run, so there is nothing an author could
+ * have accepted in advance. Spelled out here rather than exported from the
+ * adapter as a convenience default, which is the whole point of the field being
+ * required: skipping the check has to be something a caller says out loud.
+ */
+const ACCEPT_ANY: HostKeyPolicy = { check: () => ({ ok: true }) }
+
 function connect(overrides: Partial<SftpConnection> = {}): SftpAdapter {
   const adapter = new SftpAdapter({
     host: '127.0.0.1',
@@ -55,7 +67,8 @@ function connect(overrides: Partial<SftpConnection> = {}): SftpAdapter {
     user: 'author',
     password: PASSWORD,
     remotePath: area,
-    ...overrides
+    ...overrides,
+    hostKeys: overrides.hostKeys ?? ACCEPT_ANY
   })
   adapters.push(adapter)
   return adapter
@@ -390,6 +403,127 @@ describe('authentication', () => {
       await expect(adapter.list('')).rejects.toThrow(/authentication/i)
     } finally {
       await other.close()
+    }
+  })
+})
+
+/*
+ * Host keys, against a server whose identity is known to the test.
+ *
+ * These are the tests that make the encryption mean something. Until this
+ * existed the adapter passed ssh2 no `hostVerifier` at all, which makes ssh2
+ * accept whatever key it is handed: anything able to answer on the host and
+ * port got an encrypted session with the author, and was then handed the
+ * password and the manuscript. Nothing about that failure is visible — an
+ * intercepted connection behaves exactly like a real one — so it can only be
+ * caught here, by asserting on what the adapter refuses.
+ */
+describe('host keys', () => {
+  /** A store standing in for the file-backed one, holding whatever a test says. */
+  function knowing(entries: KnownHost[]): KnownHostsPolicy {
+    return new KnownHostsPolicy({ get: () => entries })
+  }
+
+  function accepted(): KnownHost {
+    return { ...server.hostKey, added: new Date().toISOString() }
+  }
+
+  it('connects to a server whose key has been accepted', async () => {
+    await fsp.writeFile(onDisk('a.txt'), 'x')
+    const adapter = connect({ hostKeys: knowing([accepted()]) })
+    expect(await adapter.list('')).toHaveLength(1)
+  })
+
+  it('refuses a server nothing is known about, and says which key it offered', async () => {
+    const adapter = connect({ hostKeys: knowing([]) })
+    await expect(adapter.list('')).rejects.toThrow(/identity of 127.0.0.1 has not been verified/i)
+    await expect(adapter.list('')).rejects.toThrow(server.hostKey.fingerprint)
+  })
+
+  /*
+   * The alarm. A stored key that no longer matches is the signature of somebody
+   * standing between the author and their server, and the message has to say so
+   * — a generic handshake failure reads as a server problem and gets retried
+   * until it "works".
+   */
+  it('refuses a server whose key has changed, naming both fingerprints', async () => {
+    const stale: KnownHost = {
+      algorithm: server.hostKey.algorithm,
+      fingerprint: 'SHA256:aVeryDifferentKeyThanTheOneOnTheWire00000000',
+      added: new Date().toISOString()
+    }
+    const adapter = connect({ hostKeys: knowing([stale]) })
+
+    const failure = adapter.list('')
+    await expect(failure).rejects.toThrow(/identity of 127.0.0.1 has changed/i)
+    await expect(failure).rejects.toThrow(stale.fingerprint)
+    await expect(failure).rejects.toThrow(server.hostKey.fingerprint)
+  })
+
+  /*
+   * A key stored under another algorithm is *unknown*, not *changed*. Servers
+   * routinely hold several host keys and which one is offered depends on what
+   * the client asks for, which shifts when the SSH library is upgraded. Calling
+   * that an identity change would cry wolf, and a warning that cries wolf is one
+   * authors learn to click through.
+   */
+  it('treats a key of a different algorithm as unknown rather than as a change', async () => {
+    const other: KnownHost = {
+      algorithm: 'ssh-rsa',
+      fingerprint: 'SHA256:anRsaKeyForTheSameHost000000000000000000000',
+      added: new Date().toISOString()
+    }
+    const adapter = connect({ hostKeys: knowing([other]) })
+    await expect(adapter.list('')).rejects.toThrow(/has not been verified/i)
+  })
+
+  /*
+   * Refusal happens during the key exchange, before authentication begins. So a
+   * server that fails the check is never sent a username, and never sees a
+   * password — which is the property that makes this worth doing at all rather
+   * than merely warning after the fact.
+   */
+  it('sends no credentials to a server it refuses', async () => {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'pub-sftp-imposter-'))
+    const imposter = await startSftpServer(root, { password: PASSWORD })
+    try {
+      const adapter = connect({ port: imposter.port, remotePath: '', hostKeys: knowing([]) })
+      await expect(adapter.list('')).rejects.toThrow(/has not been verified/i)
+      // The connection was made and then abandoned at the handshake: the server
+      // counted it, and never got as far as an authentication attempt.
+      expect(imposter.connectionCount()).toBe(1)
+      expect(imposter.authAttempts()).toBe(0)
+    } finally {
+      await imposter.close()
+      await fsp.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  /*
+   * The end-to-end shape of the real thing: a server is accepted at one address,
+   * and later something else answers there. `KnownHostsPolicy` keys on host and
+   * port, so reclaiming the port is what makes this a genuine substitution
+   * rather than a contrived store.
+   */
+  it('catches a different server answering at the same address', async () => {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'pub-sftp-swap-'))
+    const original = await startSftpServer(root, { password: PASSWORD })
+    const port = original.port
+    const trusted = [{ ...original.hostKey, added: new Date().toISOString() }]
+
+    const before = connect({ port, remotePath: '', hostKeys: knowing(trusted) })
+    expect(await before.list('')).toEqual([])
+    await before.dispose()
+    await original.close()
+
+    const substitute = await startSftpServer(root, { password: PASSWORD, port })
+    try {
+      expect(substitute.hostKey.fingerprint).not.toBe(trusted[0]!.fingerprint)
+      const after = connect({ port, remotePath: '', hostKeys: knowing(trusted) })
+      await expect(after.list('')).rejects.toThrow(/identity of 127.0.0.1 has changed/i)
+    } finally {
+      await substitute.close()
+      await fsp.rm(root, { recursive: true, force: true })
     }
   })
 })

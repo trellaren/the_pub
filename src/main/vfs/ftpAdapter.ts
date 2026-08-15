@@ -3,6 +3,7 @@ import { Client, FileType, type FileInfo } from 'basic-ftp'
 import { RemoteAdapter, ConnectionQueue } from './remoteAdapter.js'
 import type { VfsEntry, VfsCapabilities } from '../../shared/model/vfs.js'
 import { joinRelative } from './paths.js'
+import { parseListingDate } from './ftpDates.js'
 
 export interface FtpConnection {
   host: string
@@ -90,13 +91,52 @@ export class FtpAdapter extends RemoteAdapter {
     if (!path) return this.entry('', '', true)
     const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
     const name = path.slice(path.lastIndexOf('/') + 1)
+
+    let listing: FileInfo[]
     try {
-      const listing = await this.exec((client) => client.list(this.remote(parent)))
-      const match = listing.find((item) => item.name === name)
-      if (!match) return null
-      return this.entry(parent, name, match.type === FileType.Directory, match.size, stamp(match))
+      listing = await this.exec((client) => client.list(this.remote(parent)))
+    } catch (error) {
+      /*
+       * Only a genuine absence is "not there".
+       *
+       * This caught everything once, which meant a listing that failed because
+       * the server was unreachable was indistinguishable from a directory that
+       * is not there — and `RemoteAdapter.delete` returns silently on a null
+       * stat. So deleting a chapter with the connection down reported success,
+       * the file tree dropped the row, and the chapter was still on the server.
+       * The SFTP backend had the same defect and was corrected in Phase 10;
+       * this one waited for a harness of its own to prove it.
+       */
+      if (isMissing(error)) return null
+      throw error
+    }
+
+    const match = listing.find((item) => item.name === name)
+    if (!match) return null
+    if (match.type === FileType.Directory) return this.entry(parent, name, true, match.size, stamp(match))
+    return this.entry(parent, name, false, match.size, await this.exactMtime(path, match))
+  }
+
+  /**
+   * A file's modification time, to the second, via `MDTM`.
+   *
+   * Worth one extra round trip here and nowhere else. A listing gives a time
+   * only to the minute (see `ftpDates.ts`), and this is the reading that
+   * `DocumentService` compares to decide whether someone else has edited a
+   * chapter since the editor last read it. At minute resolution two edits a few
+   * seconds apart look identical, and the guard against overwriting somebody's
+   * work quietly stops guarding anything.
+   *
+   * Directories are excluded because `MDTM` is specified for files, and servers
+   * that refuse it for a directory would cost a round trip to learn nothing.
+   * The listing's own time is the fallback wherever the server declines.
+   */
+  private async exactMtime(path: string, listed: FileInfo): Promise<number> {
+    try {
+      const when = await this.exec((client) => client.lastMod(this.remote(path)))
+      return when.getTime()
     } catch {
-      return null
+      return stamp(listed)
     }
   }
 
@@ -142,8 +182,54 @@ export class FtpAdapter extends RemoteAdapter {
   }
 }
 
+/**
+ * A listed file's modification time.
+ *
+ * `modifiedAt` is set only when the server speaks MLSD, which most do not — and
+ * without this fallback every file in a `LIST` listing reported the epoch. That
+ * is not a cosmetic wrong number: the polling watcher detects a change by
+ * noticing that an mtime differs from the last poll, so a project where every
+ * file claims the same time is one where an edit made anywhere else is never
+ * seen, and the search index never catches up with it.
+ */
 function stamp(item: FileInfo): number {
-  return item.modifiedAt ? item.modifiedAt.getTime() : 0
+  if (item.modifiedAt) return item.modifiedAt.getTime()
+  return parseListingDate(item.rawModifiedAt)
+}
+
+/**
+ * Reply codes that mean "the thing you named is not available".
+ *
+ * 550 is the usual answer for a directory that is not there. 553 and 450 are
+ * near neighbours. 451 — "local error in processing" — is in the list because
+ * `ftp-srv` answers it for a missing path, and it is a server people really
+ * run; a project's first `stat` asks about `.thepub/project.json` before
+ * `.thepub` exists, so a backend that treated 451 as a fault could never create
+ * a project at all.
+ */
+const UNAVAILABLE = new Set([450, 451, 550, 553])
+
+/**
+ * Whether a failed command means the path is absent, rather than unreachable.
+ *
+ * The list is of what counts as *absence*, and deliberately so: a reply nobody
+ * anticipated then fails loudly instead of being read as "not there", and
+ * failing loudly is the safe direction. A `stat` that wrongly reports absence
+ * makes `RemoteAdapter.delete` return success without deleting anything, which
+ * is how a chapter leaves the file tree while sitting safely on a server nobody
+ * can reach; a `stat` that wrongly fails produces an error message.
+ *
+ * Connection failures carry a string code like `ECONNREFUSED`, or no code at
+ * all, so none of them can match — which is the case this exists for.
+ *
+ * Two known imprecisions, both accepted. Servers answer 550 for a path they
+ * will not let you read as well as for one that is not there, so a forbidden
+ * path reads as missing. And a genuine transient 451 would too. Both are
+ * narrower than the alternative.
+ */
+function isMissing(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'number' && UNAVAILABLE.has(code)
 }
 
 function trim(path: string): string {

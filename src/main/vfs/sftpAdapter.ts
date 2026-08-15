@@ -2,6 +2,7 @@ import { Client, type SFTPWrapper, type FileEntryWithStats } from 'ssh2'
 import { RemoteAdapter } from './remoteAdapter.js'
 import type { VfsEntry, VfsCapabilities } from '../../shared/model/vfs.js'
 import { joinRelative } from './paths.js'
+import type { HostKeyPolicy } from './hostKeys.js'
 
 export interface SftpConnection {
   host: string
@@ -12,6 +13,17 @@ export interface SftpConnection {
   privateKey?: string
   passphrase?: string
   remotePath: string
+  /**
+   * Who decides whether this is really the server we meant to reach.
+   *
+   * Required, not optional. ssh2 accepts any host key when given no verifier,
+   * so an optional field would mean every call site is one omission away from
+   * an unauthenticated channel — and the omission would look like working
+   * software, because an intercepted connection behaves exactly like a real
+   * one. Making it required moves that from a thing to remember to a thing the
+   * compiler asks about.
+   */
+  hostKeys: HostKeyPolicy
 }
 
 /**
@@ -81,6 +93,18 @@ export class SftpAdapter extends RemoteAdapter {
       // nobody has attached to is an unhandled rejection.
       lost.catch(() => {})
 
+      /*
+       * Why the refusal is remembered rather than thrown.
+       *
+       * A `hostVerifier` that returns false makes ssh2 tear the handshake down
+       * and emit its own generic failure, which reads as though the server is
+       * misconfigured. Keeping the reason here and preferring it over whatever
+       * ssh2 reports next is what turns "Handshake failed" into a sentence
+       * naming the fingerprint and what to do about it.
+       */
+      let refused: Error | null = null
+      const because = (error: Error): Error => refused ?? error
+
       client
         .on('ready', () => {
           client.sftp((error, sftp) => {
@@ -93,7 +117,7 @@ export class SftpAdapter extends RemoteAdapter {
             resolve(sftp)
           })
         })
-        .on('error', reject)
+        .on('error', (error: Error) => reject(because(error)))
         .on('close', () => {
           // Drop the handles so the next call reconnects rather than writing
           // into a dead channel.
@@ -101,7 +125,7 @@ export class SftpAdapter extends RemoteAdapter {
           this.lost = null
           if (this.client === client) this.client = null
 
-          const gone = new Error('The connection to the server was lost')
+          const gone = because(new Error('The connection to the server was lost'))
           // ssh2 abandons requests that were in flight when the channel died
           // without ever calling them back, so without this an autosave
           // interrupted by a dropped connection would neither finish nor fail —
@@ -116,6 +140,25 @@ export class SftpAdapter extends RemoteAdapter {
           host: this.connection.host,
           port: this.connection.port,
           username: this.connection.user,
+          /*
+           * The check that makes the encryption mean something.
+           *
+           * Without this ssh2 accepts whatever key it is handed, so anything
+           * able to answer on the host and port gets an encrypted session with
+           * the author — and then reads the manuscript, and is handed the
+           * password. This runs before authentication, so a server that fails
+           * it is never sent a username, let alone a secret.
+           */
+          hostVerifier: (key: Buffer): boolean => {
+            const decision = this.connection.hostKeys.check(
+              this.connection.host,
+              this.connection.port,
+              key
+            )
+            if (decision.ok) return true
+            refused = decision.error
+            return false
+          },
           ...(this.connection.privateKey
             ? { privateKey: this.connection.privateKey, passphrase: this.connection.passphrase }
             : { password: this.connection.password })

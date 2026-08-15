@@ -6,7 +6,8 @@ formatting, and the notes a long story needs, in one desktop app.
 ## What works today
 
 Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
-Phase 4 maps, Phase 5 AI assistance, Phase 6 remote projects, and Phase 7 Word import and export.
+Phase 4 maps, Phase 5 AI assistance, Phase 6 remote projects, Phase 7 Word import and export, and
+Phase 8 OneDrive — which completes the original brief.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -64,6 +65,12 @@ slips through — because a noisy suggestion list is how a feature like this get
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
   credentials encrypted on this machine, outside any project folder.
 
+- **Projects in OneDrive.** The same, over Microsoft Graph: sign in once in your own browser and a
+  folder in your drive becomes a project. Changes made on another device arrive through Graph's
+  delta feed rather than by re-listing the manuscript every few seconds, and a file too large for a
+  single request — a map background, a photograph — uploads in chunks. Signing in needs an Azure app
+  registration of your own; see below.
+
 - **Word documents in and out.** Import a `.docx` and its headings, indents, spacing, alignment,
   lists, tables, links and images come with it — and its named styles are matched against the
   project's own rather than duplicated, so an imported "Heading 1" *is* your Heading 1. Export one
@@ -79,11 +86,29 @@ the position you dragged it to, rather than being guessed at.
 File names are checked against Windows' rules on every platform, not just on Windows. A name like
 `Chapter: One` is perfectly legal on Linux and impossible on Windows, and a project written on one
 is routinely opened — or served over SFTP — on the other, so the name is refused where it is typed
-rather than where it fails.
+rather than where it fails. OneDrive forbids the same characters, so the check that exists for
+Windows' sake is also what keeps a name from being rejected by the drive after it is typed.
 
-Still to come: OneDrive projects. The `VfsAdapter` abstraction they need is already built and
-proven by the SFTP and FTP backends; what is missing is an Azure app registration, which has to be
-created by whoever ships the app.
+## Setting up OneDrive
+
+OneDrive needs an app registration of your own — The Pub does not ship one. A client id baked into
+a desktop binary is a public value that anyone can lift and spend someone else's tenant quota with,
+and it cannot be rotated without shipping a new build; it is the same reasoning as the AI keys, and
+the same answer.
+
+In the [Azure portal](https://portal.azure.com), under **App registrations**:
+
+1. **New registration** — any name; supported account types decide who can sign in.
+2. **Authentication → Add a platform → Mobile and desktop applications**, redirect URI
+   `http://localhost`. Any port on loopback is then accepted, which is what lets the sign-in come
+   back to the app without a fixed port.
+3. Copy the **Application (client) ID** into The Pub's connect dialog, then press *sign in*.
+
+The app asks for `Files.ReadWrite`, `offline_access` and `User.Read` — your drive, a refresh token
+so you are not signing in every hour, and your account name to show back to you. No client secret is
+involved: sign-in uses PKCE, which is what a desktop app is supposed to use because it cannot keep a
+secret. The refresh token is encrypted into the app's own data directory, never a project folder,
+and no channel hands it to the interface.
 
 ## Running it
 
@@ -124,6 +149,7 @@ src/
 ├─ main/       privileged process: files, search index, snapshots, windows
 │  ├─ vfs/     the filesystem abstraction every feature is written against
 │  ├─ docx/    Word conversion, both directions, with no knowledge of a project
+│  ├─ onedrive/  OAuth, tokens and Graph requests — no Electron, so all testable
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
@@ -141,11 +167,26 @@ opaque origin, and a torn-off pane must be able to share the opener's JS context
 built renderer from `127.0.0.1` on an OS-assigned port behind a per-launch path token gives the
 app a real origin — which is also what makes its `'self'` content-security-policy mean anything.
 
-**Everything reaches the filesystem through `VfsAdapter`.** Local, SFTP and FTP backends all
-satisfy it, so no feature above knows which one a project is on. Backends that cannot report
+**Everything reaches the filesystem through `VfsAdapter`.** Local, SFTP, FTP and OneDrive backends
+all satisfy it, so no feature above knows which one a project is on. Backends that cannot report
 changes are wrapped in a polling watcher by the registry, so every consumer calls `watch`
-unconditionally. Remote writes are still atomic: a temporary sibling, then a rename over the
-target, with a delete-then-rename fallback for servers that refuse to replace.
+unconditionally — OneDrive opts out of that by reporting `watch: true` and using Graph's delta feed,
+which is one request per tick instead of one per folder.
+
+**A remote save never deletes the previous version.** Remote writes are atomic — a temporary
+sibling, then a rename over the target — but SFTP, FTP and OneDrive servers all commonly refuse to
+rename onto a name that exists. The fallback moves the existing file *aside* and removes it only
+once the replacement is in place. Deleting first is simpler and was what this did originally, but it
+assumes the rename failed *because* the destination existed: a rename refused for any other reason —
+a lock, a permission, a throttled account — would then delete the previous version and fail anyway,
+and the chapter that was on the server a second ago would be gone. If even putting it back fails,
+the error names the file it is safe under.
+
+**Nothing the renderer can reach holds a credential.** Server passwords, key passphrases, AI keys
+and the OneDrive refresh token all live encrypted in the app's own data directory, and every channel
+that touches them returns a boolean or an account name instead. The OneDrive access token exists
+only in main-process memory, and one cache holds it — Microsoft rotates the refresh token on every
+use, so two caches would race to spend it and the loser would be signed out.
 
 **The search index is a cache, never a source of truth.** Delete `.thepub/index.db` and reopening
 the project rebuilds it. That is also the migration strategy: the schema carries a version, and a

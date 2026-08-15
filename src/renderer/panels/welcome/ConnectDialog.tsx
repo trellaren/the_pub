@@ -16,6 +16,10 @@ interface Draft {
   privateKeyPath: string
   remotePath: string
   secure: boolean
+  clientId: string
+  tenant: string
+  account: string
+  signedIn: boolean
 }
 
 const BLANK: Draft = {
@@ -27,7 +31,19 @@ const BLANK: Draft = {
   auth: 'password',
   privateKeyPath: '',
   remotePath: '/',
-  secure: false
+  secure: false,
+  clientId: '',
+  tenant: 'common',
+  account: '',
+  signedIn: false
+}
+
+/** What a server is called when nobody has named it. */
+function defaultName(draft: Draft): string {
+  if (draft.protocol === 'onedrive') {
+    return draft.account ? `OneDrive — ${draft.account}` : 'OneDrive'
+  }
+  return `${draft.user || 'user'}@${draft.host || 'host'}`
 }
 
 /**
@@ -44,6 +60,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [secret, setSecret] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const isOneDrive = draft.protocol === 'onedrive'
 
   const load = async (): Promise<void> => {
     const result = await attempt(invoke('connections:list', {}), 'Could not load saved servers')
@@ -67,14 +84,22 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       auth: profile.auth,
       privateKeyPath: profile.privateKeyPath,
       remotePath: profile.remotePath,
-      secure: profile.secure
+      secure: profile.secure,
+      clientId: profile.clientId,
+      tenant: profile.tenant,
+      account: profile.account,
+      signedIn: profile.hasSecret
     })
     setSecret('')
     setStatus(null)
   }
 
   const save = async (): Promise<ConnectionProfile | null> => {
-    if (!draft.host.trim() || !draft.user.trim()) {
+    if (isOneDrive && !draft.clientId.trim()) {
+      setStatus('An Application (client) ID is needed.')
+      return null
+    }
+    if (!isOneDrive && (!draft.host.trim() || !draft.user.trim())) {
       setStatus('A host and a user are needed.')
       return null
     }
@@ -82,11 +107,13 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       invoke('connections:save', {
         profile: {
           ...draft,
-          name: draft.name.trim() || `${draft.user}@${draft.host}`,
+          name: draft.name.trim() || defaultName(draft),
           port: draft.port || defaultPort(draft.protocol)
         },
         // Undefined keeps the stored secret; the field is only sent when typed.
-        ...(secret ? { secret } : {})
+        // A OneDrive profile's secret is its refresh token, which only signing
+        // in can produce, so this dialog never sends one for it.
+        ...(secret && !isOneDrive ? { secret } : {})
       }),
       'Could not save the server'
     )
@@ -112,6 +139,36 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       )
     }
     setBusy(false)
+  }
+
+  /**
+   * Sign in, in the person's own browser.
+   *
+   * The profile is saved first because sign-in works against a stored profile:
+   * the client id and tenant it needs are exactly what is being typed here, and
+   * the token it produces has to have somewhere to go.
+   */
+  const signIn = async (): Promise<void> => {
+    setBusy(true)
+    const saved = await save()
+    if (saved) {
+      setStatus('Finish signing in in your browser…')
+      const result = await invoke('connections:signIn', { id: saved.id }).catch(() => null)
+      setStatus(result ? result.message : 'The sign-in could not be started.')
+      if (result?.ok) {
+        setDraft((current) => ({ ...current, account: result.account, signedIn: true }))
+        await load()
+      }
+    }
+    setBusy(false)
+  }
+
+  const signOut = async (): Promise<void> => {
+    if (!draft.id) return
+    await invoke('connections:signOut', { id: draft.id }).catch(() => {})
+    setDraft((current) => ({ ...current, account: '', signedIn: false }))
+    setStatus('Signed out on this machine.')
+    await load()
   }
 
   const openThere = async (profile: ConnectionProfile): Promise<void> => {
@@ -176,40 +233,102 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   value={draft.protocol}
                   onChange={(event) => {
                     const protocol = event.target.value as ConnectionProtocol
-                    setDraft((current) => ({ ...current, protocol, port: defaultPort(protocol) }))
+                    setDraft((current) => ({
+                      ...current,
+                      protocol,
+                      port: defaultPort(protocol),
+                      // The drive root, not a server path: OneDrive projects
+                      // live in a folder inside the drive.
+                      remotePath: protocol === 'onedrive' && current.remotePath === '/' ? '' : current.remotePath
+                    }))
+                    setStatus(null)
                   }}
+                  data-testid="connect-protocol"
                 >
                   <option value="sftp">SFTP (SSH)</option>
                   <option value="ftp">FTP</option>
+                  <option value="onedrive">OneDrive</option>
                 </Select>
               </Field>
-              <Field label="Port">
-                <TextInput
-                  type="number"
-                  value={draft.port}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, port: Number(event.target.value) }))
-                  }
-                />
-              </Field>
+              {!isOneDrive ? (
+                <Field label="Port">
+                  <TextInput
+                    type="number"
+                    value={draft.port}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, port: Number(event.target.value) }))
+                    }
+                  />
+                </Field>
+              ) : null}
             </div>
 
-            <Field label="Host">
-              <TextInput
-                value={draft.host}
-                placeholder="files.example.com"
-                onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))}
-                data-testid="connect-host"
-              />
-            </Field>
+            {isOneDrive ? (
+              <>
+                {/*
+                  The client id is asked for rather than shipped. One baked into
+                  a desktop binary is a public value anyone can lift and spend
+                  someone else's tenant quota with, and it cannot be rotated
+                  without shipping a new build — the same reasoning as the AI
+                  keys, and the same answer.
+                */}
+                <p className="mb-2 text-[11px] text-muted">
+                  OneDrive needs an app registration of your own. In the Azure portal, register an
+                  application, add a <em>Mobile and desktop</em> platform with the redirect URI{' '}
+                  <code className="text-text">http://localhost</code>, and paste its Application
+                  (client) ID below.
+                </p>
 
-            <Field label="User">
-              <TextInput
-                value={draft.user}
-                onChange={(event) => setDraft((current) => ({ ...current, user: event.target.value }))}
-                data-testid="connect-user"
-              />
-            </Field>
+                <Field label="Application (client) ID">
+                  <TextInput
+                    value={draft.clientId}
+                    placeholder="00000000-0000-0000-0000-000000000000"
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, clientId: event.target.value }))
+                    }
+                    data-testid="connect-client-id"
+                  />
+                </Field>
+
+                <Field label="Directory (tenant)">
+                  <TextInput
+                    value={draft.tenant}
+                    placeholder="common"
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, tenant: event.target.value }))
+                    }
+                    data-testid="connect-tenant"
+                  />
+                </Field>
+
+                <p className="mb-2 text-[11px] text-muted" data-testid="connect-account">
+                  {draft.signedIn
+                    ? `Signed in${draft.account ? ` as ${draft.account}` : ''}.`
+                    : 'Not signed in on this machine.'}
+                </p>
+              </>
+            ) : null}
+
+            {!isOneDrive ? (
+              <Field label="Host">
+                <TextInput
+                  value={draft.host}
+                  placeholder="files.example.com"
+                  onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))}
+                  data-testid="connect-host"
+                />
+              </Field>
+            ) : null}
+
+            {!isOneDrive ? (
+              <Field label="User">
+                <TextInput
+                  value={draft.user}
+                  onChange={(event) => setDraft((current) => ({ ...current, user: event.target.value }))}
+                  data-testid="connect-user"
+                />
+              </Field>
+            ) : null}
 
             {draft.protocol === 'sftp' ? (
               <Field label="Authentication">
@@ -237,25 +356,28 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               </Field>
             ) : null}
 
-            <Field
-              label={
-                draft.auth === 'key'
-                  ? 'Key passphrase (leave blank to keep)'
-                  : 'Password (leave blank to keep)'
-              }
-            >
-              <TextInput
-                type="password"
-                value={secret}
-                placeholder="••••••••"
-                onChange={(event) => setSecret(event.target.value)}
-                data-testid="connect-secret"
-              />
-            </Field>
+            {!isOneDrive ? (
+              <Field
+                label={
+                  draft.auth === 'key'
+                    ? 'Key passphrase (leave blank to keep)'
+                    : 'Password (leave blank to keep)'
+                }
+              >
+                <TextInput
+                  type="password"
+                  value={secret}
+                  placeholder="••••••••"
+                  onChange={(event) => setSecret(event.target.value)}
+                  data-testid="connect-secret"
+                />
+              </Field>
+            ) : null}
 
-            <Field label="Folder on the server">
+            <Field label={isOneDrive ? 'Folder in your drive' : 'Folder on the server'}>
               <TextInput
                 value={draft.remotePath}
+                placeholder={isOneDrive ? 'Documents/Novel' : ''}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, remotePath: event.target.value }))
                 }
@@ -276,23 +398,43 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
             <Field label="Name">
               <TextInput
                 value={draft.name}
-                placeholder={`${draft.user || 'user'}@${draft.host || 'host'}`}
+                placeholder={defaultName(draft)}
                 onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
               />
             </Field>
 
             {!secureStorage ? (
               <p className="mb-2 text-[11px] text-danger">
-                This system has no secure storage, so passwords cannot be saved here.
+                This system has no secure storage, so {isOneDrive ? 'a sign-in' : 'passwords'} cannot
+                be kept here.
               </p>
             ) : null}
 
-            {status ? <p className="mb-2 text-[11px] text-muted">{status}</p> : null}
+            {status ? (
+              <p className="mb-2 text-[11px] text-muted" data-testid="connect-status">
+                {status}
+              </p>
+            ) : null}
 
             <div className="flex flex-wrap gap-1">
               <ToolbarButton label="Save this server" disabled={busy} onClick={() => void save()}>
                 save
               </ToolbarButton>
+              {isOneDrive ? (
+                <ToolbarButton
+                  label="Sign in to OneDrive in your browser"
+                  disabled={busy}
+                  data-testid="connect-signin"
+                  onClick={() => void signIn()}
+                >
+                  {draft.signedIn ? 'sign in again' : 'sign in'}
+                </ToolbarButton>
+              ) : null}
+              {isOneDrive && draft.signedIn ? (
+                <ToolbarButton label="Sign out on this machine" disabled={busy} onClick={() => void signOut()}>
+                  sign out
+                </ToolbarButton>
+              ) : null}
               <ToolbarButton label="Test the connection" disabled={busy} onClick={() => void test()}>
                 test
               </ToolbarButton>
@@ -309,7 +451,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               </ToolbarButton>
               {draft.id ? (
                 <ToolbarButton
-                  label="Forget this server"
+                  label={isOneDrive ? 'Forget this drive' : 'Forget this server'}
                   disabled={busy}
                   onClick={async () => {
                     await invoke('connections:delete', { id: draft.id! }).catch(() => {})

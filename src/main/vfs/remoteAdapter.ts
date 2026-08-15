@@ -69,9 +69,16 @@ export abstract class RemoteAdapter implements VfsAdapter {
   /**
    * Rename over a destination that may exist.
    *
-   * POSIX rename replaces silently; SFTP and FTP servers commonly refuse. So
-   * the fallback deletes the target first — a narrow window where neither file
-   * exists, which is why it is a fallback and not the primary path.
+   * POSIX rename replaces silently; SFTP, FTP and OneDrive all commonly refuse.
+   * The fallback therefore moves the existing file aside rather than deleting
+   * it, and only removes it once the replacement is in place.
+   *
+   * Deleting first would be simpler and is what this did originally, but it
+   * assumes the rename failed *because* the destination existed. A rename
+   * refused for any other reason — no permission, a lock, a throttled account —
+   * would then delete the previous version and fail again, and the chapter that
+   * was on the server a second ago would be gone. Moving it aside means every
+   * failure path still ends with a file at the target.
    */
   private async replace(from: string, to: string): Promise<void> {
     try {
@@ -80,9 +87,36 @@ export abstract class RemoteAdapter implements VfsAdapter {
     } catch (error) {
       const existing = await this.statRaw(to).catch(() => null)
       if (!existing) throw error
+      await this.replaceExisting(from, to, error)
     }
-    await this.removeFile(to)
-    await this.renameRaw(from, to)
+  }
+
+  private async replaceExisting(from: string, to: string, original: unknown): Promise<void> {
+    const aside = `${to}.old-${ulid()}`
+    // If even moving it aside fails, nothing has changed yet, so the original
+    // failure is still the honest thing to report.
+    await this.renameRaw(to, aside).catch(() => {
+      throw original
+    })
+
+    try {
+      await this.renameRaw(from, to)
+    } catch (error) {
+      let restored = true
+      await this.renameRaw(aside, to).catch(() => {
+        restored = false
+      })
+      // The previous version still exists, just not under its own name. Saying
+      // where it is turns "my chapter vanished" into something recoverable.
+      if (!restored) {
+        throw new Error(
+          `${describe(error)} The previous version of ${to} is safe, under the name ${aside}.`
+        )
+      }
+      throw error
+    }
+    // Only now is the previous version genuinely redundant.
+    await this.removeFile(aside).catch(() => {})
   }
 
   async mkdir(path: string): Promise<void> {
@@ -180,6 +214,11 @@ export abstract class RemoteAdapter implements VfsAdapter {
       mtime
     }
   }
+}
+
+function describe(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return /[.!?]$/.test(message) ? message : `${message}.`
 }
 
 /**

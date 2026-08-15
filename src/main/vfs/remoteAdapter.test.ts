@@ -19,6 +19,7 @@ class FakeRemote extends RemoteAdapter {
   files = new Map<string, Buffer>()
   dirs = new Set<string>()
   failRenameOverExisting = true
+  refuseRenameTo = new Set<string>()
   calls: string[] = []
 
   protected async listRaw(dir: string): Promise<VfsEntry[]> {
@@ -61,6 +62,9 @@ class FakeRemote extends RemoteAdapter {
 
   protected async renameRaw(from: string, to: string): Promise<void> {
     this.calls.push(`rename:${from}->${to}`)
+    // A refusal that has nothing to do with the name being taken: a lock, a
+    // permission, a retention rule. It outlives a delete of the destination.
+    if (this.refuseRenameTo.has(to)) throw new Error('Access denied')
     if (this.failRenameOverExisting && (this.files.has(to) || this.dirs.has(to))) {
       throw new Error('Destination exists')
     }
@@ -119,9 +123,37 @@ describe('writeFileAtomic', () => {
     await remote.writeFileAtomic('chapter.pubdoc', Buffer.from('two'))
 
     expect((await remote.readFile('chapter.pubdoc')).toString()).toBe('two')
-    // The fallback only runs after the direct rename is refused.
-    expect(remote.calls.filter((call) => call.startsWith('rename:'))).toHaveLength(2)
-    expect(remote.calls).toContain('unlink:chapter.pubdoc')
+    // The fallback only runs after the direct rename is refused, and it moves
+    // the previous version aside rather than deleting it.
+    expect(remote.calls.filter((call) => call.startsWith('rename:'))).toHaveLength(3)
+    expect(remote.calls).not.toContain('unlink:chapter.pubdoc')
+    // Nothing is left over once the replacement is in place.
+    expect([...remote.files.keys()]).toEqual(['chapter.pubdoc'])
+  })
+
+  it('keeps the previous version when the replacement cannot be put in place', async () => {
+    // The reason the fallback moves aside instead of deleting: a rename can be
+    // refused for reasons that have nothing to do with the name being taken —
+    // a lock, a permission, a throttled account — and deleting first would
+    // destroy a chapter that was on the server a moment ago.
+    await remote.writeFileAtomic('chapter.pubdoc', Buffer.from('one'))
+    remote.refuseRenameTo.add('chapter.pubdoc')
+
+    await expect(remote.writeFileAtomic('chapter.pubdoc', Buffer.from('two'))).rejects.toThrow()
+    const survivor = [...remote.files.keys()]
+    expect(survivor).toHaveLength(1)
+    expect(remote.files.get(survivor[0]!)!.toString()).toBe('one')
+  })
+
+  it('says where the previous version went when it could not be put back', async () => {
+    await remote.writeFileAtomic('chapter.pubdoc', Buffer.from('one'))
+    remote.refuseRenameTo.add('chapter.pubdoc')
+
+    // A file called `chapter.pubdoc.old-01J…` and no error naming it is how an
+    // author concludes the app ate their work.
+    await expect(remote.writeFileAtomic('chapter.pubdoc', Buffer.from('two'))).rejects.toThrow(
+      /chapter\.pubdoc\.old-/
+    )
   })
 
   it('takes the direct path on a server that does replace', async () => {

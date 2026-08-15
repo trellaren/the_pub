@@ -6,6 +6,7 @@ import { startRendererServer, type RendererServer } from './server/rendererServe
 import fs from 'node:fs'
 import { registerHandlers, SessionRegistry } from './ipc/registerHandlers.js'
 import { ConnectionStore } from './services/connectionStore.js'
+import { OneDriveAuth } from './services/oneDriveAuth.js'
 import { setConnectionResolver } from './vfs/vfsRegistry.js'
 import { AppStateService } from './services/appState.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
@@ -43,6 +44,7 @@ app.whenReady().then(async () => {
   // servers — injected here rather than imported, so the vfs layer stays free
   // of Electron and testable on its own.
   const connections = new ConnectionStore()
+  const oneDrive = new OneDriveAuth(connections)
   setConnectionResolver({
     profile: (id) => connections.get(id),
     secret: (id) => connections.secret(id),
@@ -52,10 +54,11 @@ app.whenReady().then(async () => {
       } catch {
         return null
       }
-    }
+    },
+    oneDriveTokens: (id) => oneDrive.tokenSource(id)
   })
 
-  registerHandlers({ windows, sessions, appState })
+  registerHandlers({ windows, sessions, appState, oneDrive })
   appState.onChange((state) => windows.broadcast('app:stateChanged', state))
 
   const createWindow = (): BrowserWindow => windows.createProjectWindow()

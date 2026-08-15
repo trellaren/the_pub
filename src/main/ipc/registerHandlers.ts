@@ -7,6 +7,7 @@ import { ProjectSession } from '../services/projectSession.js'
 import { assetUrl } from '../protocol/assetProtocol.js'
 import { AiKeyStore } from '../services/aiKeyStore.js'
 import { ConnectionStore } from '../services/connectionStore.js'
+import type { OneDriveAuth } from '../services/oneDriveAuth.js'
 import { createAdapter } from '../vfs/vfsRegistry.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
@@ -55,10 +56,16 @@ export interface HandlerContext {
   windows: WindowManager
   sessions: SessionRegistry
   appState: AppStateService
+  /**
+   * Passed in rather than constructed here so that this and the VFS registry
+   * share one access-token cache — two would mean two refreshes, and Microsoft
+   * invalidates a rotated refresh token the moment the other one is spent.
+   */
+  oneDrive: OneDriveAuth
 }
 
 export function registerHandlers(context: HandlerContext): void {
-  const { windows, sessions, appState } = context
+  const { windows, sessions, appState, oneDrive } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
   const connections = new ConnectionStore()
@@ -443,7 +450,8 @@ export function registerHandlers(context: HandlerContext): void {
     const adapter = createAdapter(projectUri(profile))
     try {
       const entries = await adapter.list('')
-      return { ok: true, message: `Connected to ${profile.host}.`, entries: entries.length }
+      const where = profile.protocol === 'onedrive' ? profile.account || 'OneDrive' : profile.host
+      return { ok: true, message: `Connected to ${where}.`, entries: entries.length }
     } catch (error) {
       return {
         ok: false,
@@ -453,6 +461,28 @@ export function registerHandlers(context: HandlerContext): void {
     } finally {
       await adapter.dispose().catch(() => {})
     }
+  })
+
+  /**
+   * Sign in to OneDrive.
+   *
+   * The failure is returned rather than thrown: every way this goes wrong is
+   * something the author can fix — the wrong client id, a redirect URI the
+   * registration does not list, a consent dialog they closed — and the dialog
+   * shows the message beside the fields that caused it.
+   */
+  handle('connections:signIn', async ({ id }) => {
+    try {
+      const { account } = await oneDrive.signIn(id)
+      return { ok: true, account, message: account ? `Signed in as ${account}.` : 'Signed in.' }
+    } catch (error) {
+      return { ok: false, account: '', message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  handle('connections:signOut', ({ id }) => {
+    oneDrive.signOut(id)
+    return { ok: true as const }
   })
 
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())

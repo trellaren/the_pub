@@ -4,6 +4,8 @@ import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import { LocalAdapter } from './localAdapter.js'
 import { SftpAdapter } from './sftpAdapter.js'
 import { FtpAdapter } from './ftpAdapter.js'
+import { OneDriveAdapter } from './oneDriveAdapter.js'
+import { GraphClient, type TokenSource } from '../onedrive/graph.js'
 import { pollingWatch } from './pollingWatcher.js'
 import { parseProjectUri, defaultPort, type ConnectionProfile } from '../../shared/model/connection.js'
 
@@ -49,6 +51,14 @@ export interface ConnectionResolver {
   profile: (id: string) => ConnectionProfile | null
   secret: (id: string) => string | null
   privateKey: (profile: ConnectionProfile) => string | null
+  /**
+   * A source of OneDrive access tokens for a profile.
+   *
+   * A function rather than a token, because refreshing one means writing a
+   * rotated refresh token back to encrypted storage — which needs Electron, and
+   * so must not happen in here.
+   */
+  oneDriveTokens: (profileId: string) => TokenSource
 }
 
 let resolver: ConnectionResolver | null = null
@@ -76,8 +86,9 @@ export function parseUri(uri: string): { scheme: string; location: string } {
 export function createAdapter(uri: string): VfsAdapter {
   const { scheme, location } = parseUri(uri)
   if (scheme === 'local') return new WatchableAdapter(new LocalAdapter(location))
-  if (scheme === 'sftp' || scheme === 'ftp') return new WatchableAdapter(createRemote(uri))
-  if (scheme === 'onedrive') throw new Error('The OneDrive backend is not available yet')
+  if (scheme === 'sftp' || scheme === 'ftp' || scheme === 'onedrive') {
+    return new WatchableAdapter(createRemote(uri))
+  }
   throw new Error(`Unknown project location: ${uri}`)
 }
 
@@ -96,6 +107,18 @@ function createRemote(uri: string): VfsAdapter {
   // several projects.
   const remotePath = parsed.path || profile.remotePath
   const port = profile.port || defaultPort(profile.protocol)
+
+  if (profile.protocol === 'onedrive') {
+    if (!profile.clientId) {
+      throw new Error('This OneDrive server has no Application (client) ID set.')
+    }
+    return new OneDriveAdapter({
+      remotePath,
+      account: profile.account,
+      client: new GraphClient({ tokens: resolver.oneDriveTokens(profile.id) })
+    })
+  }
+
   const secret = resolver.secret(profile.id) ?? ''
 
   if (profile.protocol === 'ftp') {

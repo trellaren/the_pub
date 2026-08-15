@@ -163,34 +163,26 @@ test('opening panels leaves the ones already on screen the size they were', asyn
   expect(explorerBefore).toBeGreaterThan(0)
   expect(editorBefore).toBeGreaterThan(0)
 
+  const editorGroup = await groupOf(editorId)
+
   await harness.page.evaluate(() => window.__pub.runCommand('panel.ai'))
   await expect(harness.page.getByTestId('chat-thread')).toBeVisible()
-
-  // The first workspace panel has to come from somewhere, so it takes its room
-  // from the documents it sits beside — and from nothing else. The sidebar is
-  // not touched, which is the half of the bug that kept shrinking the Explorer.
-  expect(await widthOf('explorer')).toBe(explorerBefore)
-  const editorGroup = await groupOf(editorId)
-  expect(await groupOf('ai')).not.toBe(editorGroup)
-  // Beside the manuscript, not over it: a reply you cannot see the chapter
-  // behind is not much use.
-  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
-
-  const aiGroup = await groupOf('ai')
-  const editorAfterFirst = await widthOf(editorId)
-
   await harness.page.evaluate(() => window.__pub.runCommand('panel.storyboard'))
-
-  // The second one costs nothing at all: it tabs into the dock the first opened.
-  expect(await groupOf('storyboard')).toBe(aiGroup)
-  expect(await widthOf('explorer')).toBe(explorerBefore)
-  expect(await widthOf(editorId)).toBe(editorAfterFirst)
-
-  // A sidebar panel goes to the sidebar, and takes no room from anyone.
   await harness.page.evaluate(() => window.__pub.runCommand('panel.styles'))
-  expect(await groupOf('styles')).toBe(await groupOf('explorer'))
+
+  // Nothing was carved out of the window, so nothing had to give room up:
+  // every panel arrived as a tab in a group that was already there.
   expect(await widthOf('explorer')).toBe(explorerBefore)
-  expect(await widthOf(editorId)).toBe(editorAfterFirst)
+  expect(await widthOf(editorId)).toBe(editorBefore)
+
+  // Working panels open over the documents, where there is room to use them,
+  // and are found on a tab you can drag elsewhere if you would rather.
+  expect(await groupOf('ai')).toBe(editorGroup)
+  expect(await groupOf('storyboard')).toBe(editorGroup)
+
+  // Consulting panels go to the sidebar, which is a different group.
+  expect(await groupOf('styles')).toBe(await groupOf('explorer'))
+  expect(await groupOf('styles')).not.toBe(editorGroup)
 })
 
 test('a document restored by id survives being renamed on disk', async () => {

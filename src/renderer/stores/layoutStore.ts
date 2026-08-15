@@ -175,7 +175,7 @@ const SIDEBAR_PANELS = new Set<PanelComponent>([
 /**
  * The panels you work in rather than glance at.
  *
- * These want room, so they share one dock beside the document instead of being
+ * These want room, so they open where the documents are instead of being
  * squeezed into the sidebar — a storyboard 280px wide is not a storyboard.
  */
 const WORKSPACE_PANELS = new Set<PanelComponent>([
@@ -189,34 +189,29 @@ const WORKSPACE_PANELS = new Set<PanelComponent>([
 /**
  * Where a singleton panel should open.
  *
- * Each kind has one home and joins it as a tab, so the second panel of a kind
- * costs no space at all. Only the first workspace panel splits anything, and it
- * splits away from the document rather than tabbing over it — an AI reply you
- * cannot see the manuscript behind is not much use, and neither is a binder
- * covering the chapter it lists.
+ * Always a tab in a group that already exists — never a split, and never a new
+ * column. A tab takes no room from anything, so opening a panel cannot resize
+ * the layout at all, and it arrives somewhere obvious: at the front of a group,
+ * with a tab you can see and drag wherever you actually want it.
  *
- * Each falls back to the other's home, so a panel still lands somewhere sane in
- * a layout with no sidebar or no documents open.
+ * Which group depends on what the panel is for. A file list, a search or a style
+ * sheet is something you consult while writing and reads fine in the sidebar; a
+ * binder, a board, a map or a chat is somewhere you work, and belongs where the
+ * documents are. Each falls back to the other's home, so a panel still lands
+ * somewhere sane in a layout with no sidebar or nothing open.
  */
 function placementFor(
   api: DockviewApi,
   component: PanelComponent
-): { referencePanel: string; direction: 'within' | 'below' } | undefined {
+): { referencePanel: string; direction: 'within' } | undefined {
   const sidebar = api.panels.find((panel) => SIDEBAR_PANELS.has(panel.id as PanelComponent))
   const workspace = api.panels.find((panel) => WORKSPACE_PANELS.has(panel.id as PanelComponent))
   const editor = editorGroupPanel(api)
 
-  if (SIDEBAR_PANELS.has(component)) {
-    const target = sidebar ?? editor ?? workspace
-    return target ? { referencePanel: target.id, direction: 'within' } : undefined
-  }
-  if (workspace) return { referencePanel: workspace.id, direction: 'within' }
-  // Below the documents rather than beside them: the split then happens inside
-  // the editor's own column, so the sidebar keeps the width it was given. A
-  // third top-level column would make dockview redistribute all of them, which
-  // is the resizing this is meant to stop.
-  if (editor) return { referencePanel: editor.id, direction: 'below' }
-  return sidebar ? { referencePanel: sidebar.id, direction: 'below' } : undefined
+  const target = SIDEBAR_PANELS.has(component)
+    ? (sidebar ?? editor ?? workspace)
+    : (editor ?? workspace ?? sidebar)
+  return target ? { referencePanel: target.id, direction: 'within' } : undefined
 }
 
 export function buildDefaultLayout(api: DockviewApi): void {

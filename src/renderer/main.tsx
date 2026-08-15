@@ -9,6 +9,7 @@ import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useManuscriptStore } from './stores/manuscriptStore.js'
+import { useHistoryStore } from './stores/historyStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand } from './commands/registry.js'
@@ -35,6 +36,7 @@ Object.assign(window, {
     maps: useMapStore,
     chats: useChatStore,
     manuscript: useManuscriptStore,
+    history: useHistoryStore,
     confirmMention: confirmMentionHere,
     openLocation,
     runCommand

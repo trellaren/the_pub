@@ -310,6 +310,16 @@ body {
   border-radius: 2px;
 }
 
+.pub-sheet-preview {
+  /* A version being read, not written: tighter in the panel than a document
+     gets in the editor, and no caret, since there is nothing to type into. */
+  margin: 0 auto 12px;
+}
+
+.pub-sheet-preview .ProseMirror {
+  caret-color: transparent;
+}
+
 .pub-sheet .ProseMirror {
   outline: none;
   font-family: var(--font-read);

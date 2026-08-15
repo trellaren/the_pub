@@ -65,7 +65,9 @@ slips through — because a noisy suggestion list is how a feature like this get
 
 - **Projects on a server.** Open a project over SFTP or FTP and everything works unchanged —
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
-  credentials encrypted on this machine, outside any project folder.
+  credentials encrypted on this machine, outside any project folder, and an SSH server has to prove
+  its identity before anything is sent to it: you accept its fingerprint once, and if it ever
+  changes, The Pub stops and tells you rather than carrying on.
 
 - **Projects in OneDrive.** The same, over Microsoft Graph: sign in once in your own browser and a
   folder in your drive becomes a project. Changes made on another device arrive through Graph's
@@ -167,7 +169,11 @@ content-security-policy, because the test harness sets no `ELECTRON_RENDERER_URL
 protocol handling, so a fake would only confirm that the fake agrees with itself. FTP runs against
 `ftp-srv`; SFTP runs against `ssh2.Server` — the server half of the library the app already uses as
 a client, so no extra dependency, and the tests exercise the same crypto the release ships. Both
-serve a real temporary directory, and the files that appear in it are the assertion.
+serve a real temporary directory, and the files that appear in it are the assertion. Each adapter
+has a suite of its own as well as the end-to-end one that drives the whole app, and the difference
+matters: the end-to-end suites walk the path an author walks, while the adapter suites are where a
+dropped connection, an unreachable server and a refused host key can be arranged deliberately. Every
+defect found in these backends so far has been found by the second kind.
 
 **Creating things is tested by clicking the buttons.** For a long time it was not, and the cost was
 high: every suite created documents, maps, records and beats by calling the zustand stores through
@@ -238,12 +244,65 @@ whatever was outstanding. The next call reconnects; the one that was in flight d
 is a real difference from the FTP backend and left alone deliberately rather than changed without
 evidence.
 
-**SFTP does not verify host keys, and that is a known weakness.** The client accepts whatever key a
-server presents, so anything positioned between you and your server can read the manuscript — and
-the password on its way past — with nothing looking wrong. Doing this properly needs a `known_hosts`
-store, a trust-on-first-use prompt and a considered answer to a key that has changed, which is its
-own piece of work rather than a flag to set. It is recorded here so it is a decision rather than an
-oversight. Key authentication does not help with this: it protects the account, not the channel.
+**SFTP checks who it is talking to.** SSH encrypts a channel from the first exchange, but encryption
+says nothing about *who* is on the other end: for several phases this client accepted whatever host
+key it was handed, so anything able to answer on the host and port got an encrypted session with the
+author and was then handed the password. Host keys are now checked against a `known_hosts.json` in
+the app's own data directory, and a server nothing is known about is refused like any other — the
+refusal happens during the key exchange, so no username and no password is ever sent to a server
+that has not proved who it is. Accepting a fingerprint is a deliberate act in the connect dialog,
+next to the `SHA256:…` string in the format `ssh-keygen -lf` prints, so it can be compared against
+one obtained another way.
+
+There is no trust-on-first-use here, and that is the considered part. Accepting the first key seen
+would guard against an attacker who turns up later while being wide open to one already in place,
+and the author would never learn a decision had been made for them. A key that has *changed* is a
+louder refusal naming both fingerprints, and it can only be accepted by someone who reads it. Keys
+are matched by algorithm, so a server that holds both an Ed25519 and an RSA key does not cry wolf
+when the library's preference shifts. The store is plain JSON on purpose: a fingerprint is not a
+secret, it is a value its owner is meant to be able to read — what matters is that nothing can
+*write* it, which is what `userData` and a 0600 mode give, and it is the same reasoning behind
+OpenSSH's own plaintext `known_hosts`.
+
+**A stat that fails is not a file that is missing.** This is the same bug in three places, and it is
+worth naming because it looks so harmless. `RemoteAdapter.delete` asks whether a path is there and
+returns quietly when it is not, which is right for a file already gone — so a backend whose `stat`
+answers "not there" for *any* failure turns a delete against an unreachable server into a reported
+success. The row leaves the tree, and the chapter is still on the server. SFTP had this and was
+corrected once a test server existed to unplug; FTP had it until the same was true for FTP; OneDrive
+never did, because Graph says plainly when something is a 404. What each backend now checks is that
+the *server said so* — a reply code naming the path as unavailable, never a connection that failed —
+and the list is of what counts as absence rather than what counts as an error, so an answer nobody
+anticipated fails loudly instead of quietly meaning "gone". FTP keeps two known imprecisions: it
+answers 550 both for a path that is absent and for one it will not let you read, and there is no way
+to tell those apart.
+
+Getting this wrong in the other direction is just as easy. The first attempt here treated only 550
+as absence, which is textbook and which no unit test objected to — and it made creating a project on
+a server impossible, because the first thing an open does is ask about `.thepub/project.json` before
+`.thepub` exists, and `ftp-srv` answers that with a 451. The end-to-end suite caught it; the adapter
+suite had simply encoded the same wrong assumption as the code.
+
+**FTP mtimes come from parsing what `ls` prints, and that is not a detail.** A server that speaks
+MLSD reports an exact timestamp; most do not, and answer `LIST` with the columns of a Unix listing,
+where `basic-ftp` hands back the date as the raw string it found. Left unparsed that became a zero —
+and since the polling watcher decides that a file has changed by noticing that its mtime differs
+from the last poll, every file claiming the epoch meant no edit made on another machine was ever
+noticed, and the search index never caught up with it. The listing form is parsed now, which buys a
+resolution of one minute and an unknown timezone. Both are survivable because nothing in this
+codebase reasons about the absolute instant — the indexer, the watcher and the conflict check all
+*compare* two readings — but a minute is too coarse for the one that decides whether somebody else
+edited your chapter while you had it open, so `stat` asks the server directly with `MDTM`.
+
+**The operating system is only asked about files it can see.** A project's root is a directory on
+this machine for a local project and a URI for one on a server, and resolving a project-relative
+path against a URI produces a path under the working directory that names nothing. Deleting used to
+do this and got away with it: the trash call failed, the fallback ran, and the file went — correct
+behaviour resting entirely on an error. Revealing did not get away with it, and silently handed a
+file manager an address assembled out of a URI. Both now branch on whether the project is local, the
+renderer is told which it is so the menu offers only what applies, and the delete on a server is
+labelled `Delete` rather than `Move to Trash`, because there is no trash on a server and an author
+who goes looking in a wastebasket that was never involved finds out too late.
 
 **A packaged app is a different program, and is tested as one.** Main and preload move inside
 `app.asar`, the six runtime dependencies the main bundle imports by name come from a pruned

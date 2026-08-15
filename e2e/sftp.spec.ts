@@ -84,7 +84,60 @@ async function saveProfile(remotePath = '/', privateKeyPath = keyPath): Promise<
   )
 }
 
+/**
+ * Accept the server's SSH identity, the way an author would.
+ *
+ * Every test below this line needs it, because a host key nobody has accepted
+ * is refused — and the test server mints a fresh one on each run, so there is
+ * never anything accepted in advance. Done through the same two channels the
+ * dialog uses rather than by writing the store directly, so the plumbing is
+ * exercised even by the tests that are about something else.
+ */
+async function acceptHostKey(uri: string): Promise<void> {
+  const id = uri.split('//')[1]!
+  const accepted = await harness.page.evaluate(async (profileId) => {
+    const probe = await window.pub.invoke('connections:test', { id: profileId })
+    if (!probe.hostKey) return probe.ok
+    const result = await window.pub.invoke('connections:trustHostKey', {
+      id: profileId,
+      fingerprint: probe.hostKey.fingerprint
+    })
+    return result.ok
+  }, id)
+  expect(accepted).toBe(true)
+}
+
+/** Save a profile and accept the server's identity, which is the usual case. */
+async function connectedProfile(remotePath = '/'): Promise<string> {
+  const uri = await saveProfile(remotePath)
+  await acceptHostKey(uri)
+  return uri
+}
+
 test('a saved server can be tested before a project is opened on it', async () => {
+  harness = await launch()
+  const uri = await connectedProfile()
+  const id = uri.split('//')[1]!
+
+  const result = await harness.page.evaluate(
+    (profileId) => window.pub.invoke('connections:test', { id: profileId }),
+    id
+  )
+  expect(result).toMatchObject({ ok: true, hostKey: null })
+})
+
+/*
+ * Host keys, end to end.
+ *
+ * The adapter's own suite proves the decision; these prove the app is wired to
+ * it — that a server nobody has vouched for cannot be reached at all, that the
+ * fingerprint an author is shown is the server's real one, and that accepting
+ * it in the dialog is what unblocks the connection. Before this the app passed
+ * ssh2 no verifier, so every one of these connected happily to anything that
+ * answered.
+ */
+
+test('a server whose identity is unknown is refused, and its fingerprint offered', async () => {
   harness = await launch()
   const uri = await saveProfile()
   const id = uri.split('//')[1]!
@@ -93,12 +146,153 @@ test('a saved server can be tested before a project is opened on it', async () =
     (profileId) => window.pub.invoke('connections:test', { id: profileId }),
     id
   )
-  expect(result).toMatchObject({ ok: true })
+
+  expect(result.ok).toBe(false)
+  expect(result.message).toContain('has not been verified')
+  // Not any fingerprint: the one this server actually proves itself with.
+  expect(result.hostKey).toMatchObject({
+    verdict: 'unknown',
+    algorithm: server!.hostKey.algorithm,
+    fingerprint: server!.hostKey.fingerprint
+  })
+})
+
+test('a project will not open on a server whose identity has not been accepted', async () => {
+  harness = await launch()
+  const uri = await saveProfile('unverified')
+
+  const error = await harness.page.evaluate(async (target) => {
+    try {
+      await window.pub.invoke('project:open', { uri: target })
+      return null
+    } catch (thrown) {
+      return String(thrown)
+    }
+  }, uri)
+
+  expect(error).toContain('has not been verified')
+  // Refusal happens during the key exchange, so the project was never opened
+  // and nothing was written to a server that could not prove who it was.
+  await expect(fs.readdir(path.join(serverRoot, 'unverified'))).resolves.toEqual([])
+})
+
+test('the connect dialog shows the fingerprint and accepting it opens the way', async () => {
+  harness = await launch()
+  await harness.page.getByTestId('open-connect').click()
+  await expect(harness.page.getByTestId('connect-dialog')).toBeVisible()
+
+  await harness.page.getByTestId('connect-host').fill('127.0.0.1')
+  await harness.page.getByTestId('connect-user').fill('author')
+  await harness.page.locator('input[type="number"]').fill(String(server!.port))
+  await harness.page.getByTestId('connect-path').fill('/')
+  await harness.page.getByRole('button', { name: 'Test the connection' }).click()
+
+  // The fingerprint is shown in full so it can be compared character by
+  // character with one obtained from the server another way.
+  const panel = harness.page.getByTestId('connect-host-key')
+  await expect(panel).toBeVisible()
+  await expect(harness.page.getByTestId('connect-fingerprint')).toHaveText(
+    `${server!.hostKey.algorithm} ${server!.hostKey.fingerprint}`
+  )
+
+  await harness.page.getByTestId('connect-accept-host-key').click()
+  await expect(panel).toBeHidden()
+  await expect(harness.page.getByTestId('connect-status')).toContainText('Connected to 127.0.0.1')
+})
+
+/*
+ * The alarm, against a genuine substitution rather than a doctored store: the
+ * first server is accepted at an address, then a different one answers there.
+ */
+test('a different server at the same address is refused, naming both fingerprints', async () => {
+  harness = await launch()
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-sftp-swap-e2e-'))
+  const original = await startSftpServer(root)
+  const port = original.port
+  let substitute: TestServer | null = null
+
+  try {
+    const id = await harness.page.evaluate(
+      async ({ port: at, privateKeyPath: key }) => {
+        const profile = await window.pub.invoke('connections:save', {
+          profile: {
+            name: 'Moving target',
+            protocol: 'sftp',
+            host: '127.0.0.1',
+            port: at,
+            user: 'author',
+            auth: 'key',
+            privateKeyPath: key,
+            remotePath: '/',
+            secure: false
+          },
+          secret: ''
+        })
+        const saved = (profile as { id: string }).id
+        const probe = await window.pub.invoke('connections:test', { id: saved })
+        await window.pub.invoke('connections:trustHostKey', {
+          id: saved,
+          fingerprint: probe.hostKey!.fingerprint
+        })
+        return saved
+      },
+      { port, privateKeyPath: keyPath }
+    )
+
+    await original.close()
+    substitute = await startSftpServer(root, { port })
+    expect(substitute.hostKey.fingerprint).not.toBe(original.hostKey.fingerprint)
+
+    const result = await harness.page.evaluate(
+      (profileId) => window.pub.invoke('connections:test', { id: profileId }),
+      id
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('has changed')
+    expect(result.hostKey).toMatchObject({
+      verdict: 'changed',
+      fingerprint: substitute.hostKey.fingerprint,
+      previous: original.hostKey.fingerprint
+    })
+  } finally {
+    await substitute?.close()
+    await original.close().catch(() => {})
+    await fs.rm(root, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+/*
+ * The echo check on accepting a key. A dialog left open while the server
+ * changed underneath it must not be able to commit a key nobody read.
+ */
+test('accepting a fingerprint that is not the one on offer is refused', async () => {
+  harness = await launch()
+  const uri = await saveProfile()
+  const id = uri.split('//')[1]!
+
+  const result = await harness.page.evaluate(async (profileId) => {
+    await window.pub.invoke('connections:test', { id: profileId })
+    return window.pub.invoke('connections:trustHostKey', {
+      id: profileId,
+      fingerprint: 'SHA256:somethingTheAuthorNeverSaw00000000000000000'
+    })
+  }, id)
+
+  expect(result.ok).toBe(false)
+  expect(result.message).toContain('out of date')
+
+  // And the server is still refused afterwards.
+  const after = await harness.page.evaluate(
+    (profileId) => window.pub.invoke('connections:test', { id: profileId }),
+    id
+  )
+  expect(after.ok).toBe(false)
 })
 
 test('a project opens over SFTP and scaffolds itself on the server', async () => {
   harness = await launch()
-  const uri = await saveProfile('scaffold')
+  const uri = await connectedProfile('scaffold')
 
   await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
   await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
@@ -118,7 +312,7 @@ test('a project opens over SFTP and scaffolds itself on the server', async () =>
 
 test('a document written over SFTP lands on the server and reads back', async () => {
   harness = await launch()
-  const uri = await saveProfile('writes')
+  const uri = await connectedProfile('writes')
   await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
   await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
 
@@ -174,7 +368,7 @@ test('a document written over SFTP lands on the server and reads back', async ()
 
 test('search indexes a project served over SFTP', async () => {
   harness = await launch()
-  const uri = await saveProfile('indexing')
+  const uri = await connectedProfile('indexing')
   await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
   await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
 
@@ -250,7 +444,7 @@ test('opening a project on a server that is gone fails with something readable',
  */
 test('an image written to a project on the server is served back to the renderer', async () => {
   harness = await launch()
-  const uri = await saveProfile('images')
+  const uri = await connectedProfile('images')
   await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
   await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
 
@@ -274,9 +468,96 @@ test('an image written to a project on the server is served back to the renderer
   })
 })
 
+/*
+ * What the operating system can and cannot be asked to do with a remote file.
+ *
+ * Both of these handlers used to resolve a project-relative path against
+ * `session.root` with `resolveInRoot`, which assumes the root is a directory on
+ * this machine. For a project on a server the root is a URI, so the join
+ * produced a path under the working directory that has nothing to do with
+ * anything — the same mistake the asset protocol was carrying until Phase 11.
+ */
+
+test('deleting a file on a server really removes it from the server', async () => {
+  harness = await launch()
+  const uri = await connectedProfile('deleting')
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  const file = path.join(serverRoot, 'deleting', 'doomed.pubdoc')
+  await harness.page.evaluate(() => window.__pub.documents.getState().create('doomed.pubdoc'))
+  await waitFor(async () => fs.readFile(file).then(() => true, () => false), 'the document to be written')
+
+  const result = await harness.page.evaluate(() =>
+    window.pub.invoke('vfs:delete', { path: 'doomed.pubdoc', recursive: false })
+  )
+  expect(result).toMatchObject({ ok: true })
+
+  // The claim the handler makes is that the file is gone. On a local project
+  // the OS trash is what makes that true; on a server there is no trash to move
+  // it to, and reporting success without deleting anything would drop the row
+  // from the tree while the chapter sat on the server.
+  await expect(fs.readFile(file)).rejects.toThrow()
+})
+
+test('revealing a file on a server says it cannot, rather than opening nothing', async () => {
+  harness = await launch()
+  const uri = await connectedProfile('revealing')
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  const error = await harness.page.evaluate(async () => {
+    try {
+      await window.pub.invoke('vfs:revealInOs', { path: 'chapter.pubdoc' })
+      return null
+    } catch (thrown) {
+      return String(thrown)
+    }
+  })
+
+  // There is no folder on this machine to open. Silently handing the file
+  // manager a path assembled from a URI is worse than saying so.
+  expect(error).toContain('on this machine')
+})
+
+test('the explorer offers no folder to reveal, and calls the delete what it is', async () => {
+  harness = await launch()
+  const uri = await connectedProfile('menus')
+  // Put the file there before the project opens, so the tree's first listing
+  // has it: a remote backend has no change notifications, and the poll that
+  // would otherwise find it is fifteen seconds away.
+  await fs.writeFile(path.join(serverRoot, 'menus', 'chapter.pubdoc'), '{}')
+
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.explorer'))
+  await expect(harness.page.getByTestId('file-tree')).toBeVisible()
+
+  const row = harness.page.getByRole('treeitem', { name: 'chapter.pubdoc' })
+  await expect(row).toBeVisible()
+  await row.click({ button: 'right' })
+
+  await expect(harness.page.getByRole('menuitem', { name: 'Rename' })).toBeVisible()
+  await expect(harness.page.getByRole('menuitem', { name: 'Reveal in File Manager' })).toHaveCount(0)
+  // Not "Move to Trash": there is no trash on a server, and an author who goes
+  // looking for the chapter in a wastebasket that was never involved finds out
+  // the hard way.
+  await expect(harness.page.getByRole('menuitem', { name: 'Delete' })).toBeVisible()
+})
+
+test('the renderer is told whether a project is local, so it can hide what does not apply', async () => {
+  harness = await launch()
+  const uri = await connectedProfile('elsewhere')
+  const project = await harness.page.evaluate(
+    (target) => window.pub.invoke('project:open', { uri: target }),
+    uri
+  )
+  expect(project.isLocal).toBe(false)
+})
+
 test('an asset url stops resolving once its project is closed', async () => {
   harness = await launch()
-  const uri = await saveProfile('closing')
+  const uri = await connectedProfile('closing')
   await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
   await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
 

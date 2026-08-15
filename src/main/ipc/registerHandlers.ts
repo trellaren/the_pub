@@ -7,8 +7,10 @@ import { ProjectSession } from '../services/projectSession.js'
 import { assetUrl } from '../protocol/assetProtocol.js'
 import { AiKeyStore } from '../services/aiKeyStore.js'
 import { ConnectionStore } from '../services/connectionStore.js'
+import { KnownHostsStore } from '../services/knownHostsStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
 import { createAdapter } from '../vfs/vfsRegistry.js'
+import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
@@ -69,11 +71,26 @@ export interface HandlerContext {
   oneDrive: OneDriveAuth
 }
 
+/** A host key offered during a connection test, held until the author rules on it. */
+interface PendingHostKey {
+  hostId: string
+  presented: PresentedHostKey
+  verdict: 'unknown' | 'changed'
+  previous: string
+}
+
 export function registerHandlers(context: HandlerContext): void {
   const { windows, sessions, appState, oneDrive } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
   const connections = new ConnectionStore()
+  // A second instance of the same file-backed store the VFS registry uses, as
+  // with `ConnectionStore` above: both read on every call, so the file is the
+  // single source of truth and there is no cache for the two to disagree about.
+  const knownHosts = new KnownHostsStore()
+  const hostKeys = new KnownHostsPolicy(knownHosts)
+  /** By profile id, replaced on each test and cleared once accepted. */
+  const pendingHostKeys = new Map<string, PendingHostKey>()
 
   /**
    * Bind a contract channel. The request is parsed with the channel's schema
@@ -160,21 +177,41 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  /*
+   * Deleting, via the trash where there is one.
+   *
+   * `session.root` is a directory only for a local project; for one on a server
+   * it is a URI, and resolving a project-relative path against it produced a
+   * path under the working directory that named nothing. The trash call then
+   * failed, the adapter delete in the `catch` ran, and the file did go — so
+   * this worked, by accident, on the strength of an error. It stops being an
+   * accident here: the operating system is asked only where the question makes
+   * sense, and the adapter is asked everywhere else.
+   */
   handle('vfs:delete', async ({ path: target, recursive }, event) => {
     const session = requireSession(event)
-    // Deleting a manuscript is destructive and easy to misclick, so route it to
-    // the OS trash where the author can get it back.
-    const absolute = resolveInRoot(session.root, target)
-    try {
-      await shell.trashItem(absolute)
-    } catch {
-      await session.adapter.delete(target, { recursive })
+    if (session.isLocal) {
+      // Deleting a manuscript is destructive and easy to misclick, so route it
+      // to the OS trash where the author can get it back.
+      try {
+        await shell.trashItem(resolveInRoot(session.root, target))
+        return { ok: true as const }
+      } catch {
+        // No trash on this system, or the file is somewhere it cannot reach.
+      }
     }
+    await session.adapter.delete(target, { recursive })
     return { ok: true as const }
   })
 
   handle('vfs:revealInOs', ({ path: target }, event) => {
     const session = requireSession(event)
+    // Nothing to open: the file is on a server, and the file manager would be
+    // handed a path assembled out of a URI. The tree hides this for remote
+    // projects, and this is what makes that more than a convention.
+    if (!session.isLocal) {
+      throw new Error('This project is on a server, so there is no folder to show on this machine.')
+    }
     shell.showItemInFolder(resolveInRoot(session.root, target))
     return { ok: true as const }
   })
@@ -448,6 +485,9 @@ export function registerHandlers(context: HandlerContext): void {
 
   handle('connections:delete', ({ id }) => {
     connections.remove(id)
+    // The accepted host key stays: it belongs to the host, not to this profile,
+    // and another profile — or this one, saved again — reaches the same server.
+    pendingHostKeys.delete(id)
     return { ok: true as const }
   })
 
@@ -459,7 +499,35 @@ export function registerHandlers(context: HandlerContext): void {
    */
   handle('connections:test', async ({ id }) => {
     const profile = connections.get(id)
-    if (!profile) return { ok: false, message: 'That server is no longer saved.', entries: 0 }
+    if (!profile) {
+      return { ok: false, message: 'That server is no longer saved.', entries: 0, hostKey: null }
+    }
+
+    /*
+     * Watch what the host-key policy turns away.
+     *
+     * The wrapper only observes — the verdict is still the real policy's, so
+     * testing a connection can never accept a key that opening a project would
+     * refuse. Recording it here is what lets the dialog show the fingerprint
+     * instead of a bare failure, and it is the only place the key is kept:
+     * accepting one has to happen while this record is still in hand.
+     */
+    const refused: PendingHostKey[] = []
+    const watching: HostKeyPolicy = {
+      check: (host, port, key) => {
+        const decision = hostKeys.check(host, port, key)
+        if (!decision.ok) {
+          refused.push({
+            hostId: hostKeyId(host, port),
+            presented: decision.presented,
+            verdict: decision.verdict,
+            previous: decision.previous
+          })
+        }
+        return decision
+      }
+    }
+
     // Building the adapter is inside the try because it is one of the ways this
     // fails: an unreadable private key, or a OneDrive profile with no client
     // id, throws here rather than on connect. Left outside, those escaped the
@@ -468,19 +536,47 @@ export function registerHandlers(context: HandlerContext): void {
     // actual problem is a path they can see and fix.
     let adapter: VfsAdapter | null = null
     try {
-      adapter = createAdapter(projectUri(profile))
+      adapter = createAdapter(projectUri(profile), { hostKeys: watching })
       const entries = await adapter.list('')
       const where = profile.protocol === 'onedrive' ? profile.account || 'OneDrive' : profile.host
-      return { ok: true, message: `Connected to ${where}.`, entries: entries.length }
+      return { ok: true, message: `Connected to ${where}.`, entries: entries.length, hostKey: null }
     } catch (error) {
+      const pending = refused.at(-1) ?? null
+      if (pending) pendingHostKeys.set(id, pending)
+      else pendingHostKeys.delete(id)
       return {
         ok: false,
         message: error instanceof Error ? error.message : String(error),
-        entries: 0
+        entries: 0,
+        hostKey: pending
+          ? { ...pending.presented, verdict: pending.verdict, previous: pending.previous }
+          : null
       }
     } finally {
       await adapter?.dispose().catch(() => {})
     }
+  })
+
+  /**
+   * Accept a host key the author has just read the fingerprint of.
+   *
+   * Only the key main saw during that profile's most recent test can be
+   * accepted, and only when the renderer echoes back the fingerprint it
+   * displayed. That is what keeps this from being a channel that writes
+   * arbitrary trust: a dialog left open while the server changed underneath it
+   * commits nothing, because the fingerprint no longer matches.
+   */
+  handle('connections:trustHostKey', ({ id, fingerprint }) => {
+    const pending = pendingHostKeys.get(id)
+    if (!pending) {
+      return { ok: false, message: 'Test the connection again before accepting its fingerprint.' }
+    }
+    if (pending.presented.fingerprint !== fingerprint) {
+      return { ok: false, message: 'That fingerprint is out of date. Test the connection again.' }
+    }
+    knownHosts.trust(pending.hostId, pending.presented)
+    pendingHostKeys.delete(id)
+    return { ok: true, message: 'This server’s identity has been accepted.' }
   })
 
   /**

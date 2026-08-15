@@ -9,7 +9,7 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
-import { connectionProfileSchema } from '../model/connection.js'
+import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
   chatFileSchema,
   chatSchema,
@@ -220,10 +220,34 @@ export const ipcContract = defineContract({
       res: connectionProfileSchema
     },
     'connections:delete': { req: z.object({ id: z.string() }), res: ok },
-    /** Open a connection and list its root, so a mistake is caught before a project is. */
+    /**
+     * Open a connection and list its root, so a mistake is caught before a
+     * project is.
+     *
+     * Also where an SSH server's identity gets reviewed: a host whose key this
+     * machine has not accepted fails here with `hostKey` filled in, and the
+     * dialog shows the fingerprint for the author to compare.
+     */
     'connections:test': {
       req: z.object({ id: z.string() }),
-      res: z.object({ ok: z.boolean(), message: z.string(), entries: z.number().int() })
+      res: z.object({
+        ok: z.boolean(),
+        message: z.string(),
+        entries: z.number().int(),
+        hostKey: untrustedHostKeySchema.nullable().default(null)
+      })
+    },
+    /**
+     * Accept an SSH host key, after the author has read its fingerprint.
+     *
+     * The fingerprint is echoed back rather than taken on trust: main accepts
+     * only the key it actually saw the server offer during the matching test,
+     * so a dialog left open while something else changed cannot commit a key
+     * nobody read.
+     */
+    'connections:trustHostKey': {
+      req: z.object({ id: z.string(), fingerprint: z.string() }),
+      res: z.object({ ok: z.boolean(), message: z.string() })
     },
     /**
      * Sign in to OneDrive in the person's own browser.

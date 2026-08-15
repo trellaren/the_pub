@@ -222,3 +222,20 @@ test('the dialog refuses an unusable name inline', async () => {
   await expect(harness.page.getByTestId('prompt-error')).toBeVisible()
   await expect(harness.page.getByTestId('prompt-confirm')).toBeDisabled()
 })
+
+/*
+ * The other half of the pair in `sftp.spec.ts`, which asserts these two are
+ * *absent* on a project served over SSH. Kept here so that hiding them
+ * everywhere — which would look like a passing test over there — is caught.
+ */
+test('a local project offers the file manager and names the delete after the trash', async () => {
+  harness = await launch()
+  await fs.writeFile(path.join(harness.projectDir, 'chapter.pubdoc'), '{}')
+  await openProject(harness.page, harness.projectDir)
+  await showExplorer()
+
+  await harness.page.getByRole('treeitem', { name: 'chapter.pubdoc' }).click({ button: 'right' })
+
+  await expect(harness.page.getByRole('menuitem', { name: 'Reveal in File Manager' })).toBeVisible()
+  await expect(harness.page.getByRole('menuitem', { name: 'Move to Trash' })).toBeVisible()
+})

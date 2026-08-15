@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ConnectionProfile, ConnectionProtocol } from '@shared/model/connection.js'
+import type { ConnectionProfile, ConnectionProtocol, UntrustedHostKey } from '@shared/model/connection.js'
 import { defaultPort, projectUri, describeConnection } from '@shared/model/connection.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -60,6 +60,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [secret, setSecret] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** The SSH identity awaiting a decision, when a test refused one. */
+  const [hostKey, setHostKey] = useState<UntrustedHostKey | null>(null)
   const isOneDrive = draft.protocol === 'onedrive'
 
   const load = async (): Promise<void> => {
@@ -92,6 +94,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     })
     setSecret('')
     setStatus(null)
+    setHostKey(null)
   }
 
   const save = async (): Promise<ConnectionProfile | null> => {
@@ -137,8 +140,33 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
             : result.message
           : 'Could not reach the server.'
       )
+      setHostKey(result?.hostKey ?? null)
     }
     setBusy(false)
+  }
+
+  /**
+   * Accept the fingerprint the author has just read, then try again.
+   *
+   * Retrying immediately is the point: accepting an identity is only ever
+   * interesting as a step towards a connection, and finishing here means the
+   * author sees whether the *rest* of the profile is right in the same breath
+   * rather than pressing test twice.
+   */
+  const acceptHostKey = async (): Promise<void> => {
+    if (!draft.id || !hostKey) return
+    setBusy(true)
+    const result = await invoke('connections:trustHostKey', {
+      id: draft.id,
+      fingerprint: hostKey.fingerprint
+    }).catch(() => null)
+    setBusy(false)
+    if (!result?.ok) {
+      setStatus(result?.message ?? 'That fingerprint could not be accepted.')
+      return
+    }
+    setHostKey(null)
+    await test()
   }
 
   /**
@@ -219,6 +247,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   setDraft(BLANK)
                   setSecret('')
                   setStatus(null)
+                  setHostKey(null)
                 }}
               >
                 ＋ new server
@@ -414,6 +443,56 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               <p className="mb-2 text-[11px] text-muted" data-testid="connect-status">
                 {status}
               </p>
+            ) : null}
+
+            {/*
+              Reviewing a server's SSH identity.
+
+              This is the one moment an author can tell their server apart from
+              something pretending to be it, so the fingerprint is shown in full
+              and in a monospaced face — it exists to be compared character by
+              character against one obtained another way, typically
+              `ssh-keygen -lf` on the server itself. Accepting is a button of its
+              own rather than a step folded into "test", because a decision made
+              on the author's behalf is not a decision they have made.
+            */}
+            {hostKey ? (
+              <div
+                className={cx(
+                  'mb-2 rounded border p-2',
+                  hostKey.verdict === 'changed' ? 'border-danger' : 'border-border'
+                )}
+                data-testid="connect-host-key"
+              >
+                <p
+                  className={cx(
+                    'text-[11px]',
+                    hostKey.verdict === 'changed' ? 'text-danger' : 'text-text'
+                  )}
+                >
+                  {hostKey.verdict === 'changed'
+                    ? 'This server is offering a different identity than the one accepted before. If nobody has rebuilt it, something may be intercepting the connection.'
+                    : 'This server has not been seen on this machine before. Check its fingerprint before accepting it.'}
+                </p>
+                <p className="mt-1 break-all font-mono text-[11px] text-text" data-testid="connect-fingerprint">
+                  {hostKey.algorithm} {hostKey.fingerprint}
+                </p>
+                {hostKey.previous ? (
+                  <p className="mt-1 break-all font-mono text-[11px] text-muted">
+                    previously {hostKey.previous}
+                  </p>
+                ) : null}
+                <div className="mt-2">
+                  <ToolbarButton
+                    label="Accept this server's identity"
+                    disabled={busy}
+                    data-testid="connect-accept-host-key"
+                    onClick={() => void acceptHostKey()}
+                  >
+                    {hostKey.verdict === 'changed' ? 'accept the new fingerprint' : 'accept fingerprint'}
+                  </ToolbarButton>
+                </div>
+              </div>
             ) : null}
 
             <div className="flex flex-wrap gap-1">

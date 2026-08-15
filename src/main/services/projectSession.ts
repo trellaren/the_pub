@@ -122,7 +122,13 @@ export class ProjectSession {
   }
 
   toOpenProject(): OpenProject {
-    return { uri: this.uri, root: this.adapter.root, assetToken: this.assetToken, manifest: this.manifest }
+    return {
+      uri: this.uri,
+      root: this.adapter.root,
+      assetToken: this.assetToken,
+      isLocal: this.isLocal,
+      manifest: this.manifest
+    }
   }
 
   async saveManifest(manifest: ProjectManifest): Promise<ProjectManifest> {

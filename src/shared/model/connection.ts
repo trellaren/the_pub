@@ -51,6 +51,26 @@ export const connectionProfileSchema = z.object({
 })
 export type ConnectionProfile = z.infer<typeof connectionProfileSchema>
 
+/**
+ * An SSH host key the author is being asked about.
+ *
+ * The only host-key detail that reaches the renderer, and it is all display:
+ * the fingerprint is a value meant to be read and compared by a person, and
+ * accepting one is a separate act on a channel that names the profile. The key
+ * bytes themselves never leave the main process.
+ */
+export const untrustedHostKeySchema = z.object({
+  /** e.g. `ssh-ed25519`. */
+  algorithm: z.string(),
+  /** OpenSSH's `SHA256:…` form, so it can be compared with `ssh-keygen -lf`. */
+  fingerprint: z.string(),
+  /** `unknown` on a first connection; `changed` when a stored key disagrees. */
+  verdict: z.enum(['unknown', 'changed']),
+  /** The fingerprint previously accepted, when this is a change. */
+  previous: z.string().default('')
+})
+export type UntrustedHostKey = z.infer<typeof untrustedHostKeySchema>
+
 export const connectionFileSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSION),
   connections: z.array(connectionProfileSchema).default(() => [])

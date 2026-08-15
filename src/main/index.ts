@@ -6,8 +6,10 @@ import { startRendererServer, type RendererServer } from './server/rendererServe
 import fs from 'node:fs'
 import { registerHandlers, SessionRegistry } from './ipc/registerHandlers.js'
 import { ConnectionStore } from './services/connectionStore.js'
+import { KnownHostsStore } from './services/knownHostsStore.js'
 import { OneDriveAuth } from './services/oneDriveAuth.js'
 import { setConnectionResolver } from './vfs/vfsRegistry.js'
+import { KnownHostsPolicy } from './vfs/hostKeys.js'
 import { AppStateService } from './services/appState.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
 import { buildMenu } from './menu.js'
@@ -68,7 +70,8 @@ app.whenReady().then(async () => {
         return null
       }
     },
-    oneDriveTokens: (id) => oneDrive.tokenSource(id)
+    oneDriveTokens: (id) => oneDrive.tokenSource(id),
+    hostKeys: new KnownHostsPolicy(new KnownHostsStore())
   })
 
   registerHandlers({ windows, sessions, appState, oneDrive })

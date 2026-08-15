@@ -45,6 +45,15 @@ export const openProjectSchema = z.object({
    * — a stored map background would otherwise cost an IPC round trip per image.
    */
   assetToken: z.string(),
+  /**
+   * Whether the project is a folder on this machine.
+   *
+   * The renderer needs it to know which of the operating system's ideas apply:
+   * a file on a server has no folder to reveal and no trash to be moved to, so
+   * offering either is offering something that cannot work. Main refuses those
+   * itself as well — this is what stops them being offered in the first place.
+   */
+  isLocal: z.boolean(),
   manifest: projectManifestSchema
 })
 export type OpenProject = z.infer<typeof openProjectSchema>

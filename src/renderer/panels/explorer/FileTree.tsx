@@ -319,6 +319,7 @@ export function FileTree() {
                     setDraftProblem(null)
                   }}
                   onDelete={() => void remove(node)}
+                  isLocal={project.isLocal}
                   onReveal={() => void invoke('vfs:revealInOs', { path: node.path })}
                 />
               )}
@@ -338,8 +339,15 @@ export function FileTree() {
           items={[
             { label: 'New Document', run: () => void beginCreate('', 'file') },
             { label: 'New Folder', run: () => void beginCreate('', 'dir') },
-            { separator: true },
-            { label: 'Reveal in File Manager', run: () => void invoke('vfs:revealInOs', { path: '' }) }
+            ...(project.isLocal
+              ? [
+                  { separator: true as const },
+                  {
+                    label: 'Reveal in File Manager',
+                    run: () => void invoke('vfs:revealInOs', { path: '' })
+                  }
+                ]
+              : [])
           ]}
         />
       ) : null}
@@ -356,6 +364,7 @@ function TreeRow({
   onCreate,
   onRename,
   onDelete,
+  isLocal,
   onReveal
 }: {
   node: TreeNode
@@ -366,6 +375,8 @@ function TreeRow({
   onCreate: (kind: 'file' | 'dir') => void
   onRename: () => void
   onDelete: () => void
+  /** A project on a server has no folder to reveal and no trash to delete into. */
+  isLocal: boolean
   onReveal: () => void
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -417,9 +428,14 @@ function TreeRow({
             { label: 'New Folder', run: () => onCreate('dir') },
             { separator: true },
             { label: 'Rename', run: onRename },
-            { label: 'Reveal in File Manager', run: onReveal },
+            // Nothing to reveal when the file is on a server.
+            ...(isLocal ? [{ label: 'Reveal in File Manager', run: onReveal }] : []),
             { separator: true },
-            { label: 'Move to Trash', run: onDelete, danger: true }
+            // Named for what it does. There is no trash on a server, so the
+            // delete is permanent — and an author who expects to find the
+            // chapter in a wastebasket that was never involved is one who
+            // learns the difference too late.
+            { label: isLocal ? 'Move to Trash' : 'Delete', run: onDelete, danger: true }
           ]}
         />
       ) : null}

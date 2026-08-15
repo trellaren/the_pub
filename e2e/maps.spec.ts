@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { launch, openProject, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { writeTinyPng, tinyPngBytes, loadImage, TINY_PNG_WIDTH, TINY_PNG_HEIGHT } from './images.js'
 import type { MapFile } from '../src/shared/model/map.js'
 
 let harness: Harness
@@ -164,4 +166,119 @@ test('drawing on the canvas creates a shape', async () => {
 
   await harness.page.evaluate(() => window.__pub.maps.getState().flush())
   await waitFor(async () => (await storedMaps())[0]?.shapes.length === 1, 'the drawn marker to be written')
+})
+
+/*
+ * Everything below drives the real UI rather than the store. The reported bug
+ * was that the ＋ button did nothing at all — no test had ever clicked it.
+ */
+
+async function showMaps(): Promise<void> {
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.maps'))
+  await expect(harness.page.getByTestId('maps-empty-create').or(harness.page.getByTestId('map-picker'))).toBeVisible()
+}
+
+test('the empty state offers a way in, and sketching creates a drawable map', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await showMaps()
+
+  // With no maps there was previously no create affordance at all here.
+  await harness.page.getByTestId('maps-empty-create').click()
+  await expect(harness.page.getByTestId('new-map-dialog')).toBeVisible()
+  await harness.page.getByTestId('new-map-name').fill('The world')
+  await harness.page.getByTestId('new-map-create').click()
+
+  await expect(harness.page.getByTestId('map-canvas')).toBeVisible()
+  await waitFor(async () => (await storedMaps())[0]?.name === 'The world', 'the map to be written')
+
+  const stored = (await storedMaps())[0]!
+  expect(stored.background).toBeNull()
+  expect(stored.width).toBe(1000)
+  expect(stored.height).toBe(1000)
+})
+
+test('the label tool asks for text and places it', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createMap('The world')
+  await showMaps()
+
+  await harness.page.getByTestId('map-tool-label').click()
+  const canvas = harness.page.getByTestId('map-canvas')
+  const box = (await canvas.boundingBox())!
+  await harness.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+
+  // This prompt was dead too, so the label tool could never place anything.
+  await expect(harness.page.getByTestId('prompt-dialog')).toBeVisible()
+  await harness.page.getByTestId('prompt-input').fill('Ashfall')
+  await harness.page.getByTestId('prompt-confirm').click()
+
+  await harness.page.evaluate(() => window.__pub.maps.getState().flush())
+  await waitFor(async () => {
+    const shapes = (await storedMaps())[0]?.shapes ?? []
+    return shapes.some((shape) => shape.kind === 'label' && shape.text === 'Ashfall')
+  }, 'the label to be written')
+})
+
+test('a map built on an imported image stores it, sizes to it, and serves it', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await showMaps()
+
+  const imagePath = path.join(harness.projectDir, '..', `fixture-${process.pid}.png`)
+  await writeTinyPng(imagePath)
+
+  await harness.page.getByTestId('maps-empty-create').click()
+  await harness.page.getByTestId('new-map-name').fill('Old charts')
+  await harness.page.getByTestId('new-map-file').setInputFiles(imagePath)
+  await harness.page.getByTestId('new-map-create').click()
+
+  await waitFor(async () => (await storedMaps())[0]?.background !== null, 'the background to be recorded')
+  const stored = (await storedMaps())[0]!
+
+  // The bytes landed inside the project, under a generated name.
+  expect(stored.background).toMatch(/^assets\//)
+  const onDisk = await fs.readFile(path.join(harness.projectDir, stored.background!))
+  expect(onDisk.equals(tinyPngBytes())).toBe(true)
+
+  // The map took the image's 8×4 aspect, scaled into the standard box.
+  expect(stored.width).toBe(1000)
+  expect(stored.height).toBe(500)
+
+  // And the renderer can actually fetch it back through pub-asset://.
+  const image = harness.page.getByTestId('map-background')
+  await expect(image).toBeVisible()
+  const href = await image.getAttribute('href')
+  expect(href).toMatch(/^pub-asset:\/\//)
+
+  const served = await loadImage(harness.page, href!)
+  expect(served).toEqual({ ok: true, width: TINY_PNG_WIDTH, height: TINY_PNG_HEIGHT })
+
+  await fs.rm(imagePath, { force: true })
+})
+
+test('a background can be replaced and removed on an existing map', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createMap('The world')
+  await showMaps()
+
+  const imagePath = path.join(harness.projectDir, '..', `fixture-set-${process.pid}.png`)
+  await writeTinyPng(imagePath)
+
+  // The properties pane shows when no shape is selected.
+  await expect(harness.page.getByTestId('map-properties')).toBeVisible()
+  await harness.page.getByTestId('map-background-file').setInputFiles(imagePath)
+
+  await waitFor(async () => (await storedMaps())[0]?.background !== null, 'the background to be set')
+  await expect(harness.page.getByTestId('map-background')).toBeVisible()
+  // An empty map adopts the image's shape, since no marker can be displaced.
+  expect((await storedMaps())[0]!.height).toBe(500)
+
+  await harness.page.getByTestId('map-remove-background').click()
+  await waitFor(async () => (await storedMaps())[0]?.background === null, 'the background to be cleared')
+  await expect(harness.page.getByTestId('map-background')).toHaveCount(0)
+
+  await fs.rm(imagePath, { force: true })
 })

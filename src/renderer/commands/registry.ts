@@ -8,6 +8,12 @@ export interface Command {
    * normally by asking whether the panel is the active one.
    */
   isEnabled?: () => boolean
+  /**
+   * Among enabled registrations, the highest wins. This is how the Explorer
+   * takes over `document.new` while it is mounted — its inline input beats the
+   * app-level dialog — without either registration knowing about the other.
+   */
+  priority?: number
 }
 
 const commands = new Map<string, Command[]>()
@@ -26,10 +32,17 @@ export function registerCommand(command: Command): () => void {
   }
 }
 
+function resolve(candidates: Command[]): Command | undefined {
+  const enabled = candidates.filter((command) => command.isEnabled?.() ?? true)
+  if (enabled.length === 0) return candidates.at(-1)
+  // Highest priority wins; equal priorities keep the old first-registered rule.
+  return enabled.reduce((best, entry) => ((entry.priority ?? 0) > (best.priority ?? 0) ? entry : best))
+}
+
 export function runCommand(id: string): boolean {
   const candidates = commands.get(id)
   if (!candidates || candidates.length === 0) return false
-  const target = candidates.find((command) => command.isEnabled?.() ?? true) ?? candidates.at(-1)
+  const target = resolve(candidates)
   if (!target) return false
   target.run()
   return true
@@ -39,7 +52,7 @@ export function runCommand(id: string): boolean {
 export function listCommands(): Command[] {
   const unique = new Map<string, Command>()
   for (const [id, candidates] of commands) {
-    const target = candidates.find((command) => command.isEnabled?.() ?? true) ?? candidates.at(-1)
+    const target = resolve(candidates)
     if (target) unique.set(id, target)
   }
   return [...unique.values()].sort((a, b) => a.title.localeCompare(b.title))

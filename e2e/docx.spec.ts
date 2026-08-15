@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { unzipSync, strFromU8 } from 'fflate'
 import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness } from './helpers.js'
 import { buildDocx, paragraph, run, WORD_STYLES } from '../src/main/docx/fixtures.js'
+import { writeTinyPng, tinyPngBytes } from './images.js'
 import type { ProjectManifest } from '../src/shared/model/manifest.js'
 
 let harness: Harness
@@ -315,4 +316,47 @@ test('a name Windows cannot store is refused with something readable', async () 
 
   // The original is still there: a refused rename must not lose the file.
   expect(await fs.stat(path.join(harness.projectDir, 'chapter-01.pubdoc'))).toBeTruthy()
+})
+
+/*
+ * An image inserted today must still export tomorrow.
+ *
+ * `doc:writeAsset` returns the url the editor stores verbatim in the .pubdoc,
+ * and the exporter has to turn that back into a path inside the project to
+ * find the bytes again. When the url format changed to carry a project token,
+ * this was the thing that would break silently — the export would succeed and
+ * simply lose the picture.
+ */
+test('an image inserted into a document survives the round trip to Word', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+  await write('A picture follows.')
+
+  // Through the toolbar, as an author would: the button opens a file picker,
+  // so this covers the renderer's own insert path as well as the exporter's.
+  const imagePath = path.join(scratch, 'inserted.png')
+  await writeTinyPng(imagePath)
+  const chooser = harness.page.waitForEvent('filechooser')
+  await harness.page.getByRole('button', { name: 'Insert image' }).click()
+  await (await chooser).setFiles(imagePath)
+
+  await expect(harness.page.locator('.pub-sheet .ProseMirror img')).toBeVisible()
+  await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
+
+  const target = path.join(scratch, 'with-image.docx')
+  const result = await harness.page.evaluate(
+    (file) => window.pub.invoke('docx:export', { paths: ['chapter-01.pubdoc'], file }),
+    target
+  )
+  expect(result).toMatchObject({ ok: true })
+
+  // The bytes are in the package, not merely referenced by a dangling path.
+  const parts = unzipSync(new Uint8Array(await fs.readFile(target)))
+  // Trailing slashes are the archive's directory entries, not files.
+  const media = Object.keys(parts).filter(
+    (name) => name.startsWith('word/media/') && !name.endsWith('/')
+  )
+  expect(media).toHaveLength(1)
+  expect(Buffer.from(parts[media[0]!]!).equals(tinyPngBytes())).toBe(true)
 })

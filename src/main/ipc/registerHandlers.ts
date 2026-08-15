@@ -51,6 +51,10 @@ export class SessionRegistry {
   all(): ProjectSession[] {
     return [...this.sessions.values()]
   }
+  /** How the asset protocol finds the project a URL's token names. */
+  byAssetToken(token: string): ProjectSession | undefined {
+    return [...this.sessions.values()].find((session) => session.assetToken === token)
+  }
 }
 
 export interface HandlerContext {
@@ -200,7 +204,7 @@ export function registerHandlers(context: HandlerContext): void {
   handle('doc:writeAsset', async ({ dataBase64, ext }, event) => {
     const session = requireSession(event)
     const assetPath = await session.documents.writeAsset(dataBase64, ext)
-    return { path: assetPath, url: assetUrl(session.root, assetPath) }
+    return { path: assetPath, url: assetUrl(session, assetPath) }
   })
 
   /**
@@ -337,8 +341,16 @@ export function registerHandlers(context: HandlerContext): void {
   )
 
   handle('maps:list', (_payload, event) => requireSession(event).maps.snapshot())
-  handle('maps:create', ({ name }, event) => requireSession(event).maps.create(name))
-  handle('maps:save', ({ map }, event) => requireSession(event).maps.save(map))
+  handle('maps:create', ({ name, background, width, height }, event) => {
+    // The renderer only ever passes back what doc:writeAsset returned, but a
+    // path is a path: check it here like every other renderer-supplied one.
+    if (background) requirePortableName(background)
+    return requireSession(event).maps.create({ name, background, width, height })
+  })
+  handle('maps:save', ({ map }, event) => {
+    if (map.background) requirePortableName(map.background)
+    return requireSession(event).maps.save(map)
+  })
   handle('maps:delete', async ({ id }, event) => {
     await requireSession(event).maps.remove(id)
     return { ok: true as const }

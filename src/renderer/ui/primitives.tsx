@@ -155,8 +155,20 @@ export function Checkbox({
   )
 }
 
-export function PanelShell({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx('flex h-full min-h-0 flex-col bg-surface text-text', className)}>{children}</div>
+export function PanelShell({
+  children,
+  className,
+  ref
+}: {
+  children: ReactNode
+  className?: string
+  ref?: React.Ref<HTMLDivElement>
+}) {
+  return (
+    <div ref={ref} className={cx('flex h-full min-h-0 flex-col bg-surface text-text', className)}>
+      {children}
+    </div>
+  )
 }
 
 export function PanelHeader({ children }: { children: ReactNode }) {
@@ -167,11 +179,21 @@ export function PanelHeader({ children }: { children: ReactNode }) {
   )
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  action
+}: {
+  title: string
+  hint?: string
+  /** A way out of the empty state — without one, a fresh project is a dead end. */
+  action?: ReactNode
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
       <p className="text-[13px] text-muted">{title}</p>
       {hint ? <p className="text-[12px] text-faint">{hint}</p> : null}
+      {action ? <div className="mt-2">{action}</div> : null}
     </div>
   )
 }

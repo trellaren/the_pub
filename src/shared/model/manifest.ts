@@ -39,6 +39,12 @@ export const openProjectSchema = z.object({
   /** Absolute filesystem path (local backend) or backend URI. */
   uri: z.string(),
   root: z.string(),
+  /**
+   * The opaque name asset URLs know this project by, so the renderer can turn
+   * a stored project-relative image path into a displayable URL synchronously
+   * — a stored map background would otherwise cost an IPC round trip per image.
+   */
+  assetToken: z.string(),
   manifest: projectManifestSchema
 })
 export type OpenProject = z.infer<typeof openProjectSchema>

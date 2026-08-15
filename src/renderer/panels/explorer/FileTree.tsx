@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { VfsEntry } from '@shared/model/vfs.js'
 import { DOC_EXT, IGNORED_DIRS } from '@shared/constants.js'
 import { validateFileName } from '@shared/model/filename.js'
-import { invoke, attempt, on, reportError } from '@renderer/lib/ipc.js'
+import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, cx } from '@renderer/ui/primitives.js'
-
-interface TreeNode extends VfsEntry {
-  depth: number
-}
+import { ContextMenu } from '@renderer/ui/Menu.js'
+import { registerCommand } from '@renderer/commands/registry.js'
+import { flatten, parentFor, findEntry, ancestorsOf, type TreeNode } from './tree.js'
 
 const IGNORED = new Set(IGNORED_DIRS)
 
@@ -30,7 +29,10 @@ export function FileTree() {
   const [selected, setSelected] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [draftProblem, setDraftProblem] = useState<string | null>(null)
   const [creating, setCreating] = useState<{ parent: string; kind: 'file' | 'dir' } | null>(null)
+  const [backgroundMenu, setBackgroundMenu] = useState<{ x: number; y: number } | null>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
 
   const loadDirectory = useCallback(async (path: string) => {
     const entries = await invoke('vfs:list', { path }).catch(() => null)
@@ -45,6 +47,11 @@ export function FileTree() {
     if (!project) return
     setChildren({})
     setExpanded(new Set(['']))
+    // Selection and half-typed names belong to the previous project; keeping
+    // them would aim the next create at a folder that no longer exists here.
+    setSelected(null)
+    setRenaming(null)
+    setCreating(null)
     void loadDirectory('')
   }, [project, loadDirectory])
 
@@ -80,6 +87,79 @@ export function FileTree() {
 
   const rows = useMemo(() => flatten('', children, expanded, 0), [children, expanded])
 
+  /**
+   * Open the inline name input under a parent directory.
+   *
+   * The input renders under the parent's row, so the parent has to be on
+   * screen: expand every ancestor and load any listing not yet fetched first.
+   * Without this, creating under a collapsed branch set state that rendered
+   * nowhere — the click looked like it did nothing, which is exactly the class
+   * of bug this panel is being cured of.
+   */
+  const beginCreate = useCallback(
+    async (parent: string, kind: 'file' | 'dir') => {
+      const line = [...ancestorsOf(parent), ...(parent ? [parent] : [])]
+      setExpanded((current) => new Set([...current, ...line]))
+      for (const directory of line) {
+        if (children[directory] === undefined) await loadDirectory(directory)
+      }
+      setCreating({ parent, kind })
+      setDraft(kind === 'dir' ? 'new-folder' : `untitled${DOC_EXT}`)
+      setDraftProblem(null)
+    },
+    [children, loadDirectory]
+  )
+
+  /** Where the toolbar buttons and app-level commands create. */
+  const defaultParent = useCallback((): string => {
+    if (!selected) return ''
+    const entry = findEntry(selected, children)
+    return entry ? parentFor(entry.path, entry.kind) : ''
+  }, [selected, children])
+
+  /*
+   * The Explorer claims `document.new` and `folder.new` while it is on screen:
+   * its inline input beats the app-level dialog because the name is typed where
+   * the file will appear. The menu item, the shortcut, the palette and the ＋
+   * button all dispatch the same command, so they cannot drift apart.
+   *
+   * "On screen" rather than "mounted", and that distinction is load-bearing.
+   * Dockview keeps a stacked panel mounted when another tab in its group is
+   * active — the Explorer shares a group with Search — so a merely-mounted
+   * test would let a hidden Explorer swallow Ctrl+N and render its input where
+   * nobody can see it. Which is the exact failure this whole change exists to
+   * remove.
+   */
+  // `checkVisibility` rather than a box measurement: dockview hides an inactive
+  // tab's panel with `visibility: hidden`, which still lays out and still
+  // reports client rects, so anything geometric answers "yes" for a panel
+  // nobody can see.
+  const onScreen = useCallback(
+    (): boolean => treeRef.current?.checkVisibility({ visibilityProperty: true }) ?? false,
+    []
+  )
+
+  useEffect(() => {
+    if (!project) return
+    const unregister = [
+      registerCommand({
+        id: 'document.new',
+        title: 'New Document',
+        priority: 1,
+        isEnabled: onScreen,
+        run: () => void beginCreate(defaultParent(), 'file')
+      }),
+      registerCommand({
+        id: 'folder.new',
+        title: 'New Folder',
+        priority: 1,
+        isEnabled: onScreen,
+        run: () => void beginCreate(defaultParent(), 'dir')
+      })
+    ]
+    return () => unregister.forEach((dispose) => dispose())
+  }, [project, beginCreate, defaultParent, onScreen])
+
   const openDocument = useCallback(
     async (entry: VfsEntry) => {
       const docId = await openPath(entry.path)
@@ -93,10 +173,19 @@ export function FileTree() {
 
   const commitRename = useCallback(
     async (entry: VfsEntry, name: string) => {
-      setRenaming(null)
       const trimmed = name.trim()
-      if (!trimmed || trimmed === entry.name) return
-      if (!nameIsUsable(trimmed)) return
+      if (!trimmed || trimmed === entry.name) {
+        setRenaming(null)
+        return
+      }
+      // An unusable name keeps the input open with the reason beside it, so
+      // the typing survives to be corrected rather than vanishing with a toast.
+      const checked = validateFileName(trimmed)
+      if (!checked.ok) {
+        setDraftProblem(checked.reason)
+        return
+      }
+      setRenaming(null)
       const parent = entry.path.slice(0, Math.max(0, entry.path.lastIndexOf('/')))
       const target = parent ? `${parent}/${trimmed}` : trimmed
       const done = await attempt(invoke('vfs:rename', { from: entry.path, to: target }), 'Could not rename')
@@ -111,10 +200,17 @@ export function FileTree() {
   const commitCreate = useCallback(
     async (name: string) => {
       const request = creating
-      setCreating(null)
       const trimmed = name.trim()
-      if (!request || !trimmed) return
-      if (!nameIsUsable(trimmed)) return
+      if (!request || !trimmed) {
+        setCreating(null)
+        return
+      }
+      const checked = validateFileName(trimmed)
+      if (!checked.ok) {
+        setDraftProblem(checked.reason)
+        return
+      }
+      setCreating(null)
       const target = request.parent ? `${request.parent}/${trimmed}` : trimmed
       if (request.kind === 'dir') {
         await attempt(invoke('vfs:mkdir', { path: target }), 'Could not create folder')
@@ -153,7 +249,19 @@ export function FileTree() {
     )
   }
 
-  const newFileParent = selected ? parentOf(selected, children) : ''
+  const nameInput = (depth: number, onCommit: (name: string) => void, onCancel: () => void) => (
+    <NameInput
+      depth={depth}
+      value={draft}
+      problem={draftProblem}
+      onChange={(value) => {
+        setDraft(value)
+        setDraftProblem(null)
+      }}
+      onCommit={onCommit}
+      onCancel={onCancel}
+    />
+  )
 
   return (
     <PanelShell>
@@ -161,49 +269,39 @@ export function FileTree() {
         <span className="flex-1 truncate normal-case" title={project.root}>
           {project.manifest.name}
         </span>
-        <ToolbarButton
-          label="New document"
-          onClick={() => {
-            setCreating({ parent: newFileParent, kind: 'file' })
-            setDraft(`untitled${DOC_EXT}`)
-          }}
-        >
+        <ToolbarButton label="New document" onClick={() => void beginCreate(defaultParent(), 'file')}>
           ＋
         </ToolbarButton>
-        <ToolbarButton
-          label="New folder"
-          onClick={() => {
-            setCreating({ parent: newFileParent, kind: 'dir' })
-            setDraft('new-folder')
-          }}
-        >
+        <ToolbarButton label="New folder" onClick={() => void beginCreate(defaultParent(), 'dir')}>
           ⊞
         </ToolbarButton>
       </PanelHeader>
 
-      <div className="flex-1 overflow-auto py-1">
-        {creating && creating.parent === '' ? (
-          <NameInput
-            depth={0}
-            value={draft}
-            onChange={setDraft}
-            onCommit={commitCreate}
-            onCancel={() => setCreating(null)}
-          />
-        ) : null}
+      <div
+        ref={treeRef}
+        className="flex-1 overflow-auto py-1"
+        data-testid="file-tree"
+        onContextMenu={(event) => {
+          // Rows call stopPropagation, so reaching here means empty space:
+          // offer creation at the project root.
+          event.preventDefault()
+          // And this menu must stop it too. The menu dismisses itself on any
+          // contextmenu reaching the window, and without this the very event
+          // that opened it would arrive there and close it again.
+          event.stopPropagation()
+          setBackgroundMenu({ x: event.clientX, y: event.clientY })
+        }}
+      >
+        {creating && creating.parent === ''
+          ? nameInput(0, commitCreate, () => setCreating(null))
+          : null}
 
         {rows.map((node) => {
           const isRenaming = renaming === node.path
           return (
             <div key={node.path}>
               {isRenaming ? (
-                <NameInput
-                  depth={node.depth}
-                  value={draft}
-                  onChange={setDraft}
-                  onCommit={(name) => void commitRename(node, name)}
-                  onCancel={() => setRenaming(null)}
-                />
+                nameInput(node.depth, (name) => void commitRename(node, name), () => setRenaming(null))
               ) : (
                 <TreeRow
                   node={node}
@@ -214,27 +312,37 @@ export function FileTree() {
                     if (node.kind === 'dir') toggle(node)
                     else void openDocument(node)
                   }}
+                  onCreate={(kind) => void beginCreate(parentFor(node.path, node.kind), kind)}
                   onRename={() => {
                     setRenaming(node.path)
                     setDraft(node.name)
+                    setDraftProblem(null)
                   }}
                   onDelete={() => void remove(node)}
                   onReveal={() => void invoke('vfs:revealInOs', { path: node.path })}
                 />
               )}
-              {creating && creating.parent === node.path ? (
-                <NameInput
-                  depth={node.depth + 1}
-                  value={draft}
-                  onChange={setDraft}
-                  onCommit={commitCreate}
-                  onCancel={() => setCreating(null)}
-                />
-              ) : null}
+              {creating && creating.parent === node.path
+                ? nameInput(node.depth + 1, commitCreate, () => setCreating(null))
+                : null}
             </div>
           )
         })}
       </div>
+
+      {backgroundMenu ? (
+        <ContextMenu
+          x={backgroundMenu.x}
+          y={backgroundMenu.y}
+          onClose={() => setBackgroundMenu(null)}
+          items={[
+            { label: 'New Document', run: () => void beginCreate('', 'file') },
+            { label: 'New Folder', run: () => void beginCreate('', 'dir') },
+            { separator: true },
+            { label: 'Reveal in File Manager', run: () => void invoke('vfs:revealInOs', { path: '' }) }
+          ]}
+        />
+      ) : null}
     </PanelShell>
   )
 }
@@ -245,6 +353,7 @@ function TreeRow({
   selected,
   onSelect,
   onActivate,
+  onCreate,
   onRename,
   onDelete,
   onReveal
@@ -254,6 +363,7 @@ function TreeRow({
   selected: boolean
   onSelect: () => void
   onActivate: () => void
+  onCreate: (kind: 'file' | 'dir') => void
   onRename: () => void
   onDelete: () => void
   onReveal: () => void
@@ -265,6 +375,9 @@ function TreeRow({
     <>
       <div
         role="treeitem"
+        // Named explicitly, or the chevron glyph joins the text and the row
+        // announces itself as "▸ chapter-one" to a screen reader.
+        aria-label={node.name}
         aria-expanded={node.kind === 'dir' ? expanded : undefined}
         aria-selected={selected}
         tabIndex={0}
@@ -278,6 +391,8 @@ function TreeRow({
         }}
         onContextMenu={(event) => {
           event.preventDefault()
+          // Without this the tree's own background menu opens on top of ours.
+          event.stopPropagation()
           onSelect()
           setMenu({ x: event.clientX, y: event.clientY })
         }}
@@ -298,8 +413,12 @@ function TreeRow({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            { label: 'New Document', run: () => onCreate('file') },
+            { label: 'New Folder', run: () => onCreate('dir') },
+            { separator: true },
             { label: 'Rename', run: onRename },
             { label: 'Reveal in File Manager', run: onReveal },
+            { separator: true },
             { label: 'Move to Trash', run: onDelete, danger: true }
           ]}
         />
@@ -311,115 +430,38 @@ function TreeRow({
 function NameInput({
   depth,
   value,
+  problem,
   onChange,
   onCommit,
   onCancel
 }: {
   depth: number
   value: string
+  problem: string | null
   onChange: (value: string) => void
   onCommit: (value: string) => void
   onCancel: () => void
 }) {
   return (
-    <div style={{ paddingLeft: 6 + depth * 12 }} className="flex h-[22px] items-center pr-2">
-      <input
-        autoFocus
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={() => onCommit(value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') onCommit(value)
-          if (event.key === 'Escape') onCancel()
-        }}
-        className="h-[20px] w-full rounded-sm border border-accent bg-surface-2 px-1 text-[12px] text-text outline-none"
-      />
-    </div>
-  )
-}
-
-function ContextMenu({
-  x,
-  y,
-  items,
-  onClose
-}: {
-  x: number
-  y: number
-  items: { label: string; run: () => void; danger?: boolean }[]
-  onClose: () => void
-}) {
-  useEffect(() => {
-    const dismiss = (): void => onClose()
-    window.addEventListener('click', dismiss)
-    window.addEventListener('contextmenu', dismiss)
-    return () => {
-      window.removeEventListener('click', dismiss)
-      window.removeEventListener('contextmenu', dismiss)
-    }
-  }, [onClose])
-
-  return (
-    <div
-      style={{ left: x, top: y }}
-      className="fixed z-50 min-w-40 rounded border border-border bg-surface-2 py-1 shadow-lg"
-      onClick={(event) => event.stopPropagation()}
-    >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          onClick={() => {
-            onClose()
-            item.run()
+    <div style={{ paddingLeft: 6 + depth * 12 }} className="pr-2">
+      <div className="flex h-[22px] items-center">
+        <input
+          autoFocus
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={() => onCommit(value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onCommit(value)
+            if (event.key === 'Escape') onCancel()
           }}
-          className={cx(
-            'block w-full px-3 py-1 text-left text-[12px] hover:bg-surface-3',
-            item.danger ? 'text-danger' : 'text-text'
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
+          className="h-[20px] w-full rounded-sm border border-accent bg-surface-2 px-1 text-[12px] text-text outline-none"
+        />
+      </div>
+      {problem ? (
+        <p data-testid="name-problem" className="px-1 py-0.5 text-[11px] text-danger">
+          {problem}
+        </p>
+      ) : null}
     </div>
   )
-}
-
-function flatten(
-  directory: string,
-  children: Record<string, VfsEntry[]>,
-  expanded: Set<string>,
-  depth: number
-): TreeNode[] {
-  const entries = children[directory]
-  if (!entries) return []
-  const rows: TreeNode[] = []
-  for (const entry of entries) {
-    rows.push({ ...entry, depth })
-    if (entry.kind === 'dir' && expanded.has(entry.path)) {
-      rows.push(...flatten(entry.path, children, expanded, depth + 1))
-    }
-  }
-  return rows
-}
-
-/**
- * Refuse an unusable name here as well as in main.
- *
- * Main checks it too — that is the boundary that matters — but this runs before
- * the round trip, so the author is told the moment they press Enter rather than
- * after a file operation has been attempted on their behalf.
- */
-function nameIsUsable(name: string): boolean {
-  const result = validateFileName(name)
-  if (result.ok) return true
-  reportError(result.reason)
-  return false
-}
-
-/** New items are created inside the selected folder, or beside the selected file. */
-function parentOf(path: string, children: Record<string, VfsEntry[]>): string {
-  if (children[path] !== undefined) return path
-  const slash = path.lastIndexOf('/')
-  return slash === -1 ? '' : path.slice(0, slash)
 }

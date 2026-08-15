@@ -11,6 +11,9 @@ import { FORMAT_VERSION, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
 import type { SnapshotService } from './snapshotService.js'
 
+/** Upper bound on one imported image's decoded size. */
+const MAX_ASSET_BYTES = 20 * 1024 * 1024
+
 export type WriteResult =
   | { ok: true; mtime: number }
   | { ok: false; reason: 'conflict'; diskMtime: number }
@@ -85,6 +88,12 @@ export class DocumentService {
 
   /** Store a pasted or dropped image inside the project and return its asset path. */
   async writeAsset(dataBase64: string, ext: string): Promise<string> {
+    // Base64 through IPC costs a third over the raw bytes, and a decoded
+    // colossus would sit in renderer memory, IPC and the write path at once.
+    // Generous for any real cover or map scan; refused readably beyond that.
+    if (dataBase64.length > (MAX_ASSET_BYTES / 3) * 4) {
+      throw new Error(`That image is too large — the limit is ${MAX_ASSET_BYTES / (1024 * 1024)} MB.`)
+    }
     const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'png'
     const assetPath = `${ASSETS_DIR}/${ulid()}.${safeExt}`
     await this.adapter.writeFile(assetPath, Buffer.from(dataBase64, 'base64'))

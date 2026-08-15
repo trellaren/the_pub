@@ -11,6 +11,7 @@ import {
   pathData,
   toMapSpace,
   zoomView,
+  fitToMapBox,
   MAP_SIZE,
   type StoryMap
 } from './map.js'
@@ -179,5 +180,23 @@ describe('the view', () => {
     let wide = view
     for (let i = 0; i < 20; i++) wide = zoomView(wide, 2, { x: 500, y: 500 })
     expect(wide.width).toBe(MAP_SIZE * 4)
+  })
+})
+
+describe('fitToMapBox', () => {
+  it('scales the longer side to MAP_SIZE and keeps the aspect', () => {
+    expect(fitToMapBox(2000, 1000)).toEqual({ width: 1000, height: 500 })
+    expect(fitToMapBox(600, 1200)).toEqual({ width: 500, height: 1000 })
+    expect(fitToMapBox(800, 800)).toEqual({ width: 1000, height: 1000 })
+  })
+
+  it('never emits a zero side, however thin the image', () => {
+    expect(fitToMapBox(10_000, 1).height).toBe(1)
+    expect(fitToMapBox(1, 10_000).width).toBe(1)
+  })
+
+  it('falls back to the square default on degenerate input', () => {
+    expect(fitToMapBox(0, 100)).toEqual({ width: MAP_SIZE, height: MAP_SIZE })
+    expect(fitToMapBox(-5, 100)).toEqual({ width: MAP_SIZE, height: MAP_SIZE })
   })
 })

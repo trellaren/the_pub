@@ -228,3 +228,42 @@ test('the storyboard renders its columns and cards', async () => {
     harness.page.locator('[data-column-id="act-3"] [data-testid="beat-card"]')
   ).toContainText('Climax')
 })
+
+/*
+ * The New-beat and Add-column buttons, clicked. Both called window.prompt, so
+ * both did nothing; every other test here goes through the store instead.
+ */
+test('the timeline’s New beat button creates a beat through its dialog', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.timeline'))
+
+  await harness.page.getByRole('button', { name: 'New beat' }).click()
+  await expect(harness.page.getByTestId('prompt-dialog')).toBeVisible()
+  await harness.page.getByTestId('prompt-input').fill('The lighthouse goes dark')
+  await harness.page.getByTestId('prompt-confirm').click()
+
+  await harness.page.evaluate(() => window.__pub.beats.getState().flush())
+  await waitFor(
+    async () => (await storedBeats()).some((beat) => beat.title === 'The lighthouse goes dark'),
+    'the beat to be written'
+  )
+})
+
+test('the storyboard’s Add column button creates a column through its dialog', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.storyboard'))
+
+  await harness.page.getByRole('button', { name: 'Add column' }).click()
+  await expect(harness.page.getByTestId('prompt-dialog')).toBeVisible()
+  await harness.page.getByTestId('prompt-input').fill('Act Four')
+  await harness.page.getByTestId('prompt-confirm').click()
+
+  await waitFor(async () => {
+    const columns = await harness.page.evaluate(() =>
+      window.__pub.beats.getState().columns.map((column) => column.name)
+    )
+    return columns.includes('Act Four')
+  }, 'the column to appear')
+})

@@ -238,3 +238,25 @@ function plainText(doc: PubDocument): string {
     .map(walk)
     .join('\n')
 }
+
+/*
+ * The New-character button, clicked. It called window.prompt, so it did nothing
+ * at all — and no test noticed, because every other test in this file creates
+ * records through the store.
+ */
+test('the New character button creates a record through its dialog', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.characters'))
+
+  await harness.page.getByRole('button', { name: 'New character' }).click()
+  await expect(harness.page.getByTestId('prompt-dialog')).toBeVisible()
+  await harness.page.getByTestId('prompt-input').fill('Marguerite')
+  await harness.page.getByTestId('prompt-confirm').click()
+
+  await harness.page.evaluate(() => window.__pub.entities.getState().flush())
+  await waitFor(async () => {
+    const names = (await readJson<EntityFile>(entitiesFile())).entities.map((entity) => entity.name)
+    return names.includes('Marguerite')
+  }, 'the character to be written')
+})

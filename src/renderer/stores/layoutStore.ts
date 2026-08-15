@@ -88,8 +88,19 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       existing.api.setActive()
       return
     }
-    api.addPanel({ id: component, component, title, position: { direction: 'left' } })
-    api.getPanel(component)?.api.setSize({ width: SIDEBAR_WIDTH })
+    const placement = placementFor(api, component)
+    api.addPanel({
+      id: component,
+      component,
+      title,
+      // Always positioned against a panel that already exists. A bare
+      // `{ direction }` is an absolute position, which dockview resolves against
+      // the grid root: it mints a fresh top-level column every time, so each
+      // panel opened shrank every other one and shouldered the Explorer further
+      // from the edge it is supposed to occupy.
+      ...(placement ? { position: placement } : {})
+    })
+    api.getPanel(component)?.api.setActive()
   },
 
   popoutActiveGroup: () => {
@@ -145,6 +156,67 @@ function editorGroupPanel(api: DockviewApi): IDockviewPanel | undefined {
     api.getPanel('welcome') ??
     undefined
   )
+}
+
+/**
+ * The panels that belong in the narrow column beside the manuscript.
+ *
+ * They are the ones you consult while writing — a file list, a search, a set of
+ * styles — and they read fine at sidebar width.
+ */
+const SIDEBAR_PANELS = new Set<PanelComponent>([
+  'explorer',
+  'search',
+  'styles',
+  'characters',
+  'locations'
+])
+
+/**
+ * The panels you work in rather than glance at.
+ *
+ * These want room, so they share one dock beside the document instead of being
+ * squeezed into the sidebar — a storyboard 280px wide is not a storyboard.
+ */
+const WORKSPACE_PANELS = new Set<PanelComponent>([
+  'ai',
+  'manuscript',
+  'timeline',
+  'storyboard',
+  'maps'
+])
+
+/**
+ * Where a singleton panel should open.
+ *
+ * Each kind has one home and joins it as a tab, so the second panel of a kind
+ * costs no space at all. Only the first workspace panel splits anything, and it
+ * splits away from the document rather than tabbing over it — an AI reply you
+ * cannot see the manuscript behind is not much use, and neither is a binder
+ * covering the chapter it lists.
+ *
+ * Each falls back to the other's home, so a panel still lands somewhere sane in
+ * a layout with no sidebar or no documents open.
+ */
+function placementFor(
+  api: DockviewApi,
+  component: PanelComponent
+): { referencePanel: string; direction: 'within' | 'below' } | undefined {
+  const sidebar = api.panels.find((panel) => SIDEBAR_PANELS.has(panel.id as PanelComponent))
+  const workspace = api.panels.find((panel) => WORKSPACE_PANELS.has(panel.id as PanelComponent))
+  const editor = editorGroupPanel(api)
+
+  if (SIDEBAR_PANELS.has(component)) {
+    const target = sidebar ?? editor ?? workspace
+    return target ? { referencePanel: target.id, direction: 'within' } : undefined
+  }
+  if (workspace) return { referencePanel: workspace.id, direction: 'within' }
+  // Below the documents rather than beside them: the split then happens inside
+  // the editor's own column, so the sidebar keeps the width it was given. A
+  // third top-level column would make dockview redistribute all of them, which
+  // is the resizing this is meant to stop.
+  if (editor) return { referencePanel: editor.id, direction: 'below' }
+  return sidebar ? { referencePanel: sidebar.id, direction: 'below' } : undefined
 }
 
 export function buildDefaultLayout(api: DockviewApi): void {

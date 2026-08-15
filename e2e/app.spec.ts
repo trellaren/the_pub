@@ -129,6 +129,70 @@ test('layout and content are restored when the project is reopened', async () =>
   await expect(harness.page.locator('.pub-sheet .ProseMirror')).toContainText('Persisted across restarts.')
 })
 
+/*
+ * The reported bug: "adding a new view should not resize all of the panels".
+ * Every singleton panel asked for a bare left position, which dockview reads as
+ * an absolute one and answers by inserting a new column at the grid root — so
+ * opening anything shrank everything and pushed the Explorer inward. No test
+ * had ever looked at a panel's width or which group it joined.
+ */
+test('opening panels leaves the ones already on screen the size they were', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+
+  const widthOf = async (panelId: string): Promise<number> =>
+    harness.page.evaluate(
+      (id) => window.__pub.layout.getState().api?.getPanel(id)?.group.api.width ?? 0,
+      panelId
+    )
+  const groupOf = async (panelId: string): Promise<string> =>
+    harness.page.evaluate(
+      (id) => window.__pub.layout.getState().api?.getPanel(id)?.group.id ?? '',
+      panelId
+    )
+
+  const explorerBefore = await widthOf('explorer')
+  const editorId = await harness.page.evaluate(
+    () =>
+      window.__pub.layout
+        .getState()
+        .api?.panels.find((panel) => panel.id.startsWith('editor:'))?.id ?? ''
+  )
+  const editorBefore = await widthOf(editorId)
+  expect(explorerBefore).toBeGreaterThan(0)
+  expect(editorBefore).toBeGreaterThan(0)
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.ai'))
+  await expect(harness.page.getByTestId('chat-thread')).toBeVisible()
+
+  // The first workspace panel has to come from somewhere, so it takes its room
+  // from the documents it sits beside — and from nothing else. The sidebar is
+  // not touched, which is the half of the bug that kept shrinking the Explorer.
+  expect(await widthOf('explorer')).toBe(explorerBefore)
+  const editorGroup = await groupOf(editorId)
+  expect(await groupOf('ai')).not.toBe(editorGroup)
+  // Beside the manuscript, not over it: a reply you cannot see the chapter
+  // behind is not much use.
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
+
+  const aiGroup = await groupOf('ai')
+  const editorAfterFirst = await widthOf(editorId)
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.storyboard'))
+
+  // The second one costs nothing at all: it tabs into the dock the first opened.
+  expect(await groupOf('storyboard')).toBe(aiGroup)
+  expect(await widthOf('explorer')).toBe(explorerBefore)
+  expect(await widthOf(editorId)).toBe(editorAfterFirst)
+
+  // A sidebar panel goes to the sidebar, and takes no room from anyone.
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.styles'))
+  expect(await groupOf('styles')).toBe(await groupOf('explorer'))
+  expect(await widthOf('explorer')).toBe(explorerBefore)
+  expect(await widthOf(editorId)).toBe(editorAfterFirst)
+})
+
 test('a document restored by id survives being renamed on disk', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

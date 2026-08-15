@@ -23,7 +23,11 @@ interface PubTestHook {
       openEditor: (docId: string, path: string, title: string) => void
       showPanel: (component: string, title: string) => void
       popoutActiveGroup: () => void
-      api: { panels: { id: string }[]; toJSON: () => unknown } | null
+      api: {
+        panels: { id: string }[]
+        getPanel: (id: string) => { group: { id: string; api: { width: number } } } | undefined
+        toJSON: () => unknown
+      } | null
     }
   }
   entities: {

@@ -9,6 +9,7 @@ import { AiKeyStore } from '../services/aiKeyStore.js'
 import { ConnectionStore } from '../services/connectionStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
 import { createAdapter } from '../vfs/vfsRegistry.js'
+import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
 import { ulid } from 'ulid'
@@ -447,8 +448,15 @@ export function registerHandlers(context: HandlerContext): void {
   handle('connections:test', async ({ id }) => {
     const profile = connections.get(id)
     if (!profile) return { ok: false, message: 'That server is no longer saved.', entries: 0 }
-    const adapter = createAdapter(projectUri(profile))
+    // Building the adapter is inside the try because it is one of the ways this
+    // fails: an unreadable private key, or a OneDrive profile with no client
+    // id, throws here rather than on connect. Left outside, those escaped the
+    // handler entirely and the dialog fell back to "Could not reach the
+    // server." — which sends the author looking for a network fault when the
+    // actual problem is a path they can see and fix.
+    let adapter: VfsAdapter | null = null
     try {
+      adapter = createAdapter(projectUri(profile))
       const entries = await adapter.list('')
       const where = profile.protocol === 'onedrive' ? profile.account || 'OneDrive' : profile.host
       return { ok: true, message: `Connected to ${where}.`, entries: entries.length }
@@ -459,7 +467,7 @@ export function registerHandlers(context: HandlerContext): void {
         entries: 0
       }
     } finally {
-      await adapter.dispose().catch(() => {})
+      await adapter?.dispose().catch(() => {})
     }
   })
 

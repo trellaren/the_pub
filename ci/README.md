@@ -32,6 +32,14 @@ works". Nothing before them touches the asar archive, the pruned production
 dependency that stopped being shipped would break Word export and SFTP in a
 release and in nothing else.
 
+The end-to-end stage stands up real servers rather than fakes: `ftp-srv` for
+FTP, and `ssh2`'s own server for SFTP. Both serve a temporary directory over
+loopback, so the gate needs no network access and nothing installed — but a
+sandbox that forbids listening on `127.0.0.1` will fail those tests rather than
+skip them, which is the intended behaviour. The SFTP server takes an
+OS-assigned port; the FTP one derives a fixed port from the process id, because
+passive mode makes a server advertise its own address.
+
 ## Why it clones
 
 The script makes a full clone of the repository into a throwaway directory,

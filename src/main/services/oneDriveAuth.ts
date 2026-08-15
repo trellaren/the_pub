@@ -1,5 +1,3 @@
-import http from 'node:http'
-import { AddressInfo } from 'node:net'
 import { shell } from 'electron'
 import type { ConnectionStore } from './connectionStore.js'
 import {
@@ -11,6 +9,7 @@ import {
   type Fetcher
 } from '../onedrive/oauth.js'
 import { TokenCache } from '../onedrive/tokens.js'
+import { listenOnLoopback, type Loopback } from '../onedrive/loopback.js'
 import { GraphClient, GRAPH_BASE, type TokenSource } from '../onedrive/graph.js'
 
 /** How long the loopback listener waits for the browser before giving up. */
@@ -132,51 +131,6 @@ export class OneDriveAuth {
   }
 }
 
-interface Listener {
-  port: number
-  /** The redirect URL the browser was sent to. */
-  redirect: Promise<string>
-  close: () => Promise<void>
-}
-
-/**
- * A loopback listener for the redirect.
- *
- * Microsoft's desktop application platform allows `http://localhost` on any
- * port, which is what lets a desktop app take a redirect without registering a
- * fixed one — and binding to `127.0.0.1` rather than every interface keeps the
- * authorization code on this machine.
- */
-async function listen(): Promise<Listener> {
-  let settle: (url: string) => void = () => {}
-  let fail: (error: Error) => void = () => {}
-  const redirect = new Promise<string>((resolve, reject) => {
-    settle = resolve
-    fail = reject
-  })
-
-  const server = http.createServer((request, response) => {
-    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    response.end(CLOSE_PAGE)
-    if (request.url) settle(request.url)
-  })
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-
-  // A browser tab that is never returned to would otherwise hold the port and
-  // the pending promise for as long as the app runs.
-  const timer = setTimeout(() => fail(new Error('The sign-in was not completed.')), SIGN_IN_TIMEOUT_MS)
-  timer.unref?.()
-
-  return {
-    port: (server.address() as AddressInfo).port,
-    redirect,
-    close: async () => {
-      clearTimeout(timer)
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
-  }
+function listen(): Promise<Loopback> {
+  return listenOnLoopback({ page: CLOSE_PAGE, timeoutMs: SIGN_IN_TIMEOUT_MS })
 }

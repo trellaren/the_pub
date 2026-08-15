@@ -6,10 +6,37 @@ directories:
 files:
   - out/**
   - package.json
-# The renderer is served over loopback at runtime, so its assets must stay
-# unpacked and readable rather than living inside the asar archive.
+  # `files` looks like it excludes node_modules, but electron-builder copies
+  # production dependencies through a separate matcher, so the six runtime deps
+  # the main bundle imports by name are shipped. The packaged smoke test is
+  # what proves it, because nothing here states it.
+  #
+  # ssh2's two optional accelerators are the exception. With npmRebuild off they
+  # are built for Node's ABI, so Electron would refuse to load them and ssh2
+  # would fall back to pure JS anyway — shipping them only adds a megabyte and
+  # something to go wrong.
+  - '!node_modules/{ssh2/lib/protocol/crypto/build,cpu-features/build}/**'
+# The renderer is served over loopback at runtime, so its assets are unpacked
+# rather than living inside the asar archive.
+#
+# Electron's asar shim would serve them from inside the archive too, so this is
+# not load-bearing for correctness — it is so the server streams real files with
+# a real size rather than going through the shim on every request. The packaged
+# smoke test asserts the rule still applies, because nothing else would notice
+# if it stopped.
 asarUnpack:
   - out/renderer/**
+# Do not rebuild native modules against Electron's ABI.
+#
+# The only runtime dependency with native code is ssh2, and both of its bindings
+# — sshcrypto and cpu-features — are optional: it wraps each `require` in a bare
+# try/catch and falls back to pure-JS crypto. Rebuilding them buys faster SSH
+# ciphers, which is not the bottleneck when the payload is a chapter of prose.
+#
+# Leaving it on costs a great deal more: every machine that packages this app
+# would need a working C++ toolchain and network access to fetch Electron
+# headers, and a failure there stops the build outright rather than degrading.
+npmRebuild: false
 mac:
   category: public.app-category.productivity
   target:

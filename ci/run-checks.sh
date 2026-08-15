@@ -18,6 +18,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REF="HEAD"
 KEEP=0
 SKIP_E2E=0
+SKIP_PACKAGE=0
 
 usage() {
   cat <<'EOF'
@@ -25,7 +26,8 @@ Usage: bash ci/run-checks.sh [options]
 
   --ref <git-ref>   Commit, branch or tag to check out (default: HEAD)
   --keep            Keep the temporary clone even when everything passes
-  --skip-e2e        Skip the Playwright stage (typecheck, unit tests and build only)
+  --skip-e2e        Skip both Playwright stages (typecheck, unit tests and build only)
+  --skip-package    Skip packaging and the packaged smoke test
   --help            Show this message
 
 The clone is always kept when a stage fails — that copy is the thing worth
@@ -38,6 +40,7 @@ while [ $# -gt 0 ]; do
     --ref) REF="${2:-}"; [ -n "$REF" ] || { echo "--ref needs a value" >&2; exit 2; }; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --skip-e2e) SKIP_E2E=1; shift ;;
+    --skip-package) SKIP_PACKAGE=1; shift ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -157,18 +160,55 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
 esac
 [ -n "${OS:-}" ] && [ "${OS:-}" = "Windows_NT" ] && HAS_DISPLAY=1
 
+# A stage that needs a window: run it directly, wrap it in xvfb, or record it as
+# skipped. Two stages need this now, and duplicating the dispatch is how the two
+# drift apart until one of them quietly stops running.
+gui_stage() {
+  local name="$1"; shift
+
+  # Mirror `stage`: once something has failed, everything after it is moot, and
+  # warning about xvfb at that point would be noise.
+  if [ "$FAILED" -ne 0 ]; then
+    record_skip "$name"
+    return
+  fi
+
+  if [ "$HAS_DISPLAY" -eq 1 ] || [ -n "${DISPLAY:-}" ]; then
+    stage "$name" "$@"
+  elif command -v xvfb-run >/dev/null 2>&1; then
+    stage "$name" xvfb-run -a "$@"
+  else
+    # Never let an unrunnable stage look like a passing one.
+    record_skip "$name"
+    warn "$name SKIPPED: no \$DISPLAY and xvfb-run is not installed."
+    warn "Install xvfb, or run on a machine with a display, before trusting this result."
+  fi
+}
+
 if [ "$SKIP_E2E" -eq 1 ]; then
   record_skip "End-to-end tests"
   warn "End-to-end tests skipped (--skip-e2e)."
-elif [ "$HAS_DISPLAY" -eq 1 ] || [ -n "${DISPLAY:-}" ]; then
-  stage "End-to-end tests" npm run e2e
-elif command -v xvfb-run >/dev/null 2>&1; then
-  stage "End-to-end tests" xvfb-run -a npm run e2e
 else
-  # Never let an unrunnable stage look like a passing one.
-  record_skip "End-to-end tests"
-  warn "End-to-end tests SKIPPED: no \$DISPLAY and xvfb-run is not installed."
-  warn "Install xvfb, or run on a machine with a display, before trusting this result."
+  gui_stage "End-to-end tests" npm run e2e
+fi
+
+# Packaging is the last thing between "the code works" and "the thing someone
+# installs works", and nothing above it touches the asar archive, the pruned
+# production node_modules inside it, or the real executable's own profile.
+if [ "$SKIP_PACKAGE" -eq 1 ]; then
+  record_skip "Package"
+  record_skip "Packaged smoke"
+  warn "Packaging skipped (--skip-package)."
+elif [ "$SKIP_E2E" -eq 1 ]; then
+  # `--skip-e2e` means "skip the tests that drive a window", and the packaged
+  # smoke test is one of those. Packing without it would prove only that
+  # electron-builder exits zero.
+  record_skip "Package"
+  record_skip "Packaged smoke"
+  warn "Packaging skipped: its only check is a Playwright stage (--skip-e2e)."
+else
+  stage     "Package"        npm run package
+  gui_stage "Packaged smoke" npm run e2e:packaged
 fi
 
 # --- 8. summary --------------------------------------------------------------

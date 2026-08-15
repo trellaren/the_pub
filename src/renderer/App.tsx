@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DockRoot } from './dock/DockRoot.js'
+import { cx } from './ui/primitives.js'
 import { CommandPalette } from './commands/CommandPalette.js'
 import { useAppStore } from './stores/appStore.js'
 import { useProjectStore } from './stores/projectStore.js'
@@ -10,7 +11,7 @@ import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
-import { invoke, on, onError } from './lib/ipc.js'
+import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
 import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
 import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
@@ -29,7 +30,7 @@ export function App() {
   const defaultStyleId = useProjectStore((store) => store.project?.manifest.settings.defaultStyleId)
   const entities = useEntityStore((store) => store.entities)
   const [palette, setPalette] = useState<'hidden' | 'commands' | 'files'>('hidden')
-  const [errors, setErrors] = useState<string[]>([])
+  const [notices, setNotices] = useState<Notice[]>([])
 
   useEffect(() => {
     void loadAppState()
@@ -51,9 +52,11 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    return onError((message) => {
-      setErrors((current) => [...current.slice(-3), message])
-      setTimeout(() => setErrors((current) => current.slice(1)), 6000)
+    return onNotice((notice) => {
+      setNotices((current) => [...current.slice(-3), notice])
+      // An import summary can name several things that were left behind, so it
+      // gets longer to read than a one-line failure.
+      setTimeout(() => setNotices((current) => current.slice(1)), notice.kind === 'info' ? 10_000 : 6000)
     })
   }, [])
 
@@ -103,6 +106,16 @@ export function App() {
         run: () => void useDocumentStore.getState().saveAll()
       }),
       registerCommand({ id: 'document.new', title: 'New Document', run: () => void createDocument() }),
+      registerCommand({
+        id: 'document.import',
+        title: 'Import from Word…',
+        run: () => void importFromWord()
+      }),
+      registerCommand({
+        id: 'document.export',
+        title: 'Export to Word…',
+        run: () => void exportToWord()
+      }),
       registerCommand({
         id: 'layout.savePreset',
         title: 'Save Layout As…',
@@ -170,20 +183,70 @@ export function App() {
       {palette !== 'hidden' ? (
         <CommandPalette mode={palette} onClose={() => setPalette('hidden')} />
       ) : null}
-      {errors.length > 0 ? (
+      {notices.length > 0 ? (
         <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">
-          {errors.map((message, index) => (
+          {notices.map((notice, index) => (
             <div
               key={index}
-              className="pointer-events-auto max-w-96 rounded border border-danger/50 bg-surface-2 px-3 py-2 text-[12px] text-danger shadow-lg"
+              data-testid={`notice-${notice.kind}`}
+              className={cx(
+                'pointer-events-auto max-w-96 rounded border bg-surface-2 px-3 py-2 text-[12px] shadow-lg',
+                notice.kind === 'error'
+                  ? 'border-danger/50 text-danger'
+                  : 'border-border text-text'
+              )}
             >
-              {message}
+              {notice.message}
             </div>
           ))}
         </div>
       ) : null}
     </div>
   )
+}
+
+/**
+ * Bring Word documents in.
+ *
+ * The result is reported even when nothing went wrong, because "it worked" and
+ * "it worked but the footnotes are gone" look identical in the file tree, and
+ * only one of them is what the author expected.
+ */
+async function importFromWord(): Promise<void> {
+  const result = await attempt(invoke('docx:importDialog', { targetDir: '' }), 'Could not import')
+  if (!result) return
+  const opened = result.imported[0]
+  if (opened) {
+    const docId = await useDocumentStore.getState().openPath(opened.path)
+    if (docId) {
+      // Read the store again after the await: the snapshot from before it does
+      // not have the document that was just opened.
+      const state = useDocumentStore.getState().docs[docId]
+      if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+    }
+  }
+  const count = result.imported.length
+  const summary = [
+    `Imported ${count} document${count === 1 ? '' : 's'}.`,
+    result.stylesAdded > 0
+      ? `${result.stylesAdded} new style${result.stylesAdded === 1 ? '' : 's'} added.`
+      : '',
+    ...result.warnings
+  ].filter(Boolean)
+  reportNotice(summary.join(' '))
+}
+
+/** Write the open document out. Nothing open means nothing to export. */
+async function exportToWord(): Promise<void> {
+  const documents = useDocumentStore.getState()
+  const active = documents.activeDocId
+  const path = active ? documents.docs[active]?.path : undefined
+  if (!path) {
+    reportError('Open a document to export it.')
+    return
+  }
+  const result = await attempt(invoke('docx:exportDialog', { paths: [path] }), 'Could not export')
+  if (result) reportNotice(`Exported to ${result.file}`)
 }
 
 async function createDocument(): Promise<void> {

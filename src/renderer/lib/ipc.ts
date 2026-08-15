@@ -40,14 +40,31 @@ export function errorMessage(error: unknown): string {
   return String(error)
 }
 
-type ErrorListener = (message: string) => void
-const errorListeners = new Set<ErrorListener>()
+/**
+ * Transient messages shown in the corner of the window.
+ *
+ * These carry a severity because not everything worth saying is a failure: an
+ * import that succeeded but left the footnotes behind has to be reported, and
+ * saying so in the same red box used for errors would tell the author something
+ * broke when nothing did.
+ */
+export interface Notice {
+  message: string
+  kind: 'error' | 'info'
+}
 
-export function onError(listener: ErrorListener): () => void {
-  errorListeners.add(listener)
-  return () => errorListeners.delete(listener)
+type NoticeListener = (notice: Notice) => void
+const noticeListeners = new Set<NoticeListener>()
+
+export function onNotice(listener: NoticeListener): () => void {
+  noticeListeners.add(listener)
+  return () => noticeListeners.delete(listener)
 }
 
 export function reportError(message: string): void {
-  for (const listener of errorListeners) listener(message)
+  for (const listener of noticeListeners) listener({ message, kind: 'error' })
+}
+
+export function reportNotice(message: string): void {
+  for (const listener of noticeListeners) listener({ message, kind: 'info' })
 }

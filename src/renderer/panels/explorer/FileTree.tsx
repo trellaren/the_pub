@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { VfsEntry } from '@shared/model/vfs.js'
 import { DOC_EXT, IGNORED_DIRS } from '@shared/constants.js'
-import { invoke, attempt, on } from '@renderer/lib/ipc.js'
+import { validateFileName } from '@shared/model/filename.js'
+import { invoke, attempt, on, reportError } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
@@ -95,6 +96,7 @@ export function FileTree() {
       setRenaming(null)
       const trimmed = name.trim()
       if (!trimmed || trimmed === entry.name) return
+      if (!nameIsUsable(trimmed)) return
       const parent = entry.path.slice(0, Math.max(0, entry.path.lastIndexOf('/')))
       const target = parent ? `${parent}/${trimmed}` : trimmed
       const done = await attempt(invoke('vfs:rename', { from: entry.path, to: target }), 'Could not rename')
@@ -112,6 +114,7 @@ export function FileTree() {
       setCreating(null)
       const trimmed = name.trim()
       if (!request || !trimmed) return
+      if (!nameIsUsable(trimmed)) return
       const target = request.parent ? `${request.parent}/${trimmed}` : trimmed
       if (request.kind === 'dir') {
         await attempt(invoke('vfs:mkdir', { path: target }), 'Could not create folder')
@@ -398,6 +401,20 @@ function flatten(
     }
   }
   return rows
+}
+
+/**
+ * Refuse an unusable name here as well as in main.
+ *
+ * Main checks it too — that is the boundary that matters — but this runs before
+ * the round trip, so the author is told the moment they press Enter rather than
+ * after a file operation has been attempted on their behalf.
+ */
+function nameIsUsable(name: string): boolean {
+  const result = validateFileName(name)
+  if (result.ok) return true
+  reportError(result.reason)
+  return false
 }
 
 /** New items are created inside the selected folder, or beside the selected file. */

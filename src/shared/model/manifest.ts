@@ -8,6 +8,13 @@ export const projectSettingsSchema = z.object({
   snapshotsEnabled: z.boolean().default(true),
   /** Editor "sheet" width in points. Not true pagination — a readable measure. */
   pageWidth: z.number().default(612),
+  /**
+   * Page height in points. The editor scrolls continuously and never uses it,
+   * but an exported `.docx` has to state a paper size, and inventing one at
+   * export time would mean the same manuscript exported differently depending
+   * on which code path ran. 612×792 is US Letter; A4 is 595×842.
+   */
+  pageHeight: z.number().default(792),
   pageMargin: z.number().default(72),
   defaultStyleId: z.string().default('body')
 })

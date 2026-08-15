@@ -6,7 +6,7 @@ formatting, and the notes a long story needs, in one desktop app.
 ## What works today
 
 Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
-Phase 4 maps, Phase 5 AI assistance, and Phase 6 remote projects.
+Phase 4 maps, Phase 5 AI assistance, Phase 6 remote projects, and Phase 7 Word import and export.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -64,13 +64,26 @@ slips through — because a noisy suggestion list is how a feature like this get
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
   credentials encrypted on this machine, outside any project folder.
 
+- **Word documents in and out.** Import a `.docx` and its headings, indents, spacing, alignment,
+  lists, tables, links and images come with it — and its named styles are matched against the
+  project's own rather than duplicated, so an imported "Heading 1" *is* your Heading 1. Export one
+  chapter or the whole manuscript into a single file, page-broken between chapters, with the
+  styles written into the file so it stays as editable in Word as it was here. Anything that
+  cannot come across — footnotes, comments, tracked changes — is named in the import summary
+  rather than dropped in silence.
+
 In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
 are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps
 the position you dragged it to, rather than being guessed at.
 
-Later phases add AI assistance (Anthropic, OpenAI, Hugging Face, LM Studio);
-OneDrive/FTP/SFTP projects; and DOCX import and export. The file system, index
-and data model are already built as the abstractions those need.
+File names are checked against Windows' rules on every platform, not just on Windows. A name like
+`Chapter: One` is perfectly legal on Linux and impossible on Windows, and a project written on one
+is routinely opened — or served over SFTP — on the other, so the name is refused where it is typed
+rather than where it fails.
+
+Still to come: OneDrive projects. The `VfsAdapter` abstraction they need is already built and
+proven by the SFTP and FTP backends; what is missing is an Azure app registration, which has to be
+created by whoever ships the app.
 
 ## Running it
 
@@ -110,6 +123,7 @@ src/
 │  └─ pm/      ProseMirror JSON utilities (text, word count, mention scanning)
 ├─ main/       privileged process: files, search index, snapshots, windows
 │  ├─ vfs/     the filesystem abstraction every feature is written against
+│  ├─ docx/    Word conversion, both directions, with no knowledge of a project
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
@@ -148,3 +162,13 @@ all ids. Renaming a character or moving a chapter in Finder cannot break any of 
 
 **A mention mark stores an id, never a name.** That is what makes renaming a character free: no
 document is touched, and the backlinks re-point from the index without reading a single file.
+
+**Word conversion is asymmetric, on purpose.** Export goes through the `docx` library and import
+parses OOXML directly. The biggest risk when writing a `.docx` is producing a file Word refuses to
+open, and there is no Word on the machine that builds this to check against, so that direction
+uses a producer already proven against it. Reading is the opposite problem: a converter like
+mammoth turns a document into HTML and throws away the styles, indents and spacing that are the
+whole point here. Because a round-trip test would then only ever prove the importer against our
+own exporter's idioms, the importer is also tested against hand-built fixtures written the way
+Word writes — bare `<w:b/>` toggles, hanging indents, `w:jc="both"`, numbering split across two
+parts.

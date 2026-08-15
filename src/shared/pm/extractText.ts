@@ -7,8 +7,16 @@ export interface TextBlock {
   text: string
 }
 
-/** Node types whose children are inline and must be joined without separators. */
-const INLINE_TYPES = new Set(['text', 'hardBreak', 'image', 'characterMention', 'mention'])
+/**
+ * Node types whose children are inline and must be joined without separators.
+ *
+ * Exported so the DOCX importer can be tested against the real set rather than
+ * a copy of it: an inline type missing from here is joined with a newline
+ * instead of nothing, which shifts every character offset in the block — and
+ * word counts, search snippets and mention positions are all measured in those
+ * offsets.
+ */
+export const INLINE_TYPES = new Set(['text', 'hardBreak', 'image', 'characterMention', 'mention'])
 
 function isInline(node: PmNode): boolean {
   return INLINE_TYPES.has(node.type)

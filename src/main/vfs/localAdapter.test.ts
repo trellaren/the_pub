@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { LocalAdapter } from './localAdapter.js'
+import { LocalAdapter, retryWhileLocked } from './localAdapter.js'
 import { VfsPathError } from './paths.js'
 
 let root: string
@@ -81,5 +81,61 @@ describe('LocalAdapter', () => {
     await adapter.writeFile('a.pubdoc', Buffer.from('22'))
     const after = await adapter.stat('a.pubdoc')
     expect(after!.mtime).toBeGreaterThan(before!.mtime!)
+  })
+})
+
+describe('retryWhileLocked', () => {
+  /** An error shaped like the one Windows raises when a file is held open. */
+  function locked(code: string): NodeJS.ErrnoException {
+    const error = new Error(`${code}: operation not permitted, rename`) as NodeJS.ErrnoException
+    error.code = code
+    return error
+  }
+
+  it('succeeds once the other process lets go', async () => {
+    // On Windows this is antivirus, the Search Indexer, or the OneDrive sync
+    // client holding the file The Pub just wrote. Without the retry it surfaces
+    // as a save error on a perfectly healthy document.
+    let attempts = 0
+    await retryWhileLocked(async () => {
+      attempts += 1
+      if (attempts < 3) throw locked('EPERM')
+    })
+    expect(attempts).toBe(3)
+  })
+
+  it('retries each of the codes Windows uses for it', async () => {
+    for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+      let attempts = 0
+      await retryWhileLocked(async () => {
+        attempts += 1
+        if (attempts < 2) throw locked(code)
+      })
+      expect(attempts).toBe(2)
+    }
+  })
+
+  it('gives up rather than retrying forever', async () => {
+    let attempts = 0
+    await expect(
+      retryWhileLocked(async () => {
+        attempts += 1
+        throw locked('EBUSY')
+      })
+    ).rejects.toThrow('EBUSY')
+    expect(attempts).toBe(5)
+  })
+
+  it('rethrows a real error immediately', async () => {
+    // A missing file is not going to appear if we wait, and retrying would turn
+    // an instant failure into a slow one.
+    let attempts = 0
+    await expect(
+      retryWhileLocked(async () => {
+        attempts += 1
+        throw locked('ENOENT')
+      })
+    ).rejects.toThrow('ENOENT')
+    expect(attempts).toBe(1)
   })
 })

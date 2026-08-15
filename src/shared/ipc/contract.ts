@@ -32,6 +32,13 @@ const empty = z.object({})
 const ok = z.object({ ok: z.literal(true) })
 const projectPath = z.object({ path: z.string() })
 
+/** What an import did, and everything it could not bring across. */
+const docxImportResultSchema = z.object({
+  imported: z.array(z.object({ path: z.string(), title: z.string(), docId: z.string() })),
+  warnings: z.array(z.string()),
+  stylesAdded: z.number().int()
+})
+
 /**
  * The complete renderer↔main surface. Every channel is validated against these
  * schemas in the main process, and the preload bridge is generated from the keys,
@@ -74,6 +81,29 @@ export const ipcContract = defineContract({
     'doc:writeAsset': {
       req: z.object({ dataBase64: z.string(), ext: z.string() }),
       res: z.object({ path: z.string(), url: z.string() })
+    },
+
+    /*
+     * Word import and export, each split into a dialog-free half and a dialog
+     * wrapper. Playwright cannot operate a native dialog, so without the split
+     * the whole feature would be untestable end to end — and the halves are the
+     * same code either way, which is the point.
+     */
+    'docx:import': {
+      req: z.object({ files: z.array(z.string()), targetDir: z.string().default('') }),
+      res: docxImportResultSchema
+    },
+    'docx:importDialog': {
+      req: z.object({ targetDir: z.string().default('') }),
+      res: docxImportResultSchema.nullable()
+    },
+    'docx:export': {
+      req: z.object({ paths: z.array(z.string()).min(1), file: z.string() }),
+      res: z.object({ ok: z.literal(true), file: z.string() })
+    },
+    'docx:exportDialog': {
+      req: z.object({ paths: z.array(z.string()).min(1) }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
     },
 
     'search:query': { req: searchQuerySchema, res: z.array(searchHitSchema) },

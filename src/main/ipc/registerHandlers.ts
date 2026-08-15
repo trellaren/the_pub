@@ -12,6 +12,20 @@ import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
+import { validateRelativePath } from '../../shared/model/filename.js'
+
+/**
+ * Refuse a name no Windows filesystem can hold.
+ *
+ * Checked here rather than in the adapter so every backend gets it: a project
+ * served over SFTP from a Linux host is routinely opened on Windows, and a name
+ * that works for the author who typed it and fails for their collaborator is
+ * the worst of both. The message is written to be shown verbatim.
+ */
+function requirePortableName(target: string): void {
+  const result = validateRelativePath(target)
+  if (!result.ok) throw new Error(result.reason)
+}
 
 /** One open project per top-level window; popouts resolve to their opener's. */
 export class SessionRegistry {
@@ -123,11 +137,13 @@ export function registerHandlers(context: HandlerContext): void {
   handle('vfs:stat', ({ path: target }, event) => requireSession(event).adapter.stat(target))
 
   handle('vfs:mkdir', async ({ path: target }, event) => {
+    requirePortableName(target)
     await requireSession(event).adapter.mkdir(target)
     return { ok: true as const }
   })
 
   handle('vfs:rename', async ({ from, to }, event) => {
+    requirePortableName(to)
     await requireSession(event).adapter.rename(from, to)
     return { ok: true as const }
   })
@@ -159,6 +175,7 @@ export function registerHandlers(context: HandlerContext): void {
   })
 
   handle('doc:create', async ({ path: target, title }, event) => {
+    requirePortableName(target)
     const session = requireSession(event)
     const created = await session.documents.create(target, title)
     await session.search.indexDocument(created.path, created.mtime)
@@ -176,6 +193,65 @@ export function registerHandlers(context: HandlerContext): void {
     const session = requireSession(event)
     const assetPath = await session.documents.writeAsset(dataBase64, ext)
     return { path: assetPath, url: assetUrl(session.root, assetPath) }
+  })
+
+  /**
+   * Import, having already been handed the files.
+   *
+   * Every imported document is indexed the way `doc:create` indexes a new one,
+   * so a chapter brought in from Word is searchable and has its characters
+   * suggested without waiting for the next full pass.
+   */
+  const importDocxFiles = async (
+    session: ProjectSession,
+    files: string[],
+    targetDir: string
+  ): Promise<IpcRes<'docx:import'>> => {
+    const result = await session.docx.import(files, targetDir, session.manifest)
+    if (result.stylesAdded > 0) {
+      await session.saveManifest({ ...session.manifest, styles: result.styles })
+    }
+    for (const document of result.imported) {
+      await session.search.indexDocument(document.path).catch(() => {})
+    }
+    return { imported: result.imported, warnings: result.warnings, stylesAdded: result.stylesAdded }
+  }
+
+  handle('docx:import', ({ files, targetDir }, event) =>
+    importDocxFiles(requireSession(event), files, targetDir)
+  )
+
+  handle('docx:importDialog', async ({ targetDir }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const picked = await dialog.showOpenDialog(window!, {
+      title: 'Import Word documents',
+      filters: [{ name: 'Word documents', extensions: ['docx'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return null
+    return importDocxFiles(session, picked.filePaths, targetDir)
+  })
+
+  handle('docx:export', async ({ paths, file }, event) => {
+    const session = requireSession(event)
+    await session.docx.export(paths, file, session.manifest)
+    return { ok: true as const, file }
+  })
+
+  handle('docx:exportDialog', async ({ paths }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const first = paths[0] ?? 'manuscript'
+    const suggested = `${path.basename(first).replace(/\.pubdoc$/i, '')}${paths.length > 1 ? ' and others' : ''}.docx`
+    const picked = await dialog.showSaveDialog(window!, {
+      title: 'Export to Word',
+      defaultPath: suggested,
+      filters: [{ name: 'Word documents', extensions: ['docx'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await session.docx.export(paths, picked.filePath, session.manifest)
+    return { ok: true as const, file: picked.filePath }
   })
 
   handle('search:query', (query, event) => requireSession(event).search.query(query))

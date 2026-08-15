@@ -1,0 +1,276 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import type { VfsAdapter } from '../vfs/types.js'
+import type { DocumentService } from './documentService.js'
+import type { ProjectManifest } from '../../shared/model/manifest.js'
+import type { NamedStyle } from '../../shared/model/style.js'
+import type { PmDoc, PmNode } from '../../shared/model/document.js'
+import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
+import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
+import { sanitizeFileName } from '../../shared/model/filename.js'
+import { importDocx, IMAGE_PLACEHOLDER_PREFIX, type ImportedImage } from '../docx/fromDocx.js'
+import { exportDocx } from '../docx/toDocx.js'
+import { reconcileStyles } from '../docx/styleMap.js'
+import { ASSET_PROTOCOL } from '../../shared/constants.js'
+
+export interface ImportedDocument {
+  path: string
+  title: string
+  docId: string
+}
+
+export interface ImportResult {
+  imported: ImportedDocument[]
+  warnings: string[]
+  /** Styles the project gained. The caller persists them with the manifest. */
+  styles: NamedStyle[]
+  stylesAdded: number
+}
+
+/**
+ * Word documents in and out.
+ *
+ * The conversion itself is pure and lives in `../docx/`; this is the part that
+ * knows where a project is. The asymmetry is deliberate: a `.docx` being
+ * imported sits *outside* the project (it is on the author's disk, wherever
+ * they keep it) and is read with `fs`, while everything written lands inside
+ * the project through the adapter — so import works over SFTP and FTP exactly
+ * as it does locally.
+ *
+ * Export is the mirror image: read through the adapter, write with `fs`,
+ * because the destination is wherever the author chose to save it.
+ */
+export class DocxService {
+  constructor(
+    private readonly adapter: VfsAdapter,
+    private readonly documents: DocumentService
+  ) {}
+
+  /**
+   * Read `.docx` files from disk into the project.
+   *
+   * Returns the styles the project should now have rather than writing the
+   * manifest itself: the session owns the manifest, and two writers of one file
+   * is the bug this codebase has already designed its way out of everywhere
+   * else.
+   */
+  async import(
+    files: string[],
+    targetDir: string,
+    manifest: ProjectManifest
+  ): Promise<ImportResult> {
+    const imported: ImportedDocument[] = []
+    const warnings: string[] = []
+    let styles = manifest.styles
+    let stylesAdded = 0
+
+    for (const file of files) {
+      const bytes = await fs.readFile(file)
+      const result = importDocx(new Uint8Array(bytes))
+
+      const reconciled = reconcileStyles(result.styles, styles)
+      if (reconciled.added.length > 0) {
+        styles = [...styles, ...reconciled.added]
+        stylesAdded += reconciled.added.length
+      }
+
+      const assets = await this.writeImages(result.images)
+      const content = rewriteDocument(result.content, reconciled.mapping, assets)
+
+      const title = path.basename(file).replace(/\.docx$/i, '')
+      const docPath = await this.freePath(targetDir, title)
+      const created = await this.documents.create(docPath, title)
+      const written = await this.documents.write(
+        created.path,
+        { ...created.doc, content },
+        created.mtime
+      )
+      if (!written.ok) {
+        warnings.push(`${title} could not be written: the file changed underneath the import.`)
+        continue
+      }
+
+      imported.push({ path: created.path, title, docId: created.doc.docId })
+      for (const warning of result.warnings) {
+        // Warnings are per-file but read better as one list, so name the file
+        // when there is more than one.
+        const message = files.length > 1 ? `${title}: ${warning}` : warning
+        if (!warnings.includes(message)) warnings.push(message)
+      }
+      if (result.page) {
+        warnings.push(
+          `${title} is set up for a ${Math.round(result.page.width)}×${Math.round(result.page.height)}pt page. ` +
+            'Page setup is a project setting and was left as it is.'
+        )
+      }
+    }
+
+    return { imported, warnings, styles, stylesAdded }
+  }
+
+  /** Write one or more project documents to a `.docx` at an absolute path. */
+  async export(paths: string[], file: string, manifest: ProjectManifest): Promise<void> {
+    const documents = []
+    for (const docPath of paths) {
+      const loaded = await this.documents.read(docPath)
+      documents.push({ title: loaded.doc.title, content: loaded.doc.content })
+    }
+
+    // Images are read up front: `exportDocx` resolves them synchronously,
+    // because the library's run constructor takes bytes rather than a promise.
+    const images = await this.readImages(documents.map((entry) => entry.content))
+
+    const buffer = await exportDocx({
+      documents,
+      styles: manifest.styles,
+      page: {
+        width: manifest.settings.pageWidth,
+        height: manifest.settings.pageHeight,
+        margin: manifest.settings.pageMargin
+      },
+      readImage: (src) => images.get(src) ?? null
+    })
+
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, buffer)
+  }
+
+  /** Store each imported image in the project and map its part name to an asset URL. */
+  private async writeImages(images: ImportedImage[]): Promise<Map<string, string>> {
+    const written = new Map<string, string>()
+    for (const image of images) {
+      try {
+        const assetPath = await this.documents.writeAsset(
+          Buffer.from(image.data).toString('base64'),
+          image.extension
+        )
+        written.set(image.part, assetPath)
+      } catch {
+        // A single unreadable image must not abandon the whole chapter.
+      }
+    }
+    return written
+  }
+
+  private async readImages(
+    documents: PmDoc[]
+  ): Promise<Map<string, { data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' }>> {
+    const found = new Map<string, { data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' }>()
+    const sources = new Set<string>()
+    for (const document of documents) collectImageSources(document.content ?? [], sources)
+
+    for (const src of sources) {
+      const relative = this.assetPathFor(src)
+      if (!relative) continue
+      try {
+        const data = await this.adapter.readFile(relative)
+        found.set(src, { data: new Uint8Array(data), type: imageType(relative) })
+      } catch {
+        // A missing image is a gap in the exported file, not a failed export.
+      }
+    }
+    return found
+  }
+
+  /**
+   * Turn an image `src` back into a project-relative path.
+   *
+   * The renderer sees images as `pub-asset://asset/<base64url of an absolute
+   * path>`, because it has no `file://` access. Undoing that is the only way to
+   * find the bytes again at export time.
+   */
+  private assetPathFor(src: string): string | null {
+    if (!src.startsWith(`${ASSET_PROTOCOL}://`)) {
+      return src.startsWith(`${ASSETS_DIR}/`) ? src : null
+    }
+    let absolute: string
+    try {
+      const token = new URL(src).pathname.replace(/^\//, '')
+      absolute = Buffer.from(token, 'base64url').toString('utf8')
+    } catch {
+      return null
+    }
+    // A remote project's root is a URI rather than a path, so the tidy
+    // relative-to-root answer only works locally; falling back to the assets
+    // segment covers the rest.
+    try {
+      const relative = relativeToRoot(this.adapter.root, absolute)
+      if (relative && !relative.startsWith('..')) return relative
+    } catch {
+      // Fall through to the assets-segment search.
+    }
+    const marker = absolute.replace(/\\/g, '/').lastIndexOf(`${ASSETS_DIR}/`)
+    return marker === -1 ? null : absolute.replace(/\\/g, '/').slice(marker)
+  }
+
+  /** A path in `targetDir` for this title that no file already occupies. */
+  private async freePath(targetDir: string, title: string): Promise<string> {
+    const stem = sanitizeFileName(title, 'Imported')
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const name = attempt === 0 ? `${stem}${DOC_EXT}` : `${stem} (${attempt})${DOC_EXT}`
+      const candidate = joinRelative(targetDir, name)
+      if (!(await this.adapter.stat(candidate))) return candidate
+    }
+    return joinRelative(targetDir, `${stem} (${Date.now()})${DOC_EXT}`)
+  }
+}
+
+/* ---------------------------------------------------------------- rewrite */
+
+/**
+ * Re-point a freshly imported document at the project's own ids.
+ *
+ * Style ids arrive as Word's; image sources arrive as placeholders. Both are
+ * rewritten in one walk rather than two, so a large chapter is traversed once.
+ */
+function rewriteDocument(
+  content: PmDoc,
+  styleMapping: Map<string, string>,
+  assets: Map<string, string>
+): PmDoc {
+  return { ...content, content: (content.content ?? []).map((node) => rewriteNode(node, styleMapping, assets)) }
+}
+
+function rewriteNode(
+  node: PmNode,
+  styleMapping: Map<string, string>,
+  assets: Map<string, string>
+): PmNode {
+  const next: PmNode = { ...node }
+
+  if (node.attrs) {
+    const attrs = { ...node.attrs }
+    if (typeof attrs.styleId === 'string') {
+      const mapped = styleMapping.get(attrs.styleId)
+      // A style the document referred to but never defined leaves the block
+      // unstyled, which renders as body text rather than as nothing.
+      if (mapped) attrs.styleId = mapped
+      else delete attrs.styleId
+    }
+    if (typeof attrs.src === 'string' && attrs.src.startsWith(IMAGE_PLACEHOLDER_PREFIX)) {
+      const part = attrs.src.slice(IMAGE_PLACEHOLDER_PREFIX.length)
+      const asset = assets.get(part)
+      if (asset) attrs.src = asset
+      else return { type: 'paragraph' }
+    }
+    next.attrs = attrs
+  }
+
+  if (node.content) next.content = node.content.map((child) => rewriteNode(child, styleMapping, assets))
+  return next
+}
+
+function collectImageSources(nodes: PmNode[], found: Set<string>): void {
+  for (const node of nodes) {
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') found.add(node.attrs.src)
+    if (node.content) collectImageSources(node.content, found)
+  }
+}
+
+function imageType(filePath: string): 'png' | 'jpg' | 'gif' | 'bmp' {
+  const extension = basename(filePath).split('.').pop()?.toLowerCase()
+  if (extension === 'jpg' || extension === 'jpeg') return 'jpg'
+  if (extension === 'gif') return 'gif'
+  if (extension === 'bmp') return 'bmp'
+  return 'png'
+}

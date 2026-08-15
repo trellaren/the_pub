@@ -18,6 +18,7 @@ import { MapService } from './mapService.js'
 import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
 import { MentionService } from './mentionService.js'
+import { DocxService } from './docxService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSION } from '../../shared/constants.js'
 
 export interface SessionHooks {
@@ -41,6 +42,7 @@ export class ProjectSession {
   readonly chats: ChatService
   readonly ai = new AiRunner()
   readonly mentions: MentionService
+  readonly docx: DocxService
   private unwatch: Unwatch | null = null
 
   private constructor(
@@ -66,6 +68,7 @@ export class ProjectSession {
       () => this.entities.snapshot()
     )
     this.mentions = new MentionService(this.documents, this.search, this.entities)
+    this.docx = new DocxService(adapter, this.documents)
   }
 
   static async open(uri: string, hooks: SessionHooks): Promise<ProjectSession> {

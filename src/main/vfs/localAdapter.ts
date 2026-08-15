@@ -19,6 +19,46 @@ const CAPS: VfsCapabilities = {
 const WATCH_BATCH_MS = 120
 
 /**
+ * Errors that mean "someone else has this file open, briefly".
+ *
+ * On Windows a rename fails outright when any other process holds a handle to
+ * the destination — an antivirus scanner reading the file The Pub just wrote,
+ * the Search Indexer, or the OneDrive sync client, which is exactly where a lot
+ * of writers keep their manuscripts. POSIX has no equivalent, so this is a
+ * Windows fix that costs nothing anywhere else.
+ */
+const TRANSIENT_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const RENAME_ATTEMPTS = 5
+
+/**
+ * Retry an operation briefly while another process lets go.
+ *
+ * These handles are held for milliseconds, so a short backoff clears them.
+ * Failing instead would surface as a save error on a perfectly healthy file,
+ * and autosave is the most frequent writer in the app.
+ *
+ * Takes the operation rather than the two paths so it can be tested without
+ * mocking `node:fs` — which matters here, because the condition it exists for
+ * cannot be reproduced on the platform the tests run on.
+ */
+export async function retryWhileLocked(operation: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await operation()
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= RENAME_ATTEMPTS - 1 || !TRANSIENT_RENAME_ERRORS.has(code)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt))
+    }
+  }
+}
+
+function renameWithRetry(from: string, to: string): Promise<void> {
+  return retryWhileLocked(() => fs.rename(from, to))
+}
+
+/**
  * Paths the watcher never reports.
  *
  * The directory list is derived from `IGNORED_DIRS` rather than spelled out
@@ -112,7 +152,7 @@ export class LocalAdapter implements VfsAdapter {
     const temp = `${absolute}.tmp-${ulid()}`
     try {
       await fs.writeFile(temp, data)
-      await fs.rename(temp, absolute)
+      await renameWithRetry(temp, absolute)
     } catch (error) {
       await fs.rm(temp, { force: true }).catch(() => {})
       throw error
@@ -126,7 +166,7 @@ export class LocalAdapter implements VfsAdapter {
   async rename(from: string, to: string): Promise<void> {
     const absoluteTo = resolveInRoot(this.root, to)
     await fs.mkdir(path.dirname(absoluteTo), { recursive: true })
-    await fs.rename(resolveInRoot(this.root, from), absoluteTo)
+    await renameWithRetry(resolveInRoot(this.root, from), absoluteTo)
   }
 
   async delete(target: string, options: { recursive?: boolean } = {}): Promise<void> {

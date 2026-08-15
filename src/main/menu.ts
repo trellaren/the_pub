@@ -27,6 +27,9 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('document.save') },
         { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: send('document.saveAll') },
         { type: 'separator' },
+        { label: 'Import from Word…', click: send('document.import') },
+        { label: 'Export to Word…', click: send('document.export') },
+        { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
       ]
     },

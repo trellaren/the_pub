@@ -51,6 +51,10 @@ export const ParagraphFormat = Extension.create({
         types: ['paragraph', 'heading'],
         attributes: {
           indentLeft: pointAttribute('margin-left', 'indent-left'),
+          // No toolbar control sets this one; it exists so a right indent
+          // imported from a Word document has somewhere to land instead of
+          // being silently dropped.
+          indentRight: pointAttribute('margin-right', 'indent-right'),
           spaceBefore: pointAttribute('margin-top', 'space-before'),
           spaceAfter: pointAttribute('margin-bottom', 'space-after'),
           firstLineIndent: pointAttribute('text-indent', 'first-line-indent'),

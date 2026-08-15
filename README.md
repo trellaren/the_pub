@@ -44,7 +44,8 @@ Phase 8 OneDrive — which completes the original brief.
   story is *told*, dragged between columns you name; the timeline holds them in the order they
   *happen*. Those orders differ exactly when there is a flashback — which is why both views
   exist, and why they are two orderings of one set of records rather than two things to keep in
-  step. A beat can name who is in it, carry a status, and link to the paragraph it covers.
+  step. A beat can name who is in it, carry a status, and link to the paragraph it covers. The
+  timeline runs left to right, or top to bottom if you prefer — the choice is remembered.
 
 Name scanning is deliberately conservative — three characters minimum, capitalised names matched
 case-sensitively, per-record and per-alias switches, and a dismissal for anything that still
@@ -56,6 +57,9 @@ slips through — because a noisy suggestion list is how a feature like this get
   background can be swapped or dropped later without moving anything already placed. A marker can
   name the location record that describes the place *and* open a map of its own, so a world map, a
   city map and the location pane are three views of one place rather than three copies of it.
+  Markers can be drawn as any of twenty glyphs — cities, towns, castles, towers, bridges, forests,
+  mountains, ruins, harbours and the rest — and dragged to a new spot without losing what they are
+  linked to. Stroke width and region fill are yours to set, and stay with the shape.
 
 - **AI assistance** from Anthropic, OpenAI, Hugging Face or a local LM Studio server, with as
   many conversations as you like. Ask about the selection or the whole document, watch the reply

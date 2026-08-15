@@ -51,9 +51,24 @@ export class MapService {
     return this.cache.maps.find((map) => map.id === id) ?? null
   }
 
-  async create(name: string): Promise<StoryMap> {
+  async create(input: {
+    name: string
+    background?: string | null
+    width?: number
+    height?: number
+  }): Promise<StoryMap> {
     const now = new Date().toISOString()
-    const map = storyMapSchema.parse({ id: ulid(), name, created: now, modified: now })
+    const map = storyMapSchema.parse({
+      id: ulid(),
+      name: input.name,
+      background: input.background ?? null,
+      // Omitted sizes fall to the schema's defaults, so a sketched map keeps
+      // the box every hand-drawn map has always had.
+      ...(input.width ? { width: input.width } : {}),
+      ...(input.height ? { height: input.height } : {}),
+      created: now,
+      modified: now
+    })
     this.cache.maps = [...this.cache.maps, map]
     await this.flush()
     return structuredClone(map)

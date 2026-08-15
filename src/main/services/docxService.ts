@@ -12,6 +12,7 @@ import { importDocx, IMAGE_PLACEHOLDER_PREFIX, type ImportedImage } from '../doc
 import { exportDocx } from '../docx/toDocx.js'
 import { reconcileStyles } from '../docx/styleMap.js'
 import { ASSET_PROTOCOL } from '../../shared/constants.js'
+import { parseAssetUrl } from '../../shared/model/asset.js'
 
 export interface ImportedDocument {
   path: string
@@ -175,18 +176,22 @@ export class DocxService {
   /**
    * Turn an image `src` back into a project-relative path.
    *
-   * The renderer sees images as `pub-asset://asset/<base64url of an absolute
-   * path>`, because it has no `file://` access. Undoing that is the only way to
-   * find the bytes again at export time.
+   * The renderer sees images as `pub-asset://` URLs, because it has no
+   * `file://` access. Undoing that is the only way to find the bytes again at
+   * export time. Two URL shapes exist — the current token-plus-relative-path
+   * form carries the path outright, and the legacy form encodes an absolute
+   * local path that has to be unwound against the project root.
    */
   private assetPathFor(src: string): string | null {
     if (!src.startsWith(`${ASSET_PROTOCOL}://`)) {
       return src.startsWith(`${ASSETS_DIR}/`) ? src : null
     }
+    const parsed = parseAssetUrl(src)
+    if (!parsed) return null
+    if (parsed.kind === 'project') return parsed.path
     let absolute: string
     try {
-      const token = new URL(src).pathname.replace(/^\//, '')
-      absolute = Buffer.from(token, 'base64url').toString('utf8')
+      absolute = Buffer.from(parsed.encoded, 'base64url').toString('utf8')
     } catch {
       return null
     }

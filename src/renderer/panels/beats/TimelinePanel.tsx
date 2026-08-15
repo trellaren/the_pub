@@ -4,6 +4,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useBeatStore } from '@renderer/stores/beatStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, cx } from '@renderer/ui/primitives.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { BeatCard } from './BeatCard.js'
 import { BeatInspector } from './BeatInspector.js'
 import { openBeatScene } from './beatScene.js'
@@ -36,10 +37,10 @@ export function TimelinePanel() {
     void useBeatStore.getState().load()
   }, [project?.root])
 
-  const addBeat = async (): Promise<void> => {
-    const title = window.prompt('New beat')
-    if (!title?.trim()) return
-    const beat = await create(title.trim())
+  const addBeat = async (owner?: Document): Promise<void> => {
+    const title = await promptForName({ title: 'New beat', ownerDocument: owner })
+    if (!title) return
+    const beat = await create(title)
     if (beat) setSelectedId(beat.id)
   }
 
@@ -56,7 +57,10 @@ export function TimelinePanel() {
     <PanelShell>
       <PanelHeader>
         <span className="flex-1">Timeline</span>
-        <ToolbarButton label="New beat" onClick={() => void addBeat()}>
+        <ToolbarButton
+          label="New beat"
+          onClick={(event) => void addBeat(event.currentTarget.ownerDocument)}
+        >
           ＋
         </ToolbarButton>
       </PanelHeader>

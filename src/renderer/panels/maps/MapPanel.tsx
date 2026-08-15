@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MapShape } from '@shared/model/map.js'
 import { breadcrumbTo, wouldCycle } from '@shared/model/map.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -18,7 +18,12 @@ import {
   Divider,
   cx
 } from '@renderer/ui/primitives.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
+import { invoke, attempt, errorMessage, reportError } from '@renderer/lib/ipc.js'
+import { bytesToBase64 } from '@renderer/lib/assets.js'
+import { fitToMapBox } from '@shared/model/map.js'
 import { MapCanvas, type MapTool } from './MapCanvas.js'
+import { NewMapDialog } from './NewMapDialog.js'
 
 const TOOLS: { id: MapTool; label: string; glyph: string }[] = [
   { id: 'select', label: 'Select and pan', glyph: '✥' },
@@ -45,6 +50,10 @@ export function MapPanel() {
   const [tool, setTool] = useState<MapTool>('select')
   const [color, setColor] = useState('#7aa2f7')
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
+  const [newMap, setNewMap] = useState<{ owner?: Document } | null>(null)
+  /** Where this pane actually lives — the popout's document when torn off. */
+  const paneRef = useRef<HTMLDivElement>(null)
+  const backgroundInput = useRef<HTMLInputElement>(null)
 
   const map = maps.find((candidate) => candidate.id === activeMapId) ?? null
   const shape = map?.shapes.find((candidate) => candidate.id === selectedShapeId) ?? null
@@ -59,11 +68,32 @@ export function MapPanel() {
     void useMapStore.getState().load()
   }, [project?.root])
 
-  const addMap = async (): Promise<void> => {
-    const name = window.prompt('New map', 'The world')
-    if (!name?.trim()) return
-    await useMapStore.getState().create(name.trim())
-    setSelectedShapeId(null)
+  /**
+   * Bring an image into the project and hang it behind an existing map.
+   *
+   * A map that already has shapes keeps its box and letterboxes the new image
+   * — adopting the image's dimensions would silently move every placed marker.
+   * An empty map adopts them, because there is nothing to displace.
+   */
+  const importBackground = async (file: File): Promise<void> => {
+    if (!map) return
+    try {
+      const buffer = await file.arrayBuffer()
+      const bitmap = await createImageBitmap(file)
+      const size = fitToMapBox(bitmap.width, bitmap.height)
+      bitmap.close()
+      const asset = await attempt(
+        invoke('doc:writeAsset', {
+          dataBase64: bytesToBase64(new Uint8Array(buffer)),
+          ext: file.name.split('.').pop() ?? 'png'
+        }),
+        'Could not import the image'
+      )
+      if (!asset) return
+      useMapStore.getState().setBackground(map.id, asset.path, map.shapes.length === 0 ? size : undefined)
+    } catch (error) {
+      reportError(`Could not read that image: ${errorMessage(error)}`)
+    }
   }
 
   const deleteMap = async (): Promise<void> => {
@@ -73,10 +103,20 @@ export function MapPanel() {
     setSelectedShapeId(null)
   }
 
-  const draw = (kind: Exclude<MapTool, 'select'>, points: { x: number; y: number }[]): void => {
+  const draw = async (kind: Exclude<MapTool, 'select'>, points: { x: number; y: number }[]): Promise<void> => {
     if (!map) return
-    const text = kind === 'label' ? (window.prompt('Label') ?? '') : ''
-    if (kind === 'label' && !text.trim()) return
+    let text = ''
+    if (kind === 'label') {
+      // The trigger is a pointer-up on the canvas, not a click on a button, so
+      // the pane's own element supplies the document the dialog belongs in.
+      const asked = await promptForName({
+        title: 'Label',
+        confirmLabel: 'Place',
+        ownerDocument: paneRef.current?.ownerDocument
+      })
+      if (!asked) return
+      text = asked
+    }
     const created = useMapStore.getState().addShape(map.id, kind, points, text)
     if (created) {
       useMapStore.getState().patchShape(map.id, created.id, { color })
@@ -107,10 +147,13 @@ export function MapPanel() {
   }
 
   return (
-    <PanelShell>
+    <PanelShell ref={paneRef}>
       <PanelHeader>
         <span className="flex-1">Maps</span>
-        <ToolbarButton label="New map" onClick={() => void addMap()}>
+        <ToolbarButton
+          label="New map"
+          onClick={(event) => setNewMap({ owner: event.currentTarget.ownerDocument })}
+        >
           ＋
         </ToolbarButton>
         <ToolbarButton label="Delete map" onClick={() => void deleteMap()} disabled={!map}>
@@ -119,7 +162,20 @@ export function MapPanel() {
       </PanelHeader>
 
       {maps.length === 0 ? (
-        <EmptyState title="No maps yet" hint="Draw the world, then let its places open maps of their own." />
+        <EmptyState
+          title="No maps yet"
+          hint="Import an image to draw over, or sketch the world from scratch."
+          action={
+            <button
+              type="button"
+              data-testid="maps-empty-create"
+              className="pub-focus-ring h-7 rounded bg-accent-soft px-3 text-[12px] text-accent hover:brightness-110"
+              onClick={(event) => setNewMap({ owner: event.currentTarget.ownerDocument })}
+            >
+              New map…
+            </button>
+          }
+        />
       ) : (
         <>
           <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
@@ -190,7 +246,7 @@ export function MapPanel() {
                   color={color}
                   selectedId={selectedShapeId}
                   onSelect={setSelectedShapeId}
-                  onDraw={draw}
+                  onDraw={(kind, points) => void draw(kind, points)}
                   onOpenShape={openShape}
                 />
               ) : null}
@@ -286,9 +342,69 @@ export function MapPanel() {
                 </ToolbarButton>
               </div>
             ) : null}
+
+            {map && !shape ? (
+              <div
+                className="w-64 shrink-0 overflow-y-auto border-l border-border p-3"
+                data-testid="map-properties"
+              >
+                <Field label="Name">
+                  <TextInput
+                    value={map.name}
+                    onChange={(event) => useMapStore.getState().rename(map.id, event.target.value)}
+                    data-testid="map-name"
+                  />
+                </Field>
+
+                <SectionTitle>Background</SectionTitle>
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    data-testid="map-set-background"
+                    className="pub-focus-ring h-7 self-start rounded border border-border px-3 text-[12px] text-muted hover:bg-surface-3 hover:text-text"
+                    onClick={() => backgroundInput.current?.click()}
+                  >
+                    {map.background ? 'Replace image…' : 'Set image…'}
+                  </button>
+                  {map.background ? (
+                    <button
+                      type="button"
+                      data-testid="map-remove-background"
+                      className="pub-focus-ring h-7 self-start rounded border border-border px-3 text-[12px] text-muted hover:bg-surface-3 hover:text-text"
+                      // Only the reference is dropped. The file stays in
+                      // assets/ — another map or a document may use it, and
+                      // this app does not delete an author's files uninvited.
+                      onClick={() => useMapStore.getState().setBackground(map.id, null)}
+                    >
+                      Remove image
+                    </button>
+                  ) : null}
+                  <input
+                    ref={backgroundInput}
+                    data-testid="map-background-file"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void importBackground(file)
+                      event.target.value = ''
+                    }}
+                  />
+                </div>
+
+                <SectionTitle>Size</SectionTitle>
+                <p className="text-[12px] text-muted">
+                  {map.width} × {map.height}
+                </p>
+              </div>
+            ) : null}
           </div>
         </>
       )}
+      {newMap ? (
+        <NewMapDialog ownerDocument={newMap.owner} onClose={() => setNewMap(null)} />
+      ) : null}
     </PanelShell>
   )
 }

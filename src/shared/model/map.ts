@@ -243,3 +243,22 @@ export function viewBoxOf(view: Bounds): string {
 }
 
 export const DEFAULT_VIEW: Bounds = { x: 0, y: 0, width: MAP_SIZE, height: MAP_SIZE }
+
+/**
+ * A map box for an imported image: the image's aspect, scaled so the longer
+ * side is MAP_SIZE.
+ *
+ * Not the raw pixel size, deliberately. `zoomView`'s clamps and the default
+ * view both assume coordinates on the order of MAP_SIZE — a 6000-pixel scan
+ * adopted verbatim would open showing its top-left corner and refuse to zoom
+ * out far enough to see itself. Normalising keeps every map, drawn or
+ * imported, in the same coordinate regime.
+ */
+export function fitToMapBox(imageWidth: number, imageHeight: number): { width: number; height: number } {
+  if (imageWidth <= 0 || imageHeight <= 0) return { width: MAP_SIZE, height: MAP_SIZE }
+  const longest = Math.max(imageWidth, imageHeight)
+  return {
+    width: Math.max(1, Math.round((MAP_SIZE * imageWidth) / longest)),
+    height: Math.max(1, Math.round((MAP_SIZE * imageHeight) / longest))
+  }
+}

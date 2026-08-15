@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { launch, cleanup, waitFor, type Harness } from './helpers.js'
 import { startSftpServer, type TestServer } from '../src/main/vfs/sftpTestServer.js'
+import { TINY_PNG_BASE64, tinyPngBytes, loadImage, TINY_PNG_WIDTH, TINY_PNG_HEIGHT } from './images.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 
 /**
@@ -235,4 +236,61 @@ test('opening a project on a server that is gone fails with something readable',
     }
   })
   expect(error).toContain('no longer exists')
+})
+
+/*
+ * An image stored on a server, served back to the renderer.
+ *
+ * This is the only test that exercises the asset protocol's adapter branch.
+ * Before it, `pub-asset://` resolved every request against the local
+ * filesystem, so a project on a server showed a broken image and nothing said
+ * why — and no unit test can stand in for this, because the whole question is
+ * whether the protocol handler, the session lookup and a real SFTP read line
+ * up end to end.
+ */
+test('an image written to a project on the server is served back to the renderer', async () => {
+  harness = await launch()
+  const uri = await saveProfile('images')
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  const asset = (await harness.page.evaluate(
+    (dataBase64) => window.pub.invoke('doc:writeAsset', { dataBase64, ext: 'png' }),
+    TINY_PNG_BASE64
+  )) as { path: string; url: string }
+
+  // The bytes really are on the server, not somewhere local.
+  expect(asset.path).toMatch(/^assets\//)
+  const onServer = await fs.readFile(path.join(serverRoot, 'images', asset.path))
+  expect(onServer.equals(tinyPngBytes())).toBe(true)
+
+  // And the renderer can display them: decoding proves the handler returned
+  // the real bytes, not a 404 page.
+  expect(asset.url).toMatch(/^pub-asset:\/\//)
+  expect(await loadImage(harness.page, asset.url)).toEqual({
+    ok: true,
+    width: TINY_PNG_WIDTH,
+    height: TINY_PNG_HEIGHT
+  })
+})
+
+test('an asset url stops resolving once its project is closed', async () => {
+  harness = await launch()
+  const uri = await saveProfile('closing')
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  const asset = (await harness.page.evaluate(
+    (dataBase64) => window.pub.invoke('doc:writeAsset', { dataBase64, ext: 'png' }),
+    TINY_PNG_BASE64
+  )) as { path: string; url: string }
+
+  // Deliberately not loaded while the project is open: Chromium keeps decoded
+  // images in memory, so a url fetched once would still resolve from cache and
+  // the assertion below would pass without the handler being consulted at all.
+  await harness.page.evaluate(() => window.pub.invoke('project:close', {}))
+
+  // The token names a project, and an unopen project has nothing to authorise
+  // a read against — which is what keeps a hand-edited src from reaching one.
+  expect((await loadImage(harness.page, asset.url)).ok).toBe(false)
 })

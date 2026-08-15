@@ -4,6 +4,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useBeatStore } from '@renderer/stores/beatStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, TextInput } from '@renderer/ui/primitives.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { BeatCard } from './BeatCard.js'
 import { BeatInspector } from './BeatInspector.js'
 import { openBeatScene } from './beatScene.js'
@@ -34,12 +35,16 @@ export function StoryboardPanel() {
     void useBeatStore.getState().load()
   }, [project?.root])
 
-  const addColumn = (): void => {
-    const name = window.prompt('New column', `Part ${columns.length + 1}`)
-    if (!name?.trim()) return
+  const addColumn = async (owner?: Document): Promise<void> => {
+    const name = await promptForName({
+      title: 'New column',
+      defaultValue: `Part ${columns.length + 1}`,
+      ownerDocument: owner
+    })
+    if (!name) return
     void saveColumns([
       ...columns,
-      { id: `col-${Date.now().toString(36)}`, name: name.trim(), order: columns.length }
+      { id: `col-${Date.now().toString(36)}`, name, order: columns.length }
     ])
   }
 
@@ -49,10 +54,10 @@ export function StoryboardPanel() {
     void saveColumns(columns.filter((column) => column.id !== id))
   }
 
-  const addBeat = async (columnId: string): Promise<void> => {
-    const title = window.prompt('New beat')
-    if (!title?.trim()) return
-    const beat = await create(title.trim(), columnId)
+  const addBeat = async (columnId: string, owner?: Document): Promise<void> => {
+    const title = await promptForName({ title: 'New beat', ownerDocument: owner })
+    if (!title) return
+    const beat = await create(title, columnId)
     if (beat) setSelectedId(beat.id)
   }
 
@@ -69,7 +74,10 @@ export function StoryboardPanel() {
     <PanelShell>
       <PanelHeader>
         <span className="flex-1">Storyboard</span>
-        <ToolbarButton label="Add column" onClick={addColumn}>
+        <ToolbarButton
+          label="Add column"
+          onClick={(event) => void addColumn(event.currentTarget.ownerDocument)}
+        >
           ＋ column
         </ToolbarButton>
       </PanelHeader>
@@ -107,7 +115,10 @@ export function StoryboardPanel() {
                     }
                   />
                   <span className="shrink-0 text-[10px] text-faint">{cards.length}</span>
-                  <ToolbarButton label="Add beat" onClick={() => void addBeat(column.id)}>
+                  <ToolbarButton
+                    label="Add beat"
+                    onClick={(event) => void addBeat(column.id, event.currentTarget.ownerDocument)}
+                  >
                     ＋
                   </ToolbarButton>
                   <ToolbarButton label="Delete column" onClick={() => removeColumn(column.id)}>

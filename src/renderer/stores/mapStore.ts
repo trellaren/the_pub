@@ -4,15 +4,27 @@ import type { StoryMap, MapShape, MapShapeKind, Point } from '@shared/model/map.
 import { MAP_SAVE_DEBOUNCE_MS } from '@shared/constants.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 
+export interface CreateMapOptions {
+  background?: string | null
+  width?: number
+  height?: number
+}
+
 interface MapStore {
   maps: StoryMap[]
   activeMapId: string | null
   loaded: boolean
   load: () => Promise<void>
   setActive: (id: string | null) => void
-  create: (name: string) => Promise<StoryMap | null>
+  create: (name: string, options?: CreateMapOptions) => Promise<StoryMap | null>
   remove: (id: string) => Promise<void>
   rename: (id: string, name: string) => void
+  /**
+   * Swap or clear the underlay. Passing a size adopts the image's box; leaving
+   * it out keeps the map's own — which is what a map with shapes on it wants,
+   * because adopting new dimensions would silently move every placed marker.
+   */
+  setBackground: (id: string, background: string | null, size?: { width: number; height: number }) => void
   addShape: (mapId: string, kind: MapShapeKind, points: Point[], text?: string) => MapShape | null
   patchShape: (mapId: string, shapeId: string, changes: Partial<MapShape>) => void
   removeShape: (mapId: string, shapeId: string) => void
@@ -38,8 +50,16 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   setActive: (id) => set({ activeMapId: id }),
 
-  create: async (name) => {
-    const map = await attempt(invoke('maps:create', { name }), 'Could not create the map')
+  create: async (name, options = {}) => {
+    const map = await attempt(
+      invoke('maps:create', {
+        name,
+        background: options.background ?? null,
+        width: options.width,
+        height: options.height
+      }),
+      'Could not create the map'
+    )
     if (!map) return null
     set({ maps: [...get().maps, map], activeMapId: map.id })
     return map
@@ -59,6 +79,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
   },
 
   rename: (id, name) => patchMap(set, get, id, (map) => ({ ...map, name })),
+
+  setBackground: (id, background, size) =>
+    patchMap(set, get, id, (map) => ({ ...map, background, ...(size ?? {}) })),
 
   addShape: (mapId, kind, points, text = '') => {
     const shape: MapShape = {

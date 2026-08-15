@@ -11,7 +11,9 @@ import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
+import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
+import { validateFileName } from '@shared/model/filename.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
 import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
 import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
@@ -105,7 +107,11 @@ export function App() {
         title: 'Save All',
         run: () => void useDocumentStore.getState().saveAll()
       }),
+      // Priority 0 on purpose: while the Explorer is open it claims these ids
+      // and creates with its inline input; these dialogs are the fallback for
+      // when it is not.
       registerCommand({ id: 'document.new', title: 'New Document', run: () => void createDocument() }),
+      registerCommand({ id: 'folder.new', title: 'New Folder', run: () => void createFolder() }),
       registerCommand({
         id: 'document.import',
         title: 'Import from Word…',
@@ -120,8 +126,9 @@ export function App() {
         id: 'layout.savePreset',
         title: 'Save Layout As…',
         run: () => {
-          const name = window.prompt('Name this layout')
-          if (name) void useLayoutStore.getState().savePreset(name)
+          void promptForName({ title: 'Save layout as', confirmLabel: 'Save' }).then((name) => {
+            if (name) void useLayoutStore.getState().savePreset(name)
+          })
         }
       })
     ]
@@ -132,7 +139,9 @@ export function App() {
   // as the palette.
   useEffect(() => {
     return on('command:invoke', ({ commandId }) => {
-      runCommand(commandId)
+      // A menu item naming a command nobody registered is a wiring bug, and
+      // swallowing it is how eight dead buttons shipped unnoticed.
+      if (!runCommand(commandId)) reportError(`Nothing handles the command "${commandId}"`)
     })
   }, [])
 
@@ -183,6 +192,7 @@ export function App() {
       {palette !== 'hidden' ? (
         <CommandPalette mode={palette} onClose={() => setPalette('hidden')} />
       ) : null}
+      <PromptHost />
       {notices.length > 0 ? (
         <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">
           {notices.map((notice, index) => (
@@ -250,11 +260,33 @@ async function exportToWord(): Promise<void> {
 }
 
 async function createDocument(): Promise<void> {
-  const name = window.prompt('New document name', `untitled${DOC_EXT}`)
+  const name = await promptForName({
+    title: 'New document',
+    defaultValue: `untitled${DOC_EXT}`,
+    // Refused in the dialog, where the name can be fixed, rather than as an
+    // error toast after it has closed and taken the typing with it.
+    validate: (value) => {
+      const checked = validateFileName(value)
+      return checked.ok ? null : checked.reason
+    }
+  })
   if (!name) return
   const path = name.endsWith(DOC_EXT) ? name : `${name}${DOC_EXT}`
   const docId = await useDocumentStore.getState().create(path)
   if (!docId) return
   const state = useDocumentStore.getState().docs[docId]
   if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+}
+
+async function createFolder(): Promise<void> {
+  const name = await promptForName({
+    title: 'New folder',
+    defaultValue: 'new-folder',
+    validate: (value) => {
+      const checked = validateFileName(value)
+      return checked.ok ? null : checked.reason
+    }
+  })
+  if (!name) return
+  await attempt(invoke('vfs:mkdir', { path: name }), 'Could not create folder')
 }

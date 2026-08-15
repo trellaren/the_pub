@@ -47,7 +47,10 @@ app.whenReady().then(async () => {
     windows.setRendererBaseUrl(rendererServer.baseUrl)
   }
 
-  registerAssetProtocol(() => sessions.roots())
+  registerAssetProtocol({
+    byToken: (token) => sessions.byAssetToken(token) ?? null,
+    roots: () => sessions.roots()
+  })
   applyContentSecurityPolicy()
 
   // The registry builds remote adapters, so it needs a way to reach saved

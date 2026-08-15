@@ -16,6 +16,7 @@ import {
   SectionTitle,
   cx
 } from '@renderer/ui/primitives.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { MentionList } from './MentionList.js'
 import { EntityNotes } from './EntityNotes.js'
 
@@ -47,10 +48,10 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
   const selected = mine.find((entity) => entity.id === selectedId) ?? mine[0] ?? null
   const labels = LABELS[kind]
 
-  const addRecord = async (): Promise<void> => {
-    const name = window.prompt(`New ${labels.singular} name`)
-    if (!name?.trim()) return
-    const entity = await create(kind, name.trim())
+  const addRecord = async (owner?: Document): Promise<void> => {
+    const name = await promptForName({ title: `New ${labels.singular}`, ownerDocument: owner })
+    if (!name) return
+    const entity = await create(kind, name)
     if (entity) setSelectedId(entity.id)
   }
 
@@ -74,7 +75,10 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
     <PanelShell>
       <PanelHeader>
         <span className="flex-1">{labels.title}</span>
-        <ToolbarButton label={`New ${labels.singular}`} onClick={() => void addRecord()}>
+        <ToolbarButton
+          label={`New ${labels.singular}`}
+          onClick={(event) => void addRecord(event.currentTarget.ownerDocument)}
+        >
           ＋
         </ToolbarButton>
         <ToolbarButton label="Delete record" onClick={() => void removeRecord()} disabled={!selected}>

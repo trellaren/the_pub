@@ -24,6 +24,8 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
         { type: 'separator' },
         { label: 'New Document', accelerator: 'CmdOrCtrl+N', click: send('document.new') },
+        // No accelerator: CmdOrCtrl+Shift+N is already New Window.
+        { label: 'New Folder', click: send('folder.new') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('document.save') },
         { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: send('document.saveAll') },
         { type: 'separator' },

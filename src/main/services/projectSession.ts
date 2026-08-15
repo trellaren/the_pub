@@ -43,6 +43,18 @@ export class ProjectSession {
   readonly ai = new AiRunner()
   readonly mentions: MentionService
   readonly docx: DocxService
+  /**
+   * The opaque name asset URLs know this project by.
+   *
+   * Derived from the URI rather than minted per session, and that is the
+   * load-bearing choice: `doc:writeAsset` URLs are written verbatim into
+   * `.pubdoc` files, so a token that changed on restart would kill every image
+   * inserted the day before. Hashing the URI is the move `indexDbPath` below
+   * already makes, for the same reason — stable identity, no path disclosed.
+   */
+  readonly assetToken: string
+  /** Local projects stream assets straight off disk; the rest go via the adapter. */
+  readonly isLocal: boolean
   private unwatch: Unwatch | null = null
 
   private constructor(
@@ -51,6 +63,8 @@ export class ProjectSession {
     public manifest: ProjectManifest,
     private readonly hooks: SessionHooks
   ) {
+    this.assetToken = createHash('sha256').update(uri).digest('hex').slice(0, 32)
+    this.isLocal = parseUri(uri).scheme === 'local'
     this.snapshots = new SnapshotService(adapter)
     this.documents = new DocumentService(adapter, this.snapshots)
     this.layout = new LayoutService(adapter)
@@ -108,7 +122,7 @@ export class ProjectSession {
   }
 
   toOpenProject(): OpenProject {
-    return { uri: this.uri, root: this.adapter.root, manifest: this.manifest }
+    return { uri: this.uri, root: this.adapter.root, assetToken: this.assetToken, manifest: this.manifest }
   }
 
   async saveManifest(manifest: ProjectManifest): Promise<ProjectManifest> {

@@ -51,8 +51,16 @@ interface PubTestHook {
       activeMapId: string | null
       load: () => Promise<void>
       setActive: (id: string | null) => void
-      create: (name: string) => Promise<StoryMap | null>
+      create: (
+        name: string,
+        options?: { background?: string | null; width?: number; height?: number }
+      ) => Promise<StoryMap | null>
       remove: (id: string) => Promise<void>
+      setBackground: (
+        id: string,
+        background: string | null,
+        size?: { width: number; height: number }
+      ) => void
       addShape: (
         mapId: string,
         kind: MapShapeKind,

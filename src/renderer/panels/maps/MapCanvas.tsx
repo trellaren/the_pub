@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { StoryMap, MapShape, Point, Bounds } from '@shared/model/map.js'
 import {
   pathData,
@@ -9,6 +9,7 @@ import {
   DEFAULT_VIEW
 } from '@shared/model/map.js'
 import { cx } from '@renderer/ui/primitives.js'
+import { useAssetUrl } from '@renderer/lib/assets.js'
 
 export type MapTool = 'select' | 'marker' | 'path' | 'area' | 'label'
 
@@ -38,9 +39,17 @@ export function MapCanvas({
   onOpenShape: (shape: MapShape) => void
 }) {
   const host = useRef<SVGSVGElement>(null)
-  const [view, setView] = useState<Bounds>(DEFAULT_VIEW)
+  const [view, setView] = useState<Bounds>(() => fullView(map))
   const [stroke, setStroke] = useState<Point[]>([])
   const [panFrom, setPanFrom] = useState<Point | null>(null)
+  const backgroundUrl = useAssetUrl(map.background)
+
+  // Each map gets its own opening view. Before backgrounds every map shared
+  // one 1000×1000 box, so carrying the pan across a switch merely disoriented;
+  // with per-image dimensions it would open a portrait map on empty space.
+  useEffect(() => {
+    setView(fullView(map))
+  }, [map.id])
 
   const at = (event: { clientX: number; clientY: number }): Point => {
     const rect = host.current?.getBoundingClientRect()
@@ -109,6 +118,21 @@ export function MapCanvas({
       onWheel={onWheel}
     >
       <rect x={0} y={0} width={map.width} height={map.height} className="fill-surface stroke-border" />
+
+      {backgroundUrl ? (
+        // Letterboxed rather than stretched: the map's box either came from
+        // this image or was deliberately kept when it was replaced, and
+        // stretching a replacement would move nothing but distort everything.
+        <image
+          data-testid="map-background"
+          href={backgroundUrl}
+          x={0}
+          y={0}
+          width={map.width}
+          height={map.height}
+          preserveAspectRatio="xMidYMid meet"
+        />
+      ) : null}
 
       {map.shapes.map((shape) => (
         <ShapeView
@@ -219,4 +243,10 @@ function ShapeView({
       strokeLinecap="round"
     />
   )
+}
+
+/** The whole map in frame — its own box, not the one-size default. */
+function fullView(map: StoryMap): Bounds {
+  if (!map.width || !map.height) return DEFAULT_VIEW
+  return { x: 0, y: 0, width: map.width, height: map.height }
 }

@@ -50,10 +50,12 @@ Name scanning is deliberately conservative — three characters minimum, capital
 case-sensitively, per-record and per-alias switches, and a dismissal for anything that still
 slips through — because a noisy suggestion list is how a feature like this gets turned off.
 
-- **Maps** you draw: markers, routes, regions and labels, panned and zoomed, in vectors rather
-  than pixels. A marker can name the location record that describes the place *and* open a map
-  of its own, so a world map, a city map and the location pane are three views of one place
-  rather than three copies of it.
+- **Maps** you draw or import: start from an image — a scan, a rendered map, a photograph of a
+  sketch — or from a blank sheet, then add markers, routes, regions and labels over it, panned and
+  zoomed, in vectors rather than pixels. The drawing stays editable whatever it sits on, and the
+  background can be swapped or dropped later without moving anything already placed. A marker can
+  name the location record that describes the place *and* open a map of its own, so a world map, a
+  city map and the location pane are three views of one place rather than three copies of it.
 
 - **AI assistance** from Anthropic, OpenAI, Hugging Face or a local LM Studio server, with as
   many conversations as you like. Ask about the selection or the whole document, watch the reply
@@ -167,6 +169,14 @@ protocol handling, so a fake would only confirm that the fake agrees with itself
 a client, so no extra dependency, and the tests exercise the same crypto the release ships. Both
 serve a real temporary directory, and the files that appear in it are the assertion.
 
+**Creating things is tested by clicking the buttons.** For a long time it was not, and the cost was
+high: every suite created documents, maps, records and beats by calling the zustand stores through
+the test hook, so eight create flows that had been dead since the day they were written stayed green
+all the way through packaging and release work. Anything an author reaches by clicking is now
+reached the same way in `e2e/create.spec.ts` and its neighbours, and `noNativeDialogs.test.ts` fails
+the build if `window.prompt` — which Electron does not implement, and which was the cause — comes
+back.
+
 Before merging, run the whole suite against a clean clone of committed history:
 
 ```sh
@@ -243,6 +253,15 @@ not appear in a packaged one, and secrets encrypted by one binary cannot be decr
 because `safeStorage` is keyed to the application's identity with the OS keychain. Both stores
 already treat an undecryptable secret as absent, so nothing breaks — it just looks like the keys
 went missing. `e2e/packaged.spec.ts` drives the real artifact and covers exactly this delta.
+
+**Images are addressed by project, not by path.** The renderer has no `file://` access, so images
+travel over a custom `pub-asset://` scheme whose urls name a project by an opaque token plus a
+project-relative path. Main resolves the token to the open project and serves the bytes through that
+project's own backend — which is what makes an image work on a manuscript kept on a server, where
+the old form (a base64 absolute filesystem path) could only ever resolve locally. A token only
+resolves while its project is open, so a hand-edited `src` cannot read from a project that is not on
+screen. Urls in the older form are still served, because documents written before the change contain
+them.
 
 **Nothing the renderer can reach holds a credential.** Server passwords, key passphrases, AI keys
 and the OneDrive refresh token all live encrypted in the app's own data directory, and every channel

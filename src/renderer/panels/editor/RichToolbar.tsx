@@ -5,6 +5,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
 import { previewStyle, defaultStyleFor } from './extensions/namedStyles.js'
 import { invoke } from '@renderer/lib/ipc.js'
+import { bytesToBase64 } from '@renderer/lib/assets.js'
 
 const FONTS = [
   'Georgia, serif',
@@ -276,16 +277,6 @@ function parseSize(value: unknown): string {
   if (typeof value !== 'string') return ''
   const match = /^(\d+(?:\.\d+)?)/.exec(value)
   return match ? match[1]! : ''
-}
-
-/** Chunked so a large image doesn't blow the argument limit of `String.fromCharCode`. */
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let index = 0; index < bytes.length; index += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
-  }
-  return btoa(binary)
 }
 
 export { cx }

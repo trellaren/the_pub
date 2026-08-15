@@ -155,7 +155,16 @@ export const ipcContract = defineContract({
     },
 
     'maps:list': { req: empty, res: mapFileSchema },
-    'maps:create': { req: z.object({ name: z.string() }), res: storyMapSchema },
+    // Background and dimensions default, so a plain { name } still sketches.
+    'maps:create': {
+      req: z.object({
+        name: z.string(),
+        background: z.string().nullable().default(null),
+        width: z.number().positive().optional(),
+        height: z.number().positive().optional()
+      }),
+      res: storyMapSchema
+    },
     'maps:save': { req: z.object({ map: storyMapSchema }), res: storyMapSchema },
     'maps:delete': { req: z.object({ id: z.string() }), res: ok },
 

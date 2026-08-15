@@ -15,6 +15,7 @@ import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
 import { BeatService } from './beatService.js'
 import { MapService } from './mapService.js'
+import { ManuscriptService } from './manuscriptService.js'
 import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
 import { MentionService } from './mentionService.js'
@@ -39,6 +40,7 @@ export class ProjectSession {
   readonly entities: EntityService
   readonly beats: BeatService
   readonly maps: MapService
+  readonly manuscript: ManuscriptService
   readonly chats: ChatService
   readonly ai = new AiRunner()
   readonly mentions: MentionService
@@ -81,6 +83,14 @@ export class ProjectSession {
       // there is no window in which it runs against an empty set.
       () => this.entities.snapshot()
     )
+    // Same lambda-not-reference reasoning as the indexer's roster above: the
+    // binder resolves against the index as it stands at the moment of the call,
+    // so there is no window in which it resolves against nothing.
+    this.manuscript = new ManuscriptService(adapter, {
+      resolvePath: (docId) => this.search.resolvePath(docId),
+      wordCountsFor: (docIds) => this.search.wordCountsFor(docIds),
+      indexing: () => this.search.getProgress().indexing
+    })
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.docx = new DocxService(adapter, this.documents)
   }
@@ -101,6 +111,7 @@ export class ProjectSession {
     await this.beats.load().catch(() => {})
     await this.maps.load().catch(() => {})
     await this.chats.load().catch(() => {})
+    await this.manuscript.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))
     // Index in the background: a large project must not delay the first paint.
     void this.search.syncAll().catch(() => {})

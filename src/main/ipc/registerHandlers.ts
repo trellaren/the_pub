@@ -17,6 +17,8 @@ import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/mo
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
+import { DOC_EXT, IGNORED_DIRS } from '../../shared/constants.js'
+import type { ExportItem } from '../../shared/model/manuscript.js'
 
 /**
  * Refuse a name no Windows filesystem can hold.
@@ -29,6 +31,56 @@ import { validateRelativePath } from '../../shared/model/filename.js'
 function requirePortableName(target: string): void {
   const result = validateRelativePath(target)
   if (!result.ok) throw new Error(result.reason)
+}
+
+/**
+ * `paths` normalises into `items` at the boundary, so `DocxService.export`
+ * only ever sees one shape. `items` wins when both are present rather than
+ * being merged with it — the two fields describe two different callers
+ * (a plain document list versus the manuscript's document-and-heading
+ * stream), not two halves of one request.
+ */
+function resolveExportItems(paths: string[], items: ExportItem[]): ExportItem[] {
+  return items.length > 0 ? items : paths.map((path) => ({ kind: 'document' as const, path }))
+}
+
+/** What `docx:exportDialog` proposes when the caller has no name of its own. */
+function defaultExportName(paths: string[]): string {
+  const first = paths[0] ?? 'manuscript'
+  return `${path.basename(first).replace(/\.pubdoc$/i, '')}${paths.length > 1 ? ' and others' : ''}`
+}
+
+/**
+ * A document's stable id and title, read from the file itself.
+ *
+ * The binder identifies chapters by `docId`, and the index cannot supply one for
+ * a file it has not reached — which is precisely the file an author has just
+ * created and is about to add. Returns null rather than throwing so one
+ * unreadable file cannot empty a picker.
+ */
+async function readIdentity(
+  session: ProjectSession,
+  target: string
+): Promise<{ docId: string; title: string } | null> {
+  try {
+    const loaded = await session.documents.read(target)
+    return { docId: loaded.doc.docId, title: loaded.doc.title }
+  } catch {
+    return null
+  }
+}
+
+async function readIdentities(
+  session: ProjectSession,
+  paths: readonly string[]
+): Promise<{ docId: string; path: string; title: string }[]> {
+  const identities: { docId: string; path: string; title: string }[] = []
+  for (const target of paths) {
+    requirePortableName(target)
+    const identity = await readIdentity(session, target)
+    if (identity) identities.push({ ...identity, path: target })
+  }
+  return identities
 }
 
 /** One open project per top-level window; popouts resolve to their opener's. */
@@ -282,24 +334,23 @@ export function registerHandlers(context: HandlerContext): void {
     return importDocxFiles(session, picked.filePaths, targetDir)
   })
 
-  handle('docx:export', async ({ paths, file }, event) => {
+  handle('docx:export', async ({ paths, items, file }, event) => {
     const session = requireSession(event)
-    await session.docx.export(paths, file, session.manifest)
+    await session.docx.export(resolveExportItems(paths, items), file, session.manifest)
     return { ok: true as const, file }
   })
 
-  handle('docx:exportDialog', async ({ paths }, event) => {
+  handle('docx:exportDialog', async ({ paths, items, suggestedName }, event) => {
     const session = requireSession(event)
     const window = BrowserWindow.fromWebContents(event.sender)
-    const first = paths[0] ?? 'manuscript'
-    const suggested = `${path.basename(first).replace(/\.pubdoc$/i, '')}${paths.length > 1 ? ' and others' : ''}.docx`
+    const suggested = `${suggestedName ?? defaultExportName(paths)}.docx`
     const picked = await dialog.showSaveDialog(window!, {
       title: 'Export to Word',
       defaultPath: suggested,
       filters: [{ name: 'Word documents', extensions: ['docx'] }]
     })
     if (picked.canceled || !picked.filePath) return null
-    await session.docx.export(paths, picked.filePath, session.manifest)
+    await session.docx.export(resolveExportItems(paths, items), picked.filePath, session.manifest)
     return { ok: true as const, file: picked.filePath }
   })
 
@@ -376,6 +427,65 @@ export function registerHandlers(context: HandlerContext): void {
   handle('beats:saveColumns', ({ columns }, event) =>
     requireSession(event).beats.saveColumns(columns)
   )
+
+  handle('manuscript:view', (_payload, event) => requireSession(event).manuscript.view())
+  handle('manuscript:createPart', async ({ title, role }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.createPart(title, role)
+    return session.manuscript.view()
+  })
+  handle('manuscript:addDocuments', async ({ paths, parentId }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.addDocuments(await readIdentities(session, paths), parentId)
+    return session.manuscript.view()
+  })
+  handle('manuscript:move', async ({ id, parentId, index }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.move(id, parentId, index)
+    return session.manuscript.view()
+  })
+  handle('manuscript:rename', async ({ id, title }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.rename(id, title)
+    return session.manuscript.view()
+  })
+  handle('manuscript:setRole', async ({ id, role }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.setRole(id, role)
+    return session.manuscript.view()
+  })
+  handle('manuscript:relink', async ({ id, path: target }, event) => {
+    const session = requireSession(event)
+    const [identity] = await readIdentities(session, [target])
+    if (!identity) throw new Error(`${target} is not a readable document`)
+    await session.manuscript.relink(id, identity.docId, identity.path, identity.title)
+    return session.manuscript.view()
+  })
+  handle('manuscript:remove', async ({ id }, event) => {
+    const session = requireSession(event)
+    await session.manuscript.remove(id)
+    return session.manuscript.view()
+  })
+  handle('manuscript:candidates', async (_payload, event) => {
+    const session = requireSession(event)
+    const inBook = new Set(
+      session.manuscript.snapshot().nodes.map((node) => node.docId).filter(Boolean)
+    )
+    const known = session.search.knownDocuments()
+    const files = (await session.adapter.walk('', IGNORED_DIRS)).filter((entry) =>
+      entry.path.endsWith(DOC_EXT)
+    )
+    const candidates: { path: string; title: string; docId: string; inBook: boolean }[] = []
+    for (const file of files) {
+      // The index covers this in one query for everything already scanned; only
+      // a file it has not reached yet costs a read, so opening the picker on a
+      // warm project touches no files at all.
+      const identity = known.get(file.path) ?? (await readIdentity(session, file.path))
+      if (!identity) continue
+      candidates.push({ ...identity, path: file.path, inBook: inBook.has(identity.docId) })
+    }
+    return candidates.sort((a, b) => a.path.localeCompare(b.path))
+  })
 
   handle('maps:list', (_payload, event) => requireSession(event).maps.snapshot())
   handle('maps:create', ({ name, background, width, height }, event) => {

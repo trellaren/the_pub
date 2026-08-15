@@ -46,6 +46,7 @@ export type PanelComponent =
   | 'storyboard'
   | 'maps'
   | 'ai'
+  | 'manuscript'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

@@ -9,6 +9,7 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
+import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
   chatFileSchema,
@@ -97,12 +98,28 @@ export const ipcContract = defineContract({
       req: z.object({ targetDir: z.string().default('') }),
       res: docxImportResultSchema.nullable()
     },
+    /**
+     * `items` is the general shape — documents and part headings interleaved,
+     * for compiling the whole book — while `paths` stays as the plain document
+     * list every existing caller already sends. The handler folds `paths` into
+     * `items` at the boundary, so `DocxService.export` only ever sees one
+     * shape; a request needs at least one entry across the two.
+     */
     'docx:export': {
-      req: z.object({ paths: z.array(z.string()).min(1), file: z.string() }),
+      req: z
+        .object({ paths: z.array(z.string()).default([]), items: z.array(exportItemSchema).default([]), file: z.string() })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
       res: z.object({ ok: z.literal(true), file: z.string() })
     },
     'docx:exportDialog': {
-      req: z.object({ paths: z.array(z.string()).min(1) }),
+      req: z
+        .object({
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
+          /** Proposed file name for the save dialog, without the extension. */
+          suggestedName: z.string().optional()
+        })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
       res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
     },
 
@@ -152,6 +169,47 @@ export const ipcContract = defineContract({
     'beats:saveColumns': {
       req: z.object({ columns: z.array(boardColumnSchema) }),
       res: z.array(boardColumnSchema)
+    },
+
+    /**
+     * The book's structure.
+     *
+     * Every mutation answers with the whole resolved view rather than the node
+     * it touched: a move rewrites one record but can change several rows' word
+     * roll-ups and depths, and a renderer patching its own copy would drift from
+     * the file the moment a repair in `reconcile` disagreed with it.
+     */
+    'manuscript:view': { req: empty, res: manuscriptViewSchema },
+    'manuscript:createPart': {
+      req: z.object({ title: z.string(), role: partRoleSchema.default('body') }),
+      res: manuscriptViewSchema
+    },
+    /**
+     * Add documents by path.
+     *
+     * Paths rather than ids because main reads each file to take its `docId` and
+     * title — which works for a document created seconds ago and not yet
+     * indexed, exactly when an author is most likely to add one.
+     */
+    'manuscript:addDocuments': {
+      req: z.object({ paths: z.array(z.string()), parentId: z.string().nullable().default(null) }),
+      res: manuscriptViewSchema
+    },
+    'manuscript:move': {
+      req: z.object({ id: z.string(), parentId: z.string().nullable(), index: z.number().int() }),
+      res: manuscriptViewSchema
+    },
+    'manuscript:rename': { req: z.object({ id: z.string(), title: z.string() }), res: manuscriptViewSchema },
+    'manuscript:setRole': { req: z.object({ id: z.string(), role: partRoleSchema }), res: manuscriptViewSchema },
+    /** Point a row at a different file, so a broken chapter recovers in place. */
+    'manuscript:relink': { req: z.object({ id: z.string(), path: z.string() }), res: manuscriptViewSchema },
+    'manuscript:remove': { req: z.object({ id: z.string() }), res: manuscriptViewSchema },
+    /** Every document in the project, flagged with whether it is already in the book. */
+    'manuscript:candidates': {
+      req: empty,
+      res: z.array(
+        z.object({ path: z.string(), title: z.string(), docId: z.string(), inBook: z.boolean() })
+      )
     },
 
     'maps:list': { req: empty, res: mapFileSchema },

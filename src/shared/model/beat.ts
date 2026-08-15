@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { FORMAT_VERSION } from '../constants.js'
+import { keyBetween } from './ordering.js'
 
 /**
  * A beat: one moment of the story.
@@ -107,18 +108,13 @@ export function parseMoment(label: string): number | null {
 }
 
 /**
- * A sort key that lands between two neighbours.
+ * Re-exported, not defined here.
  *
- * Fractional keys mean a drag rewrites one record instead of renumbering every
- * beat after it — which matters because each rewrite is a file write and a
- * re-render.
+ * It moved to `ordering.ts` when the manuscript binder needed the same keys for
+ * chapters within a part. Kept exported from this module so every existing
+ * importer — the storyboard, the timeline and their tests — is untouched.
  */
-export function keyBetween(before: number | null, after: number | null): number {
-  if (before === null && after === null) return 0
-  if (before === null) return after! - 1
-  if (after === null) return before + 1
-  return (before + after) / 2
-}
+export { keyBetween } from './ordering.js'
 
 /** Board order: within one column, by `order`, ties broken stably by id. */
 export function beatsInColumn(beats: readonly Beat[], columnId: string): Beat[] {

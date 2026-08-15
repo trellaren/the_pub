@@ -4,6 +4,7 @@ import type { MentionHit } from '../src/shared/model/mention.js'
 import type { Beat, BoardColumn } from '../src/shared/model/beat.js'
 import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/model/map.js'
 import type { Chat, AiSettings } from '../src/shared/model/ai.js'
+import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -81,6 +82,21 @@ interface PubTestHook {
       deleteChat: (id: string) => Promise<void>
       saveSettings: (settings: AiSettings) => Promise<void>
       send: (chatId: string, text: string, context: string) => Promise<void>
+    }
+  }
+  manuscript: {
+    getState: () => {
+      view: ManuscriptView
+      collapsed: Set<string>
+      load: () => Promise<void>
+      toggleCollapsed: (partId: string) => void
+      createPart: (title: string, role?: PartRole) => Promise<void>
+      addDocuments: (paths: string[], parentId?: string | null) => Promise<void>
+      move: (id: string, parentId: string | null, index: number) => Promise<void>
+      rename: (id: string, title: string) => Promise<void>
+      setRole: (id: string, role: PartRole) => Promise<void>
+      relink: (id: string, path: string) => Promise<void>
+      remove: (id: string) => Promise<void>
     }
   }
   confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>

@@ -5,6 +5,7 @@ import type { DocumentService } from './documentService.js'
 import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { NamedStyle } from '../../shared/model/style.js'
 import type { PmDoc, PmNode } from '../../shared/model/document.js'
+import type { ExportItem } from '../../shared/model/manuscript.js'
 import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
 import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
 import { sanitizeFileName } from '../../shared/model/filename.js'
@@ -109,11 +110,23 @@ export class DocxService {
     return { imported, warnings, styles, stylesAdded }
   }
 
-  /** Write one or more project documents to a `.docx` at an absolute path. */
-  async export(paths: string[], file: string, manifest: ProjectManifest): Promise<void> {
+  /**
+   * Write project documents — and, from the manuscript panel, part headings
+   * interleaved with them — to a `.docx` at an absolute path.
+   *
+   * A heading item becomes a synthetic single-paragraph document rather than a
+   * special case in `exportDocx`: the exporter already inserts a page break
+   * between every entry in the array (`toDocx.ts`), so a part heading lands on
+   * its own page for free, exactly as a part page should.
+   */
+  async export(items: ExportItem[], file: string, manifest: ProjectManifest): Promise<void> {
     const documents = []
-    for (const docPath of paths) {
-      const loaded = await this.documents.read(docPath)
+    for (const item of items) {
+      if (item.kind === 'heading') {
+        documents.push({ title: item.title, content: headingDocument(item.title, item.level, manifest.styles) })
+        continue
+      }
+      const loaded = await this.documents.read(item.path)
       documents.push({ title: loaded.doc.title, content: loaded.doc.content })
     }
 
@@ -217,6 +230,30 @@ export class DocxService {
       if (!(await this.adapter.stat(candidate))) return candidate
     }
     return joinRelative(targetDir, `${stem} (${Date.now()})${DOC_EXT}`)
+  }
+}
+
+/**
+ * A one-paragraph document for a part heading.
+ *
+ * Resolved against the project's own styles by `headingLevel` rather than a
+ * hard-coded id, so a project that renamed or replaced "Heading 1" still gets
+ * a heading that matches the rest of the book — the same reason a document's
+ * own headings resolve by `styleId` instead of by name. A project with no
+ * style at the requested level exports the title unstyled rather than
+ * failing the whole compile over it.
+ */
+function headingDocument(title: string, level: number, styles: NamedStyle[]): PmDoc {
+  const style = styles.find((candidate) => candidate.headingLevel === level)
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: style ? { styleId: style.id } : {},
+        content: [{ type: 'text', text: title }]
+      }
+    ]
   }
 }
 

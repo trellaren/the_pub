@@ -83,6 +83,15 @@ slips through — because a noisy suggestion list is how a feature like this get
   cannot come across — footnotes, comments, tracked changes — is named in the import summary
   rather than dropped in silence.
 
+- **A Manuscript panel** for the book as one ordered thing — front matter, parts and chapters,
+  separate from the file tree because order here is something you set, not whatever the
+  filesystem hands back. The binder starts empty; nothing is inferred from what's on disk. Drag
+  chapters between parts or reorder with four buttons that reach every position without a mouse.
+  A document renamed or moved outside the app stays resolved; one that's genuinely gone shows as
+  missing without losing its place, and relinks in place once you point it at a replacement.
+  Compile turns the structure into a `.docx` in one step — part titles become headings on their
+  own page, and anything that couldn't be found is named alongside what compiled.
+
 In-story time is free text — "Day 3", "Third Age 2941", "1917-04-02" — because invented calendars
 are the norm. A label that reads unambiguously sorts the timeline for you; anything else keeps
 the position you dragged it to, rather than being guessed at.

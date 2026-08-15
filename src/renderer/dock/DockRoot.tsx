@@ -120,6 +120,11 @@ export function DockRoot() {
         run: () => useLayoutStore.getState().showPanel('storyboard', 'Storyboard')
       }),
       registerCommand({
+        id: 'panel.manuscript',
+        title: 'Show Manuscript',
+        run: () => useLayoutStore.getState().showPanel('manuscript', 'Manuscript')
+      }),
+      registerCommand({
         id: 'panel.maps',
         title: 'Show Maps',
         run: () => useLayoutStore.getState().showPanel('maps', 'Maps')

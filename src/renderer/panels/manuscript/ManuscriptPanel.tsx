@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
-import { isPart, type ManuscriptNode, type PartRole, type ResolvedNode } from '@shared/model/manuscript.js'
+import {
+  isPart,
+  misplacedFrontMatter,
+  toExportItems,
+  type ManuscriptNode,
+  type PartRole,
+  type ResolvedNode
+} from '@shared/model/manuscript.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useManuscriptStore } from '@renderer/stores/manuscriptStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
@@ -7,6 +14,7 @@ import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton } from '@renderer/ui/primitives.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { ContextMenu, type MenuEntry } from '@renderer/ui/Menu.js'
+import { invoke, attempt, reportError, reportNotice } from '@renderer/lib/ipc.js'
 import { DocumentPicker } from './DocumentPicker.js'
 import { ManuscriptNodeRow, ManuscriptPlaceholderRow } from './ManuscriptRow.js'
 import { dropRows, resolveDrop, resolveMove, type DropTarget, type Move } from './dropTarget.js'
@@ -132,6 +140,36 @@ export function ManuscriptPanel() {
     [move, view.nodes]
   )
 
+  /**
+   * Compile the book to a `.docx`.
+   *
+   * `toExportItems` is the same function the plan built `docx:export`'s
+   * `items` shape to carry — the panel's only job is turning the manuscript
+   * into that stream and reporting what it could not include. Shipping a book
+   * with a chapter silently absent is the worst thing this feature could do,
+   * so an omission is named in the same notice as the success, never hidden
+   * behind it.
+   */
+  const compile = useCallback(async () => {
+    const { items, skipped } = toExportItems(view.nodes)
+    if (items.length === 0) {
+      reportError('The book is empty — add a part or a document before compiling.')
+      return
+    }
+    const result = await attempt(
+      invoke('docx:exportDialog', { paths: [], items, suggestedName: project?.manifest.name }),
+      'Could not compile the manuscript'
+    )
+    if (!result) return
+    const notice = [
+      `Compiled to ${result.file}.`,
+      skipped.length > 0 ? `Could not find: ${skipped.join(', ')}.` : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+    reportNotice(notice)
+  }, [view.nodes, project?.manifest.name])
+
   if (!project) {
     return (
       <PanelShell>
@@ -144,6 +182,7 @@ export function ManuscriptPanel() {
   const wordTotal = view.nodes
     .filter((node) => node.parentId === null)
     .reduce((sum, node) => sum + (resolved.get(node.id)?.words ?? 0), 0)
+  const misplaced = misplacedFrontMatter(view.nodes)
 
   return (
     <PanelShell>
@@ -159,7 +198,21 @@ export function ManuscriptPanel() {
         >
           ＋ chapter
         </ToolbarButton>
+        <ToolbarButton label="Compile to Word" onClick={() => void compile()}>
+          Compile
+        </ToolbarButton>
       </PanelHeader>
+
+      {misplaced.length > 0 ? (
+        <p
+          data-testid="manuscript-front-matter-warning"
+          className="border-b border-border bg-surface-2 px-2 py-1 text-[11px] text-danger"
+        >
+          {misplaced.length === 1
+            ? `"${misplaced[0]}" is front matter but isn't first — it will export where it's dragged, not at the start.`
+            : `${misplaced.length} front-matter parts aren't first — they will export where they're dragged, not at the start.`}
+        </p>
+      ) : null}
 
       {loaded && rows.length === 0 ? (
         <EmptyState

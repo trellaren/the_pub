@@ -191,10 +191,21 @@ export function totalWords(nodes: readonly ManuscriptNode[], words: ReadonlyMap<
   return nodes.reduce((sum, node) => (isDocument(node) ? sum + (words.get(node.id) ?? 0) : sum), 0)
 }
 
-/** What the exporter consumes: a linear stream of documents and headings. */
-export type ExportItem =
-  | { kind: 'document'; path: string }
-  | { kind: 'heading'; title: string; level: number }
+/**
+ * What the exporter consumes: a linear stream of documents and headings.
+ *
+ * Also the shape `docx:export` and `docx:exportDialog` widen their `items`
+ * field with — one schema, so the panel and the IPC boundary cannot drift.
+ * `level` is capped at 3 rather than the 1 this version ever emits: the binder
+ * is bounded to two levels by construction, but `parentId` already expresses
+ * arbitrary depth, and a schema that had to widen later would be a format
+ * migration every project would need. This is headroom, not a promise.
+ */
+export const exportItemSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('document'), path: z.string() }),
+  z.object({ kind: z.literal('heading'), title: z.string(), level: z.number().int().min(1).max(3).default(1) })
+])
+export type ExportItem = z.infer<typeof exportItemSchema>
 
 /**
  * Flatten the binder into the stream the exporter takes.
@@ -213,6 +224,23 @@ export type ExportItem =
  * caller can say so. Shipping a manuscript with a chapter silently absent is
  * the worst thing this feature could do.
  */
+/**
+ * Whether a `front` part sits somewhere other than the very start of the book.
+ *
+ * `toExportItems` never reorders to fix this — see its own comment — so the
+ * panel needs a way to say so instead. Titles of the misplaced parts, in book
+ * order, for a warning specific enough to act on.
+ */
+export function misplacedFrontMatter(nodes: readonly ManuscriptNode[]): string[] {
+  const root = childrenOf(nodes, null)
+  const firstNonFront = root.findIndex((node) => !(isPart(node) && node.role === 'front'))
+  if (firstNonFront === -1) return []
+  return root
+    .slice(firstNonFront)
+    .filter((node) => isPart(node) && node.role === 'front')
+    .map((node) => node.title || 'Untitled part')
+}
+
 export function toExportItems(nodes: readonly ResolvedNode[]): { items: ExportItem[]; skipped: string[] } {
   const items: ExportItem[] = []
   const skipped: string[] = []

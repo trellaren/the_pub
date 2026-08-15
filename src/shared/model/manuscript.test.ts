@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   childrenOf,
   flattenManuscript,
+  misplacedFrontMatter,
   placeInManuscript,
   reconcile,
   rollUpWords,
@@ -147,6 +148,42 @@ describe('rollUpWords', () => {
 
   it('totals the whole book', () => {
     expect(totalWords(nodes, words)).toBe(1525)
+  })
+})
+
+describe('misplacedFrontMatter', () => {
+  it('says nothing when there is no front matter', () => {
+    expect(misplacedFrontMatter([doc('a', null, 0), part('p1', 1)])).toEqual([])
+  })
+
+  it('says nothing when every front part leads', () => {
+    const nodes = [part('fm', 0, { title: 'Front Matter', role: 'front' }), part('p1', 1, { title: 'Part One' })]
+    expect(misplacedFrontMatter(nodes)).toEqual([])
+  })
+
+  /* The case toExportItems refuses to fix: a front part dragged below a
+   * chapter would export a title page mid-book if silently reordered. */
+  it('names a front part left after a chapter', () => {
+    const nodes = [
+      doc('chapter-one', null, 0),
+      part('fm', 1, { title: 'Dedication', role: 'front' })
+    ]
+    expect(misplacedFrontMatter(nodes)).toEqual(['Dedication'])
+  })
+
+  it('names every misplaced part, in book order', () => {
+    const nodes = [
+      part('title', 0, { title: 'Title Page', role: 'front' }),
+      doc('chapter-one', null, 1),
+      part('dedication', 2, { title: 'Dedication', role: 'front' }),
+      part('epigraph', 3, { title: 'Epigraph', role: 'front' })
+    ]
+    expect(misplacedFrontMatter(nodes)).toEqual(['Dedication', 'Epigraph'])
+  })
+
+  it('does not flag a body or back part', () => {
+    const nodes = [doc('chapter-one', null, 0), part('appendix', 1, { title: 'Appendix', role: 'back' })]
+    expect(misplacedFrontMatter(nodes)).toEqual([])
   })
 })
 

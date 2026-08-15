@@ -18,6 +18,7 @@ import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
 import { DOC_EXT, IGNORED_DIRS } from '../../shared/constants.js'
+import type { ExportItem } from '../../shared/model/manuscript.js'
 
 /**
  * Refuse a name no Windows filesystem can hold.
@@ -30,6 +31,23 @@ import { DOC_EXT, IGNORED_DIRS } from '../../shared/constants.js'
 function requirePortableName(target: string): void {
   const result = validateRelativePath(target)
   if (!result.ok) throw new Error(result.reason)
+}
+
+/**
+ * `paths` normalises into `items` at the boundary, so `DocxService.export`
+ * only ever sees one shape. `items` wins when both are present rather than
+ * being merged with it — the two fields describe two different callers
+ * (a plain document list versus the manuscript's document-and-heading
+ * stream), not two halves of one request.
+ */
+function resolveExportItems(paths: string[], items: ExportItem[]): ExportItem[] {
+  return items.length > 0 ? items : paths.map((path) => ({ kind: 'document' as const, path }))
+}
+
+/** What `docx:exportDialog` proposes when the caller has no name of its own. */
+function defaultExportName(paths: string[]): string {
+  const first = paths[0] ?? 'manuscript'
+  return `${path.basename(first).replace(/\.pubdoc$/i, '')}${paths.length > 1 ? ' and others' : ''}`
 }
 
 /**
@@ -316,24 +334,23 @@ export function registerHandlers(context: HandlerContext): void {
     return importDocxFiles(session, picked.filePaths, targetDir)
   })
 
-  handle('docx:export', async ({ paths, file }, event) => {
+  handle('docx:export', async ({ paths, items, file }, event) => {
     const session = requireSession(event)
-    await session.docx.export(paths, file, session.manifest)
+    await session.docx.export(resolveExportItems(paths, items), file, session.manifest)
     return { ok: true as const, file }
   })
 
-  handle('docx:exportDialog', async ({ paths }, event) => {
+  handle('docx:exportDialog', async ({ paths, items, suggestedName }, event) => {
     const session = requireSession(event)
     const window = BrowserWindow.fromWebContents(event.sender)
-    const first = paths[0] ?? 'manuscript'
-    const suggested = `${path.basename(first).replace(/\.pubdoc$/i, '')}${paths.length > 1 ? ' and others' : ''}.docx`
+    const suggested = `${suggestedName ?? defaultExportName(paths)}.docx`
     const picked = await dialog.showSaveDialog(window!, {
       title: 'Export to Word',
       defaultPath: suggested,
       filters: [{ name: 'Word documents', extensions: ['docx'] }]
     })
     if (picked.canceled || !picked.filePath) return null
-    await session.docx.export(paths, picked.filePath, session.manifest)
+    await session.docx.export(resolveExportItems(paths, items), picked.filePath, session.manifest)
     return { ok: true as const, file: picked.filePath }
   })
 

@@ -255,7 +255,10 @@ async function exportToWord(): Promise<void> {
     reportError('Open a document to export it.')
     return
   }
-  const result = await attempt(invoke('docx:exportDialog', { paths: [path] }), 'Could not export')
+  const result = await attempt(
+    invoke('docx:exportDialog', { paths: [path], items: [] }),
+    'Could not export'
+  )
   if (result) reportNotice(`Exported to ${result.file}`)
 }
 

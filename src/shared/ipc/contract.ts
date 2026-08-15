@@ -9,7 +9,7 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
-import { manuscriptViewSchema, partRoleSchema } from '../model/manuscript.js'
+import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
   chatFileSchema,
@@ -98,12 +98,28 @@ export const ipcContract = defineContract({
       req: z.object({ targetDir: z.string().default('') }),
       res: docxImportResultSchema.nullable()
     },
+    /**
+     * `items` is the general shape — documents and part headings interleaved,
+     * for compiling the whole book — while `paths` stays as the plain document
+     * list every existing caller already sends. The handler folds `paths` into
+     * `items` at the boundary, so `DocxService.export` only ever sees one
+     * shape; a request needs at least one entry across the two.
+     */
     'docx:export': {
-      req: z.object({ paths: z.array(z.string()).min(1), file: z.string() }),
+      req: z
+        .object({ paths: z.array(z.string()).default([]), items: z.array(exportItemSchema).default([]), file: z.string() })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
       res: z.object({ ok: z.literal(true), file: z.string() })
     },
     'docx:exportDialog': {
-      req: z.object({ paths: z.array(z.string()).min(1) }),
+      req: z
+        .object({
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
+          /** Proposed file name for the save dialog, without the extension. */
+          suggestedName: z.string().optional()
+        })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
       res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
     },
 

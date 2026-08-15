@@ -81,6 +81,7 @@ export const INVOKE_CHANNELS = [
   'layout:deletePreset',
   'snapshot:list',
   'snapshot:read',
+  'snapshot:restore',
   'window:newProject',
   'window:closeConfirmed'
 ] as const

@@ -331,6 +331,32 @@ export const ipcContract = defineContract({
 
     'snapshot:list': { req: z.object({ docId: z.string() }), res: z.array(snapshotSchema) },
     'snapshot:read': { req: z.object({ docId: z.string(), timestamp: z.string() }), res: pubDocumentSchema },
+    /**
+     * Put a version back, over the document or into a new file beside it.
+     *
+     * Restoring in place archives what is there first, so the restore is itself
+     * recoverable, and answers with a conflict rather than overwriting a
+     * document that changed on disk since the panel last looked.
+     */
+    'snapshot:restore': {
+      req: z.discriminatedUnion('mode', [
+        z.object({ mode: z.literal('inPlace'), docId: z.string(), timestamp: z.string() }),
+        z.object({
+          mode: z.literal('newFile'),
+          docId: z.string(),
+          timestamp: z.string(),
+          targetPath: z.string()
+        })
+      ]),
+      res: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), docId: z.string(), path: z.string(), mtime: z.number() }),
+        z.object({
+          ok: z.literal(false),
+          reason: z.enum(['conflict', 'missing-document']),
+          diskMtime: z.number().optional()
+        })
+      ])
+    },
 
     'window:newProject': { req: z.object({ uri: z.string().optional() }), res: ok },
     /** Renderer's answer to `window:requestClose` once pending saves have flushed. */

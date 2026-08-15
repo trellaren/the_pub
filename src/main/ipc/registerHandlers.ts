@@ -726,6 +726,23 @@ export function registerHandlers(context: HandlerContext): void {
   })
 
   handle('snapshot:list', ({ docId }, event) => requireSession(event).snapshots.list(docId))
+  handle('snapshot:restore', async (request, event) => {
+    const session = requireSession(event)
+    if (request.mode === 'inPlace') {
+      const result = await session.history.restoreInPlace(request.docId, request.timestamp)
+      if (result.ok) return { ok: true as const, docId: request.docId, path: result.path, mtime: result.mtime }
+      return result.reason === 'conflict'
+        ? { ok: false as const, reason: 'conflict' as const, diskMtime: result.diskMtime }
+        : { ok: false as const, reason: 'missing-document' as const }
+    }
+    requirePortableName(request.targetPath)
+    const loaded = await session.history.restoreToNewFile(
+      request.docId,
+      request.timestamp,
+      request.targetPath
+    )
+    return { ok: true as const, docId: loaded.doc.docId, path: loaded.path, mtime: loaded.mtime }
+  })
   handle('snapshot:read', ({ docId, timestamp }, event) =>
     requireSession(event).snapshots.read(docId, timestamp)
   )

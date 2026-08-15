@@ -30,6 +30,16 @@ interface PubTestHook {
       } | null
     }
   }
+  history: {
+    getState: () => {
+      snapshots: { docId: string; timestamp: string; size: number; wordCount: number }[]
+      selected: string | null
+      follow: (docId: string | null) => Promise<void>
+      refresh: () => Promise<void>
+      select: (timestamp: string | null) => Promise<void>
+      restoreInPlace: (timestamp: string) => Promise<boolean>
+    }
+  }
   entities: {
     getState: () => {
       entities: StoryEntity[]

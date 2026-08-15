@@ -25,8 +25,12 @@ Phase 8 OneDrive — which completes the original brief.
 - **Autosave** that waits for a pause in typing but never longer than five seconds, writes
   atomically so a crash cannot leave a half-written file, refuses to clobber a file that changed
   underneath it, and flushes before the window closes.
-- **Snapshots** of previous versions, thinned over time (everything from the last day, hourly
-  for a week, daily beyond that).
+- **Version history** you can open. Previous versions are kept as you write and thinned over
+  time (everything from the last day, hourly for a week, daily beyond that); the History panel
+  lists them, reads any one of them, and shows what changed against the document as it stands —
+  paragraphs added, removed and moved, and the words within an edited one. Restore over the
+  document or into a new file beside it. Restoring keeps what it replaced, including anything
+  unsaved in the editor at the time, so it is not a one-way door.
 - **Project-wide search** over document text and filenames, with results that jump to the exact
   paragraph.
 - **Persisted layouts** — the arrangement of a project comes back when you reopen it, popout

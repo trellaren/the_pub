@@ -47,6 +47,7 @@ export type PanelComponent =
   | 'maps'
   | 'ai'
   | 'manuscript'
+  | 'history'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -183,7 +184,8 @@ const WORKSPACE_PANELS = new Set<PanelComponent>([
   'manuscript',
   'timeline',
   'storyboard',
-  'maps'
+  'maps',
+  'history'
 ])
 
 /**

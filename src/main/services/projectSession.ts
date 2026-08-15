@@ -10,6 +10,7 @@ import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import type { IndexProgress } from '../../shared/model/search.js'
 import { DocumentService } from './documentService.js'
 import { SnapshotService } from './snapshotService.js'
+import { HistoryService } from './historyService.js'
 import { SearchIndexService } from './searchIndexService.js'
 import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
@@ -35,6 +36,7 @@ export interface SessionHooks {
 export class ProjectSession {
   readonly documents: DocumentService
   readonly snapshots: SnapshotService
+  readonly history: HistoryService
   readonly search: SearchIndexService
   readonly layout: LayoutService
   readonly entities: EntityService
@@ -91,6 +93,7 @@ export class ProjectSession {
       wordCountsFor: (docIds) => this.search.wordCountsFor(docIds),
       indexing: () => this.search.getProgress().indexing
     })
+    this.history = new HistoryService(this.documents, this.snapshots, this.search)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.docx = new DocxService(adapter, this.documents)
   }

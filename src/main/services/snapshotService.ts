@@ -42,6 +42,21 @@ export class SnapshotService {
     return true
   }
 
+  /**
+   * Archive a version whatever the throttle says.
+   *
+   * The interval exists to stop autosave filling the history with keystrokes.
+   * A restore is neither frequent nor accidental, and the version it is about
+   * to overwrite is precisely the one an author will want back if they change
+   * their mind — losing it because a routine save happened to land in the same
+   * ten minutes would be the worst moment for the throttle to apply.
+   */
+  async forceSnapshot(previous: PubDocument, now = Date.now()): Promise<boolean> {
+    await this.write(previous, now)
+    this.lastSnapshotAt.set(previous.docId, now)
+    return true
+  }
+
   private async write(document: PubDocument, now: number): Promise<void> {
     const timestamp = new Date(now).toISOString().replace(/[:.]/g, '-')
     const target = `${this.dirFor(document.docId)}/${timestamp}.json`

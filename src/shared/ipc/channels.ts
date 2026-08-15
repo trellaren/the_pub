@@ -62,6 +62,8 @@ export const INVOKE_CHANNELS = [
   'connections:save',
   'connections:delete',
   'connections:test',
+  'connections:signIn',
+  'connections:signOut',
   'layout:load',
   'layout:saveLast',
   'layout:savePreset',

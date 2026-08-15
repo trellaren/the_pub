@@ -43,8 +43,8 @@ export function WelcomePanel() {
             Connect to a server…
           </button>
           <p className="text-[12px] text-faint">
-            Any folder becomes a project — on this machine, or over SFTP or FTP. The Pub keeps its
-            notes in <code>.thepub</code> beside your work.
+            Any folder becomes a project — on this machine, in OneDrive, or over SFTP or FTP. The Pub
+            keeps its notes in <code>.thepub</code> beside your work.
           </p>
         </div>
 

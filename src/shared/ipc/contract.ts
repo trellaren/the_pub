@@ -216,6 +216,18 @@ export const ipcContract = defineContract({
       req: z.object({ id: z.string() }),
       res: z.object({ ok: z.boolean(), message: z.string(), entries: z.number().int() })
     },
+    /**
+     * Sign in to OneDrive in the person's own browser.
+     *
+     * Returns the account it signed in as and nothing else: the refresh token
+     * this mints is stored encrypted in the main process, and no channel hands
+     * one back, exactly as with the server passwords and the AI keys.
+     */
+    'connections:signIn': {
+      req: z.object({ id: z.string() }),
+      res: z.object({ ok: z.boolean(), account: z.string(), message: z.string() })
+    },
+    'connections:signOut': { req: z.object({ id: z.string() }), res: ok },
 
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },

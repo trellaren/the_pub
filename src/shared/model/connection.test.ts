@@ -6,6 +6,7 @@ import {
   projectUri,
   parseProjectUri,
   describeConnection,
+  isSignedIn,
   type ConnectionProfile
 } from './connection.js'
 
@@ -51,6 +52,32 @@ describe('defaultPort', () => {
   it('knows the standard ports', () => {
     expect(defaultPort('sftp')).toBe(22)
     expect(defaultPort('ftp')).toBe(21)
+    // OneDrive has no port to choose, but the schema demands a legal one.
+    expect(defaultPort('onedrive')).toBe(443)
+  })
+})
+
+describe('a OneDrive profile', () => {
+  it('carries the app registration rather than a host and a user', () => {
+    const drive = profile({ protocol: 'onedrive', host: '', user: '', port: 443 })
+    expect(drive.clientId).toBe('')
+    expect(drive.tenant).toBe('common')
+    expect(drive.account).toBe('')
+  })
+
+  it('has nowhere to keep a token either', () => {
+    // The refresh token lives with the passwords: encrypted, in userData, and
+    // out of reach of every channel.
+    const keys = Object.keys(profile({ protocol: 'onedrive' }))
+    expect(keys).not.toContain('refreshToken')
+    expect(keys).not.toContain('accessToken')
+  })
+
+  it('is signed in exactly when a token is stored for it', () => {
+    expect(isSignedIn(profile({ protocol: 'onedrive', hasSecret: true }))).toBe(true)
+    expect(isSignedIn(profile({ protocol: 'onedrive', hasSecret: false }))).toBe(false)
+    // A stored SFTP password is not a sign-in.
+    expect(isSignedIn(profile({ hasSecret: true }))).toBe(false)
   })
 })
 
@@ -74,10 +101,19 @@ describe('project URIs', () => {
     expect(parseProjectUri(projectUri(profile()))).toEqual({ profileId: 'p1', path: '' })
   })
 
+  it('treats a OneDrive project the same way', () => {
+    const drive = profile({ protocol: 'onedrive' })
+    expect(projectUri(drive, 'Documents/Novel')).toBe('onedrive://p1/Documents/Novel')
+    expect(parseProjectUri('onedrive://p1/Documents/Novel')).toEqual({
+      profileId: 'p1',
+      path: 'Documents/Novel'
+    })
+  })
+
   it('declines anything that is not a remote project', () => {
     expect(parseProjectUri('/home/writer/book')).toBeNull()
     expect(parseProjectUri('file:///home/writer/book')).toBeNull()
-    expect(parseProjectUri('onedrive://something')).toBeNull()
+    expect(parseProjectUri('dropbox://something')).toBeNull()
   })
 })
 
@@ -92,5 +128,16 @@ describe('describeConnection', () => {
     expect(describeConnection(profile({ remotePath: '/srv' }), 'books/one')).toBe(
       'writer@files.example.com/books/one'
     )
+  })
+
+  it('names a OneDrive project by its account', () => {
+    const drive = profile({ protocol: 'onedrive', host: '', user: '', account: 'you@outlook.com' })
+    expect(describeConnection(drive, 'Documents/Novel')).toBe('you@outlook.com/Documents/Novel')
+    // The drive root is the whole drive, so there is no path worth appending.
+    expect(describeConnection(drive)).toBe('you@outlook.com')
+  })
+
+  it('says something readable before anyone has signed in', () => {
+    expect(describeConnection(profile({ protocol: 'onedrive', host: '', user: '' }))).toBe('OneDrive')
   })
 })

@@ -18,6 +18,8 @@ export const ENTITIES_FILE = `${PUB_DIR}/entities.json`
 export const BEATS_FILE = `${PUB_DIR}/beats.json`
 /** Vector maps, including their drill-down links. */
 export const MAPS_FILE = `${PUB_DIR}/maps.json`
+/** The book's structure: which documents are in it, in what order. */
+export const MANUSCRIPT_FILE = `${PUB_DIR}/manuscript.json`
 /** AI conversations about this manuscript. Never API keys — see AiKeyStore. */
 export const CHATS_FILE = `${PUB_DIR}/chats.json`
 

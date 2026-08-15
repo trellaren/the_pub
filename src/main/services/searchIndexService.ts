@@ -173,6 +173,48 @@ export class SearchIndexService {
     return row?.path ?? null
   }
 
+  /**
+   * Every indexed document, keyed by its current path.
+   *
+   * For pickers that need a document's identity and name without opening it.
+   * The caller must still handle a path the index has never seen — during the
+   * first pass, or for a file created moments ago — so this is an accelerator
+   * rather than the roster itself.
+   */
+  knownDocuments(): Map<string, { docId: string; title: string }> {
+    const rows = this.db.prepare('SELECT doc_id, path, title FROM files').all() as {
+      doc_id: string
+      path: string
+      title: string
+    }[]
+    return new Map(rows.map((row) => [row.path, { docId: row.doc_id, title: row.title }]))
+  }
+
+  /**
+   * Word counts for a set of documents, by stable id.
+   *
+   * One query for a whole manuscript rather than a read per chapter. The column
+   * is already maintained on every save and every watcher event, so a book's
+   * total costs a single statement and no file access at all — which is what
+   * makes it affordable on a project served over SFTP, where reading forty
+   * chapters to add up their words would be unthinkable.
+   *
+   * Ids absent from the index are simply absent from the result. A caller
+   * treating that as zero understates the total, which is the right direction:
+   * a fabricated count would make a document look modified to anything
+   * comparing counts.
+   */
+  wordCountsFor(docIds: readonly string[]): Map<string, number> {
+    const counts = new Map<string, number>()
+    if (docIds.length === 0) return counts
+    const placeholders = docIds.map(() => '?').join(',')
+    const rows = this.db
+      .prepare(`SELECT doc_id, word_count FROM files WHERE doc_id IN (${placeholders})`)
+      .all(...docIds) as { doc_id: string; word_count: number }[]
+    for (const row of rows) counts.set(row.doc_id, row.word_count)
+    return counts
+  }
+
   /** Scan the project and index anything new or changed since the last run. */
   async syncAll(force = false): Promise<void> {
     this.setProgress({ indexing: true, done: 0, total: 0 })
@@ -512,7 +554,11 @@ export class SearchIndexService {
     }
 
     const collect = (rows: { doc_id: string; block_index: number; text: string }[]): void => {
-      for (const row of rows) blocks.set(`${row.doc_id} ${row.block_index}`, row)
+      for (const row of rows) // The separator is an escape, not a literal NUL byte. A source file
+      // containing one is treated as binary by git and by grep, which means it
+      // shows no diff in review and is skipped by searches — a needless way to
+      // make the largest service in the app the hardest one to read.
+      blocks.set(`${row.doc_id}\u0000${row.block_index}`, row)
     }
 
     if (needsFullScan) {

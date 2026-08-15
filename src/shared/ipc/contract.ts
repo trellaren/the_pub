@@ -9,6 +9,7 @@ import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../mode
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
+import { manuscriptViewSchema, partRoleSchema } from '../model/manuscript.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
   chatFileSchema,
@@ -152,6 +153,47 @@ export const ipcContract = defineContract({
     'beats:saveColumns': {
       req: z.object({ columns: z.array(boardColumnSchema) }),
       res: z.array(boardColumnSchema)
+    },
+
+    /**
+     * The book's structure.
+     *
+     * Every mutation answers with the whole resolved view rather than the node
+     * it touched: a move rewrites one record but can change several rows' word
+     * roll-ups and depths, and a renderer patching its own copy would drift from
+     * the file the moment a repair in `reconcile` disagreed with it.
+     */
+    'manuscript:view': { req: empty, res: manuscriptViewSchema },
+    'manuscript:createPart': {
+      req: z.object({ title: z.string(), role: partRoleSchema.default('body') }),
+      res: manuscriptViewSchema
+    },
+    /**
+     * Add documents by path.
+     *
+     * Paths rather than ids because main reads each file to take its `docId` and
+     * title — which works for a document created seconds ago and not yet
+     * indexed, exactly when an author is most likely to add one.
+     */
+    'manuscript:addDocuments': {
+      req: z.object({ paths: z.array(z.string()), parentId: z.string().nullable().default(null) }),
+      res: manuscriptViewSchema
+    },
+    'manuscript:move': {
+      req: z.object({ id: z.string(), parentId: z.string().nullable(), index: z.number().int() }),
+      res: manuscriptViewSchema
+    },
+    'manuscript:rename': { req: z.object({ id: z.string(), title: z.string() }), res: manuscriptViewSchema },
+    'manuscript:setRole': { req: z.object({ id: z.string(), role: partRoleSchema }), res: manuscriptViewSchema },
+    /** Point a row at a different file, so a broken chapter recovers in place. */
+    'manuscript:relink': { req: z.object({ id: z.string(), path: z.string() }), res: manuscriptViewSchema },
+    'manuscript:remove': { req: z.object({ id: z.string() }), res: manuscriptViewSchema },
+    /** Every document in the project, flagged with whether it is already in the book. */
+    'manuscript:candidates': {
+      req: empty,
+      res: z.array(
+        z.object({ path: z.string(), title: z.string(), docId: z.string(), inBook: z.boolean() })
+      )
     },
 
     'maps:list': { req: empty, res: mapFileSchema },

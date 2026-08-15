@@ -161,6 +161,12 @@ dependencies inside it, and the real executable's own profile directory. Everyth
 exercised against the development build, including the loopback renderer server and the production
 content-security-policy, because the test harness sets no `ELECTRON_RENDERER_URL`.
 
+**The remote backends are tested against real servers, not fakes.** They are almost entirely
+protocol handling, so a fake would only confirm that the fake agrees with itself. FTP runs against
+`ftp-srv`; SFTP runs against `ssh2.Server` — the server half of the library the app already uses as
+a client, so no extra dependency, and the tests exercise the same crypto the release ships. Both
+serve a real temporary directory, and the files that appear in it are the assertion.
+
 Before merging, run the whole suite against a clean clone of committed history:
 
 ```sh
@@ -213,6 +219,21 @@ assumes the rename failed *because* the destination existed: a rename refused fo
 a lock, a permission, a throttled account — would then delete the previous version and fail anyway,
 and the chapter that was on the server a second ago would be gone. If even putting it back fails,
 the error names the file it is safe under.
+
+**A dropped connection fails the save rather than stalling it.** `ssh2` abandons a request that was
+in flight when the channel died — no callback, no error, nothing — so an autosave interrupted by the
+network going away used to neither finish nor fail: it waited forever, and so did everything holding
+the document. Each SFTP request is now raced against the session, and losing the connection rejects
+whatever was outstanding. The next call reconnects; the one that was in flight does not retry, which
+is a real difference from the FTP backend and left alone deliberately rather than changed without
+evidence.
+
+**SFTP does not verify host keys, and that is a known weakness.** The client accepts whatever key a
+server presents, so anything positioned between you and your server can read the manuscript — and
+the password on its way past — with nothing looking wrong. Doing this properly needs a `known_hosts`
+store, a trust-on-first-use prompt and a considered answer to a key that has changed, which is its
+own piece of work rather than a flag to set. It is recorded here so it is a decision rather than an
+oversight. Key authentication does not help with this: it protects the account, not the channel.
 
 **A packaged app is a different program, and is tested as one.** Main and preload move inside
 `app.asar`, the six runtime dependencies the main bundle imports by name come from a pruned

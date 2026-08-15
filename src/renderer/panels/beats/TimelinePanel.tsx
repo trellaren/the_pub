@@ -3,6 +3,7 @@ import { beatsInChronology } from '@shared/model/beat.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useBeatStore } from '@renderer/stores/beatStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
+import { useAppStore } from '@renderer/stores/appStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, cx } from '@renderer/ui/primitives.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { BeatCard } from './BeatCard.js'
@@ -26,6 +27,10 @@ export function TimelinePanel() {
   const create = useBeatStore((store) => store.create)
   const remove = useBeatStore((store) => store.remove)
   const moveInChronology = useBeatStore((store) => store.moveInChronology)
+
+  const orientation = useAppStore((store) => store.state?.timelineOrientation ?? 'horizontal')
+  const setOrientation = useAppStore((store) => store.setTimelineOrientation)
+  const horizontal = orientation === 'horizontal'
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
@@ -58,6 +63,22 @@ export function TimelinePanel() {
       <PanelHeader>
         <span className="flex-1">Timeline</span>
         <ToolbarButton
+          label="Lay the timeline out left to right"
+          active={horizontal}
+          onClick={() => void setOrientation('horizontal')}
+          data-testid="timeline-horizontal"
+        >
+          ↔
+        </ToolbarButton>
+        <ToolbarButton
+          label="Lay the timeline out top to bottom"
+          active={!horizontal}
+          onClick={() => void setOrientation('vertical')}
+          data-testid="timeline-vertical"
+        >
+          ↕
+        </ToolbarButton>
+        <ToolbarButton
           label="New beat"
           onClick={(event) => void addBeat(event.currentTarget.ownerDocument)}
         >
@@ -66,18 +87,29 @@ export function TimelinePanel() {
       </PanelHeader>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-w-0 flex-1 overflow-y-auto p-3" data-testid="timeline-list">
+        <div
+          className={cx('min-w-0 flex-1 p-3', horizontal ? 'overflow-x-auto' : 'overflow-y-auto')}
+          data-testid="timeline-list"
+          data-orientation={orientation}
+        >
           {ordered.length === 0 ? (
             <EmptyState
               title="No beats yet"
               hint="Add the moments of your story; date them, or drag them into order."
             />
           ) : (
-            <ol className="relative ml-2 border-l border-border pl-4">
+            <ol
+              className={cx(
+                'relative',
+                horizontal
+                  ? 'flex h-full items-start gap-3 border-t border-border pt-4 mt-2'
+                  : 'ml-2 border-l border-border pl-4'
+              )}
+            >
               {ordered.map((beat, index) => (
                 <li
                   key={beat.id}
-                  className="relative pb-2"
+                  className={cx('relative', horizontal ? 'w-56 shrink-0' : 'pb-2')}
                   onDragOver={(event) => {
                     event.preventDefault()
                     setDropIndex(index)
@@ -91,12 +123,18 @@ export function TimelinePanel() {
                 >
                   <span
                     className={cx(
-                      'absolute -left-[21px] top-2 h-2 w-2 rounded-full',
+                      'absolute h-2 w-2 rounded-full',
+                      horizontal ? '-top-[21px] left-2' : '-left-[21px] top-2',
                       beat.when.sort === null ? 'bg-faint' : 'bg-accent'
                     )}
                   />
                   {dropIndex === index ? (
-                    <span className="absolute -left-4 -top-0.5 right-0 h-px bg-accent" />
+                    <span
+                      className={cx(
+                        'absolute bg-accent',
+                        horizontal ? '-left-1.5 -top-4 bottom-0 w-px' : '-left-4 -top-0.5 right-0 h-px'
+                      )}
+                    />
                   ) : null}
                   <BeatCard
                     beat={beat}
@@ -114,7 +152,7 @@ export function TimelinePanel() {
               ))}
               {/* A drop target past the last beat, so something can be sent to the end. */}
               <li
-                className="h-6"
+                className={cx(horizontal ? 'h-full w-12 shrink-0' : 'h-6')}
                 onDragOver={(event) => {
                   event.preventDefault()
                   setDropIndex(ordered.length)

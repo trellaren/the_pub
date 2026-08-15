@@ -8,6 +8,7 @@
 export const INVOKE_CHANNELS = [
   'app:getState',
   'app:setTheme',
+  'app:setTimelineOrientation',
   'project:openDialog',
   'project:open',
   'project:close',

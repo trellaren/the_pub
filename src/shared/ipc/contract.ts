@@ -49,6 +49,10 @@ export const ipcContract = defineContract({
   invoke: {
     'app:getState': { req: empty, res: appStateSchema },
     'app:setTheme': { req: z.object({ theme: appStateSchema.shape.theme }), res: appStateSchema },
+    'app:setTimelineOrientation': {
+      req: z.object({ orientation: appStateSchema.shape.timelineOrientation }),
+      res: appStateSchema
+    },
 
     'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },

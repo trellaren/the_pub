@@ -250,6 +250,28 @@ test('the timeline’s New beat button creates a beat through its dialog', async
   )
 })
 
+test('the timeline runs left to right by default and can be turned on its side', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.evaluate(() => window.__pub.beats.getState().create('The lighthouse goes dark'))
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.timeline'))
+
+  const list = harness.page.getByTestId('timeline-list')
+  await expect(list).toHaveAttribute('data-orientation', 'horizontal')
+
+  await harness.page.getByTestId('timeline-vertical').click()
+  await expect(list).toHaveAttribute('data-orientation', 'vertical')
+
+  // The preference belongs to the person, not the project, so it is still
+  // vertical after a restart — and it outlives the project that was open.
+  const { projectDir, userDataDir } = harness
+  await harness.app.close()
+  harness = await launch({ projectDir, userDataDir })
+  await openProject(harness.page, projectDir)
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.timeline'))
+  await expect(harness.page.getByTestId('timeline-list')).toHaveAttribute('data-orientation', 'vertical')
+})
+
 test('the storyboard’s Add column button creates a column through its dialog', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

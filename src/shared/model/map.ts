@@ -211,16 +211,31 @@ function round(value: number): number {
  *
  * The view is an SVG `viewBox`, so this is the inverse of the transform the
  * browser applies: pan and zoom change the box, never the shapes.
+ *
+ * That transform is `xMidYMid meet` — the default, which the canvas does not
+ * override. It picks a single scale, the tighter of the two axes, and centres
+ * the result, leaving an equal margin at each end of the roomier axis. So the
+ * inverse must divide by that one scale and subtract that margin. Scaling each
+ * axis independently instead describes `preserveAspectRatio="none"`, a
+ * stretch-to-fill the canvas never asks for, and lands every pointer short of
+ * or beyond where it really is by the margin — invisibly at dead centre, worse
+ * towards the edges, and worst on the maps most likely to be drawn on, since an
+ * imported image gives the view whatever aspect the picture had.
  */
 export function toMapSpace(
   client: Point,
   rect: { left: number; top: number; width: number; height: number },
   view: Bounds
 ): Point {
-  if (rect.width === 0 || rect.height === 0) return { x: view.x, y: view.y }
+  if (rect.width === 0 || rect.height === 0 || view.width === 0 || view.height === 0) {
+    return { x: view.x, y: view.y }
+  }
+  const scale = Math.min(rect.width / view.width, rect.height / view.height)
+  const marginX = (rect.width - view.width * scale) / 2
+  const marginY = (rect.height - view.height * scale) / 2
   return {
-    x: view.x + ((client.x - rect.left) / rect.width) * view.width,
-    y: view.y + ((client.y - rect.top) / rect.height) * view.height
+    x: view.x + (client.x - rect.left - marginX) / scale,
+    y: view.y + (client.y - rect.top - marginY) / scale
   }
 }
 

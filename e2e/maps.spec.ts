@@ -258,6 +258,62 @@ test('a map built on an imported image stores it, sizes to it, and serves it', a
   await fs.rm(imagePath, { force: true })
 })
 
+/*
+ * The reported bug: "the cursor is inaccurate to where the objects are being
+ * drawn". Every drawing test above clicks the exact centre of the canvas, which
+ * is the one point where the old and the correct transforms agree — so the miss
+ * was invisible to the whole suite. This clicks off-centre on a map whose aspect
+ * differs from its panel, which is what an imported image always produces.
+ */
+test('a marker lands where the pointer was on a map that does not fill its panel', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await showMaps()
+
+  const imagePath = path.join(harness.projectDir, '..', `fixture-offcentre-${process.pid}.png`)
+  await writeTinyPng(imagePath)
+  await harness.page.getByTestId('maps-empty-create').click()
+  await harness.page.getByTestId('new-map-name').fill('Old charts')
+  await harness.page.getByTestId('new-map-file').setInputFiles(imagePath)
+  await harness.page.getByTestId('new-map-create').click()
+  await waitFor(async () => (await storedMaps())[0]?.background !== null, 'the background to be recorded')
+
+  // The 2:1 box this test depends on: the panel is never exactly 2:1, so the
+  // map is letterboxed inside it and the margin is real.
+  const mapBox = (await storedMaps())[0]!
+  expect(mapBox.width).toBe(1000)
+  expect(mapBox.height).toBe(500)
+
+  const canvas = harness.page.getByTestId('map-canvas')
+  const box = (await canvas.boundingBox())!
+
+  // Work out where the map actually sits inside the panel, independently of the
+  // code under test, then aim a quarter of the way across the map itself rather
+  // than a quarter across the panel — so the target is on the map by
+  // construction, and the expected answer is just the map's own quarter point.
+  const scale = Math.min(box.width / mapBox.width, box.height / mapBox.height)
+  const marginX = (box.width - mapBox.width * scale) / 2
+  const marginY = (box.height - mapBox.height * scale) / 2
+  expect(marginX > 1 || marginY > 1).toBe(true)
+
+  await harness.page.getByTestId('map-tool-marker').click()
+  await harness.page.mouse.click(
+    box.x + marginX + mapBox.width * scale * 0.25,
+    box.y + marginY + mapBox.height * scale * 0.25
+  )
+
+  await harness.page.evaluate(() => window.__pub.maps.getState().flush())
+  await waitFor(async () => (await storedMaps())[0]?.shapes.length === 1, 'the marker to be written')
+
+  const point = (await storedMaps())[0]!.shapes[0]!.points[0]!
+  expect(point.x).toBeGreaterThan(250 - 5)
+  expect(point.x).toBeLessThan(250 + 5)
+  expect(point.y).toBeGreaterThan(125 - 5)
+  expect(point.y).toBeLessThan(125 + 5)
+
+  await fs.rm(imagePath, { force: true })
+})
+
 test('a background can be replaced and removed on an existing map', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

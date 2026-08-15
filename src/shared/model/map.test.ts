@@ -163,6 +163,53 @@ describe('the view', () => {
     expect(toMapSpace({ x: 0, y: 0 }, { ...rect, width: 0, height: 0 }, view)).toEqual({ x: 0, y: 0 })
   })
 
+  /*
+   * The letterbox.
+   *
+   * The canvas is an `<svg viewBox>` with no `preserveAspectRatio` override, so
+   * the browser applies the default `xMidYMid meet`: one uniform scale — the
+   * tighter of the two axes — with the slack on the other axis split evenly as
+   * margin. An inverse that scales each axis independently agrees with that
+   * only where the margin is zero or the point is dead centre, which is exactly
+   * where every test above happens to look.
+   */
+  describe('a box whose aspect differs from the view', () => {
+    // A 1000×500 map — the shape `fitToMapBox` gives any 2:1 imported image —
+    // in a 300×300 box. Uniform scale is 0.3, so the map fills the width and
+    // occupies 150 of the 300 pixels of height, centred: 75px of dead band
+    // above it and 75px below.
+    const wide = { left: 0, top: 0, width: 300, height: 300 }
+    const halfHeight = { x: 0, y: 0, width: 1000, height: 500 }
+
+    it('still agrees at the centre, which is why this went unnoticed', () => {
+      expect(toMapSpace({ x: 150, y: 150 }, wide, halfHeight)).toEqual({ x: 500, y: 250 })
+    })
+
+    it('accounts for the margin above the map when converting an off-centre point', () => {
+      const point = toMapSpace({ x: 150, y: 100 }, wide, halfHeight)
+      expect(point.x).toBeCloseTo(500)
+      // 100px down the box is 25px into a map that starts 75px down: 25 / 0.3.
+      // Scaling the axes independently would read it as (100/300) * 500 = 166.67,
+      // an 83-unit miss — a sixth of the map's height, and in the top band it
+      // would be off the map altogether.
+      expect(point.y).toBeCloseTo(83.333, 2)
+    })
+
+    it('letterboxes the width when the box is the taller one', () => {
+      // 200×400 around the same 1000×500 map: width is now the tighter axis, so
+      // the scale is 0.2 and the 150px bands sit above and below. Read
+      // off-centre on both axes — a centred point agrees under either formula
+      // and would prove nothing.
+      const tall = { left: 20, top: 10, width: 200, height: 400 }
+      expect(toMapSpace({ x: 70, y: 235 }, tall, halfHeight)).toEqual({ x: 250, y: 375 })
+    })
+
+    it('reads a point in the dead band as off the map, not as an edge', () => {
+      // 30px down is inside the 75px margin: above the map's own top edge.
+      expect(toMapSpace({ x: 150, y: 30 }, wide, halfHeight).y).toBeLessThan(0)
+    })
+  })
+
   it('keeps the anchor under the cursor while zooming', () => {
     const anchor = { x: 250, y: 250 }
     const zoomed = zoomView(view, 0.5, anchor)

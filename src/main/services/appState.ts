@@ -6,6 +6,7 @@ import { keybindableCommands } from '../../shared/menu/menuModel.js'
 import { findConflict, normalizeAccelerator } from '../../shared/menu/keybindings.js'
 import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
 import { ulid } from 'ulid'
+import type { DailyPrompt } from '../../shared/model/writingPrompt.js'
 
 const MAX_RECENTS = 12
 
@@ -107,6 +108,12 @@ export class AppStateService {
     if (!this.state.author.id) this.setAuthor({})
     const profile = this.state.author
     return { ...profile, color: profile.color || colorForAuthor(profile.id) }
+  }
+
+  setDailyPrompt(dailyPrompt: DailyPrompt): DailyPrompt {
+    this.state = { ...this.state, dailyPrompt }
+    this.persist()
+    return dailyPrompt
   }
 
   setEmbeddedIdleMinutes(embeddedIdleMinutes: number): AppState {

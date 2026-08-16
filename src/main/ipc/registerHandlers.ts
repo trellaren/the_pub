@@ -16,7 +16,20 @@ import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey 
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import os from 'node:os'
+import { streamCompletion } from '../ai/aiRunner.js'
 import {
+  isFresh,
+  pickAngle,
+  promptRequest,
+  today,
+  EMPTY_DAILY_PROMPT
+} from '../../shared/model/writingPrompt.js'
+
+/** Long enough for a local model on a slow machine, short enough not to hang the card. */
+const PROMPT_TIMEOUT_MS = 30_000
+
+import {
+  aiSettingsSchema,
   resolveSettings,
   providerInfo,
   type ChatMessage,
@@ -957,6 +970,57 @@ export function registerHandlers(context: HandlerContext): void {
 
   handle('ai:retrievalStatus', (_payload, event) => requireSession(event).retrieval.status())
   handle('ai:buildRetrieval', (_payload, event) => requireSession(event).retrieval.build(true))
+  /**
+   * Today's writing prompt for the welcome screen.
+   *
+   * Cached per day in app state, so opening the app four times in a morning
+   * costs one request rather than four — and so the prompt a writer read at
+   * breakfast is still there at lunch, which is most of what makes it feel like
+   * a thing rather than a slot machine.
+   *
+   * Every unavailable case returns an empty prompt rather than throwing: the
+   * welcome screen is not a place to show an error about a feature nobody asked
+   * for, and the card simply does not appear.
+   */
+  handle('ai:dailyPrompt', async ({ refresh }, event) => {
+    const stored = appState.get().dailyPrompt
+    if (!refresh && isFresh(stored)) return stored
+    if (!appState.get().aiEnabled) return EMPTY_DAILY_PROMPT
+
+    const ownerId = windows.ownerWindowId(event.sender)
+    const session = ownerId === null ? undefined : sessions.get(ownerId)
+    const settings = resolveSettings(session?.chats.settings() ?? aiSettingsSchema.parse({}))
+    const info = providerInfo(settings.provider)
+    const apiKey = keys.get(settings.provider)
+    if (info.needsKey && !apiKey) return EMPTY_DAILY_PROMPT
+
+    let baseUrl = settings.baseUrl
+    if (settings.provider === 'embedded') {
+      // Never downloads and never waits on a cold start here: an app that
+      // fetched gigabytes because someone opened the welcome screen would be an
+      // app people learn to avoid opening.
+      const running = engine.runningUrl()
+      if (!running) return EMPTY_DAILY_PROMPT
+      baseUrl = running
+    }
+
+    const angle = pickAngle(stored.angle)
+    const outcome = await streamCompletion(
+      {
+        settings: { ...settings, baseUrl, maxTokens: 200 },
+        system: 'You write short, concrete writing prompts.',
+        messages: [{ role: 'user', text: promptRequest(angle) }],
+        apiKey
+      },
+      AbortSignal.timeout(PROMPT_TIMEOUT_MS),
+      () => {}
+    ).catch(() => null)
+
+    const text = outcome?.text.trim() ?? ''
+    if (!text || outcome?.error) return EMPTY_DAILY_PROMPT
+    return appState.setDailyPrompt({ date: today(), text, angle })
+  })
+
   handle('ai:cancelRetrieval', (_payload, event) => {
     requireSession(event).retrieval.cancel()
     return { ok: true as const }

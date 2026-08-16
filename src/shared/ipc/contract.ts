@@ -27,6 +27,7 @@ import {
 } from '../model/ai.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import { retrievalStatusSchema } from '../model/retrieval.js'
+import { dailyPromptSchema } from '../model/writingPrompt.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -262,6 +263,16 @@ export const ipcContract = defineContract({
     'mentions:dismiss': {
       req: z.object({ entityId: z.string(), docId: z.string(), surface: z.string() }),
       res: ok
+    },
+
+    /**
+     * Today's writing prompt, or an empty one when there is no configured model
+     * to ask. `refresh` asks for another today, which is what the reroll button
+     * on the card does.
+     */
+    'ai:dailyPrompt': {
+      req: z.object({ refresh: z.boolean().default(false) }),
+      res: dailyPromptSchema
     },
 
     'notes:list': { req: z.object({ docId: z.string() }), res: z.array(noteSchema) },

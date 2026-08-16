@@ -107,6 +107,7 @@ export const INVOKE_CHANNELS = [
   'ai:retrievalStatus',
   'ai:buildRetrieval',
   'ai:cancelRetrieval',
+  'ai:dailyPrompt',
   'llm:status',
   'llm:download',
   'llm:cancelDownload',

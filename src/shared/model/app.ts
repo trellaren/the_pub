@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { buildScopeSchema } from '../settings/registry.js'
 import { keybindingOverridesSchema } from '../menu/keybindings.js'
 import { authorProfileSchema } from './author.js'
+import { dailyPromptSchema } from './writingPrompt.js'
 
 export const recentProjectSchema = z.object({
   uri: z.string(),
@@ -41,6 +42,8 @@ export const appStateSchema = z.object({
    * The id is minted once and never changes.
    */
   author: authorProfileSchema.prefault({ id: '', name: '', color: '' }),
+  /** Today's writing prompt, cached so opening the app twice costs one request. */
+  dailyPrompt: dailyPromptSchema.prefault({ date: '', text: '', angle: '' }),
   ...appSettingsSchema.shape
 })
 export type AppState = z.infer<typeof appStateSchema>

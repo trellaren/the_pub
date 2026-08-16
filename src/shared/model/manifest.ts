@@ -1,32 +1,20 @@
 import { z } from 'zod'
-import { FORMAT_VERSIONS, AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
+import { buildScopeSchema } from '../settings/registry.js'
 import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
 import { entityKindDefSchema } from './entity.js'
 
-export const projectSettingsSchema = z.object({
-  autosaveDebounceMs: z.number().int().min(100).max(30_000).default(AUTOSAVE_DEBOUNCE_MS),
-  autosaveMaxWaitMs: z.number().int().min(500).max(120_000).default(AUTOSAVE_MAX_WAIT_MS),
-  snapshotsEnabled: z.boolean().default(true),
-  /** Editor "sheet" width in points. Not true pagination — a readable measure. */
-  pageWidth: z.number().default(612),
-  /**
-   * Page height in points. The editor scrolls continuously and never uses it,
-   * but an exported `.docx` has to state a paper size, and inventing one at
-   * export time would mean the same manuscript exported differently depending
-   * on which code path ran. 612×792 is US Letter; A4 is 595×842.
-   */
-  pageHeight: z.number().default(792),
-  pageMargin: z.number().default(72),
-  defaultStyleId: z.string().default('body'),
-  /**
-   * A `citeproc-plus` style id — `chicago-author-date`, `chicago-notes-
-   * bibliography`, `apa`, `modern-language-association`, or any of the
-   * ~2000 others the engine bundles. A plain string rather than an enum for
-   * the same reason `cslItemSchema.type` is: the four this build's picker
-   * offers by name are not the only ones a project may want.
-   */
-  citationStyleId: z.string().default('chicago-author-date')
-})
+/**
+ * Per-project preferences, derived from the settings registry rather than
+ * written out here.
+ *
+ * The stored shape is unchanged — the registry's `storageKey` for each
+ * project-scoped setting is the property name this object has always had — so
+ * no manifest migration is involved. What moved is where a setting is
+ * *declared*: see `shared/settings/registry.ts` for the field list, their
+ * bounds and their defaults.
+ */
+export const projectSettingsSchema = buildScopeSchema('project')
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>
 
 /**

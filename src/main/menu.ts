@@ -1,103 +1,67 @@
 import { Menu, BrowserWindow } from 'electron'
 import type { WindowManager } from './windows/windowManager.js'
-import { THEMES } from '../shared/themes.js'
+import { resolveMenu, type MenuNode, type MenuTopLevel } from '../shared/menu/menuModel.js'
+import type { KeybindingOverrides } from '../shared/menu/keybindings.js'
 
 /**
- * Native menu. Every item dispatches a command id into the renderer's command
- * registry rather than acting directly, so a menu item, a keyboard shortcut and
- * the command palette all run exactly the same code path.
+ * Native menu, built from the shared menu model.
+ *
+ * Every item dispatches a command id into the renderer's command registry
+ * rather than acting directly, so a menu item, a keyboard shortcut and the
+ * command palette all run exactly the same code path. The handful that main has
+ * to run itself are marked `target: 'main'` in the model and looked up here.
+ *
+ * The tree itself lives in `shared/menu/menuModel.ts`; this file is only the
+ * translation into Electron's template shape, which is what keeps the tree
+ * testable and lets Settings list what is bindable.
  */
-export function buildMenu(windows: WindowManager, createWindow: () => BrowserWindow): void {
+export function buildMenu(
+  windows: WindowManager,
+  createWindow: () => BrowserWindow,
+  overrides: KeybindingOverrides = {}
+): void {
   const send = (commandId: string) => (): void => {
     const focused = BrowserWindow.getFocusedWindow()
     if (focused) windows.send(focused.webContents, 'command:invoke', { commandId })
   }
 
-  const isMac = process.platform === 'darwin'
+  const mainCommands: Record<string, () => void> = {
+    'window.new': () => void createWindow()
+  }
 
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? ([{ role: 'appMenu' }] as Electron.MenuItemConstructorOptions[]) : []),
-    {
-      label: 'File',
-      submenu: [
-        { label: 'New Project from Template…', click: send('project.newFromTemplate') },
-        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: send('project.open') },
-        { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
-        { type: 'separator' },
-        { label: 'New Document', accelerator: 'CmdOrCtrl+N', click: send('document.new') },
-        // No accelerator: CmdOrCtrl+Shift+N is already New Window.
-        { label: 'New Folder', click: send('folder.new') },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('document.save') },
-        { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: send('document.saveAll') },
-        { type: 'separator' },
-        { label: 'Import from Word…', click: send('document.import') },
-        { label: 'Export to Word…', click: send('document.export') },
-        { label: 'Import from Fountain…', click: send('document.importFountain') },
-        { label: 'Export to Fountain…', click: send('document.exportFountain') },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' }
-      ]
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-        { type: 'separator' },
-        { label: 'Find in Document', accelerator: 'CmdOrCtrl+F', click: send('editor.find') },
-        { label: 'Replace in Document', accelerator: 'CmdOrCtrl+H', click: send('editor.replace') },
-        { label: 'Search Project', accelerator: 'CmdOrCtrl+Shift+F', click: send('search.focus') }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: send('palette.quickOpen') },
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: send('palette.commands') },
-        { type: 'separator' },
-        { label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: send('panel.explorer') },
-        { label: 'Search', click: send('panel.search') },
-        // No fixed entries for record panels: which kinds a project offers is
-        // project data (`manifest.entityKinds`), and this menu is built once,
-        // with no access to whichever project is open — see `panel.records.*`
-        // in `DockRoot.tsx`. The Command Palette lists them by name instead.
-        { label: 'Timeline', click: send('panel.timeline') },
-        { label: 'Storyboard', click: send('panel.storyboard') },
-        { label: 'Manuscript', click: send('panel.manuscript') },
-        { label: 'Maps', click: send('panel.maps') },
-        { label: 'AI', click: send('panel.ai') },
-        { label: 'Notes', click: send('panel.notes') },
-        { label: 'Sources', click: send('panel.sources') },
-        { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: send('panel.settings') },
-        { type: 'separator' },
-        { label: 'Save Layout As…', click: send('layout.savePreset') },
-        { label: 'Reset Layout', click: send('layout.reset') },
-        { label: 'Move Tab to New Window', click: send('layout.popout') },
-        { type: 'separator' },
-        {
-          label: 'Theme',
-          submenu: THEMES.map(({ id, label }) => ({
-            label,
-            click: send(`app.setTheme.${id}`)
-          }))
-        },
-        { role: 'toggleDevTools' },
-        { role: 'reload' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { role: 'togglefullscreen' }
-      ]
-    },
-    { role: 'windowMenu' }
-  ]
+  const platform = process.platform === 'darwin' ? 'mac' : 'other'
+  const template = resolveMenu(platform, overrides).map(toTopLevel)
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+
+  function toTopLevel(entry: MenuTopLevel): Electron.MenuItemConstructorOptions {
+    return entry.kind === 'role'
+      ? { role: entry.role as Electron.MenuItemConstructorOptions['role'] }
+      : { label: entry.label, submenu: entry.items.map(toItem) }
+  }
+
+  function toItem(node: MenuNode): Electron.MenuItemConstructorOptions {
+    switch (node.kind) {
+      case 'separator':
+        return { type: 'separator' }
+      case 'role':
+        return { role: node.role as Electron.MenuItemConstructorOptions['role'] }
+      case 'submenu':
+        return { label: node.label, submenu: node.items.map(toItem) }
+      case 'command': {
+        const click =
+          node.target === 'main'
+            ? // A model entry naming a main-side command nobody implements is a
+              // wiring bug; a no-op item would hide it until someone clicked.
+              (mainCommands[node.commandId] ??
+              (() => {
+                throw new Error(`No main-process handler for the command "${node.commandId}"`)
+              }))
+            : send(node.commandId)
+        return node.accelerator
+          ? { label: node.label, accelerator: node.accelerator, click }
+          : { label: node.label, click }
+      }
+    }
+  }
 }

@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import { appStateSchema, type AppState, type RecentProject } from '../../shared/model/app.js'
+import { keybindableCommands } from '../../shared/menu/menuModel.js'
+import { findConflict, normalizeAccelerator } from '../../shared/menu/keybindings.js'
 
 const MAX_RECENTS = 12
 
@@ -58,6 +60,48 @@ export class AppStateService {
 
   setTimelineOrientation(timelineOrientation: AppState['timelineOrientation']): AppState {
     this.state = { ...this.state, timelineOrientation }
+    this.persist()
+    return this.state
+  }
+
+  /**
+   * Rebind a command, or (with `null`) put it back to its default.
+   *
+   * Refuses rather than stores on a clash: Electron gives a duplicated
+   * accelerator to whichever menu item it built first and silently drops it
+   * from the other, so a conflict accepted here becomes a menu item that stops
+   * working for no visible reason.
+   */
+  setKeybinding(
+    commandId: string,
+    accelerator: string | null
+  ):
+    | { ok: true; state: AppState }
+    | { ok: false; reason: 'unknown-command' | 'invalid' }
+    | { ok: false; reason: 'conflict'; conflictWith: string } {
+    const bindings = keybindableCommands()
+    if (!bindings.some((binding) => binding.commandId === commandId)) {
+      return { ok: false, reason: 'unknown-command' }
+    }
+
+    const keybindings = { ...this.state.keybindings }
+    if (accelerator === null) {
+      delete keybindings[commandId]
+    } else {
+      const normalized = normalizeAccelerator(accelerator)
+      if (!normalized) return { ok: false, reason: 'invalid' }
+      const conflict = findConflict(normalized, commandId, bindings, this.state.keybindings)
+      if (conflict) return { ok: false, reason: 'conflict', conflictWith: conflict.label }
+      keybindings[commandId] = normalized
+    }
+
+    this.state = { ...this.state, keybindings }
+    this.persist()
+    return { ok: true, state: this.state }
+  }
+
+  resetKeybindings(): AppState {
+    this.state = { ...this.state, keybindings: {} }
     this.persist()
     return this.state
   }

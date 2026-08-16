@@ -8,7 +8,7 @@ serves an essay, a thesis or a research paper, without losing what makes it good
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
 meant to be shippable on its own.
 
-**Status:** Phases 0–3 have shipped. Phases 4–9 each have a build plan linked from their section
+**Status:** Phases 0–3 have shipped. Phases 4–14 each have a build plan linked from their section
 below.
 
 ## Two scoping decisions
@@ -246,6 +246,104 @@ built to merge with no conflict at all.
 - **Presence is advisory, never a lock**; `DocumentService`'s mtime check stays the backstop,
   and the `ConflictBar` gains a mine-vs-disk diff.
 
+## Phase 10 — Database-backed projects, and an agent that can act
+
+*Detailed build plan: [`phase-10-plan.md`](./phase-10-plan.md).*
+
+Two tracks that share no code, numbered together because they ship together. Either can land
+first.
+
+- **A `db` protocol** joining `sftp`, `ftp` and `onedrive` — one protocol with a dialect per
+  engine (Postgres, MySQL, SQLite), because the `VfsAdapter` mapping is identical and only the
+  SQL differs. It is the first backend that is *better* than local disk at what this app finds
+  hard: real atomic writes as transactions, and change detection as `WHERE rev > ?` instead of
+  `pollingWatch`'s full recursive walk — with `LISTEN`/`NOTIFY` making Postgres a genuine push
+  backend.
+- `FORMAT_VERSIONS.connections` bumps, because an older build meeting a `db` profile fails the
+  protocol enum and corrupt-renames the file — losing **every** saved server, not just the new
+  one.
+- **An agent that acts**, the half Phase 8 scoped out, resting on one rule: *the agent never
+  writes to a document — it proposes, and proposals arrive as Phase 9 suggestion marks.*
+  Accept/reject, attribution, Word round-trip and undo then all come for free instead of being
+  rebuilt worse.
+- A small read-mostly tool surface over services that already exist, plus **semantic retrieval**
+  as an `embeddings` table in the search index — vectors from the *embedded* model, brute-force
+  cosine, no ANN index, and nothing at all when AI is off.
+
+## Phase 11 — Highlighting and the research library
+
+*Detailed build plan: [`phase-11-plan.md`](./phase-11-plan.md).*
+
+A writer marks a passage because it matters — in their draft, or in what they are reading — and
+later wants every marked passage together, with the citation attached.
+
+- **The existing `highlight` mark gains a lazily-allocated `highlightId`.** Absent, it is yellow
+  text exactly as today; present, it is a record with a category, a note and orphan recovery.
+  Phase 0's `blockId` reasoning applied to a mark — identity only for what something points at.
+- **Sources get attachments**: PDFs and web captures under `.thepub/research/`, written through
+  the `VfsAdapter`, so a research library works on SFTP and OneDrive with no backend-specific
+  code — and never in the manuscript tree, where the indexer and file tree would find them.
+- **PDF highlights anchor by quoted text first, page coordinates second** — the same recovery
+  ordering the document highlights use, because coordinates break and quotes survive.
+- **Cite from a highlight**, locator prefilled from the page: Phase 5's `insertCitation` called
+  with an argument, not new machinery.
+- A Research panel over both halves, with the orphaned section notes taught us to build.
+
+## Phase 12 — Publishing and output
+
+*Detailed build plan: [`phase-12-plan.md`](./phase-12-plan.md).*
+
+The app takes a book from a blank folder to a finished, cited, reviewed draft — and then the only
+ways out are `.docx` and `.fountain`, both handoff formats for other software.
+
+- **Every output consumes the binder**, via `flattenManuscript`'s existing `ExportItem[]` stream.
+  An output with its own traversal would drift from the DOCX one the first time a part moved.
+- **EPUB 3** as a sibling of `src/main/docx/`, with the same no-knowledge-of-a-project rule;
+  `nav.xhtml` built by the *same* `buildToc` the in-document contents uses, because two
+  table-of-contents implementations disagree and one of them does it silently.
+- **PDF prints the paginated view rather than laying it out again** — Phase 7's `paginate()` in
+  an offscreen window through `printToPDF`, so screen, print and PDF are the same breaks by
+  construction. A PDF library would be a second layout engine.
+- **Submission formats are configuration, not code** — a style pack plus page setup plus header
+  text, shipped as Phase 4 templates. Phase 6's lesson, applied to output.
+- One `publish:export` channel replacing the per-format pairs, reporting what each format cannot
+  carry.
+
+## Phase 13 — Goals and statistics
+
+*Detailed build plan: [`phase-13-plan.md`](./phase-13-plan.md).*
+
+- **Snapshots cannot be the history**, and the plan says exactly why: a ten-minute minimum
+  interval, a 50-per-document cap that prunes the oldest, per-document series, and an off switch.
+  A history that deletes its own beginning is not one.
+- **Daily rollups per author** (`.thepub/stats/<authorId>.json`), single-writer by construction —
+  Phase 9's rule, adopted for the same reason.
+- **Gross added *and* removed, not just net.** A revision day that cuts 2,000 words and writes
+  1,800 reads as −200, and a tool showing only net tells a writer who worked hard that they did
+  nothing.
+- Sessions measured by an idle timeout so an app left open overnight does not award eight hours;
+  targets derived from what remains and the days left, so the number stays honest after a week
+  off; charts as hand-drawn SVG, because `MapCanvas` already proves that is enough.
+
+## Phase 14 — Accessibility and language
+
+*Detailed build plan: [`phase-14-plan.md`](./phase-14-plan.md).*
+
+The only phase here that decides whether some writers can use the app at all, rather than how
+well it serves them.
+
+- **Half fixes, half things that keep the fixes true**: axe-core in the e2e suite and
+  keyboard-only paths asserted in tests, because an accessibility sweep regresses on the next
+  feature.
+- Roles, names and live regions across the dock, the file tree and the popovers; text labels for
+  everything currently carried by colour alone (mentions, suggestions, highlights, map markers).
+- **Contrast checked by a unit test across all twelve themes**, the same way the DOCX closed-world
+  test makes a rule the suite enforces rather than one someone remembers.
+- **Per-document `lang` in the envelope and a `lang` mark for passages**, fixing a real defect
+  today: DOCX export states no language, so Word spell-checks a French chapter against English.
+- **RTL turns alignment into start/end rather than left/right** — the part that is not free, and
+  the part that puts every paragraph on the wrong side of an exported Hebrew manuscript if missed.
+
 ---
 
 ## Dependencies
@@ -259,9 +357,18 @@ Phase 0  Format governance + stable ids     ← blocks everything
    Phase 4  Templates   (needs 1)
           └→ Phase 6  Beyond fiction
    Phase 7  Pagination  (optional; independent, expensive)
+          └→ Phase 12  Publishing and output   (also needs 3, 5, 6)
    Phase 8  Embedded model   (independent; builds on the shipped AI layer)
+          └→ Phase 10b Agentic assistance   (also needs 9, for suggestions)
 Phase 0 → Phase 9  Co-authoring + peer review   (anchors; sits beside 2's notes)
+   Phase 10a Database connections   (independent)
+Phase 0 → Phase 11  Highlighting + research library   (also needs 5)
+   Phase 13  Goals and statistics       (independent)
+   Phase 14  Accessibility and language (independent)
 ```
+
+Phase 10 is two tracks under one number: **10a** (database connections) depends on nothing, while
+**10b** (the agent) needs both 8 and 9. They share no code and either can ship first.
 
 ## The decisions that matter most
 
@@ -275,3 +382,10 @@ Phase 0 → Phase 9  Co-authoring + peer review   (anchors; sits beside 2's note
    a large, permanent cost, and the research-paper story does not require one.
 5. **A template is a project, serialised.** Projects are folders; do not invent a second concept
    alongside them.
+6. **The agent proposes; it never writes.** Routing every agent edit through Phase 9's suggestion
+   marks inherits accept/reject, attribution, undo and the Word round-trip instead of rebuilding
+   four mechanisms worse — and it is what makes an agent over someone's manuscript acceptable at
+   all.
+7. **Every output consumes the binder.** EPUB, PDF and print go through the same
+   `flattenManuscript` stream as DOCX, and PDF prints the paginated view rather than laying it
+   out a second time. Two layout engines disagree; two traversals drift.

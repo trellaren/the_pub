@@ -48,6 +48,7 @@ export type PanelComponent =
   | 'ai'
   | 'manuscript'
   | 'history'
+  | 'settings'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 

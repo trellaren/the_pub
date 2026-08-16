@@ -8,7 +8,12 @@ import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
-  project: { getState: () => { open: (uri: string) => Promise<unknown>; project: { root: string } | null } }
+  project: {
+    getState: () => {
+      open: (uri: string) => Promise<unknown>
+      project: { root: string; readOnly: boolean } | null
+    }
+  }
   documents: {
     getState: () => {
       create: (path: string, title?: string) => Promise<string | null>

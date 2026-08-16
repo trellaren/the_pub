@@ -22,6 +22,7 @@ import {
   aiProviderIdSchema,
   streamEventSchema
 } from '../model/ai.js'
+import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -92,6 +93,19 @@ export const ipcContract = defineContract({
       ])
     },
     'app:resetKeybindings': { req: empty, res: appStateSchema },
+    /**
+     * The AI master switch, and the embedded model's idle timeout.
+     *
+     * A channel each, named, rather than a generic `set(key, value)` — the same
+     * reasoning the theme and orientation setters record: main validates by
+     * name, and a generic setter would be a way to write anything at all into
+     * app state from the renderer.
+     */
+    'app:setAiEnabled': { req: z.object({ enabled: z.boolean() }), res: appStateSchema },
+    'app:setEmbeddedIdleMinutes': {
+      req: z.object({ minutes: z.number().int().min(0).max(240) }),
+      res: appStateSchema
+    },
 
     'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },
@@ -390,6 +404,23 @@ export const ipcContract = defineContract({
     },
     'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },
 
+    /**
+     * The embedded models: what is on disk, what this machine can run, and what
+     * the engine is doing. One round trip rather than a channel per question,
+     * because the manager shows all of it at once.
+     */
+    'llm:status': { req: empty, res: llmStatusSchema },
+    /**
+     * Start a download. Resolves when it finishes or fails; progress arrives as
+     * `llm:progress` events in the meantime.
+     */
+    'llm:download': {
+      req: z.object({ variantId: z.string() }),
+      res: z.object({ ok: z.boolean(), error: z.string().default('') })
+    },
+    'llm:cancelDownload': { req: z.object({ variantId: z.string() }), res: ok },
+    'llm:remove': { req: z.object({ variantId: z.string() }), res: ok },
+
     /** Saved servers. Profiles only — no channel ever returns a secret. */
     'connections:list': {
       req: empty,
@@ -515,6 +546,8 @@ export const ipcContract = defineContract({
     'notes:changed': z.object({ docId: z.string() }),
     /** Deltas, completion and failure of an in-flight reply. */
     'ai:stream': streamEventSchema,
+    /** Download progress, which belongs to main and outlives the panel showing it. */
+    'llm:progress': llmProgressSchema,
     'app:stateChanged': appStateSchema,
     /** Native menu / accelerator dispatch into the renderer command registry. */
     'command:invoke': z.object({ commandId: z.string() }),

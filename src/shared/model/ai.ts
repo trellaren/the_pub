@@ -1,14 +1,18 @@
 import { z } from 'zod'
 import { FORMAT_VERSIONS } from '../constants.js'
+import { DEFAULT_EMBEDDED_MODEL } from './llm.js'
 
 /**
- * The four backends the app talks to.
+ * The five backends the app talks to.
  *
  * Three are hosted and need a key; LM Studio runs on the author's own machine
- * and needs a URL instead. They are one list because everything above this
- * layer — chats, context, streaming, the panel — is identical for all of them.
+ * and needs a URL instead; `embedded` is a model this app downloads and runs
+ * itself, reached on a port only the main process knows. They are one list
+ * because everything above this layer — chats, context, streaming, the panel —
+ * is identical for all of them, which is what makes an embedded model an entry
+ * here rather than a parallel feature.
  */
-export const aiProviderIds = ['anthropic', 'openai', 'huggingface', 'lmstudio'] as const
+export const aiProviderIds = ['anthropic', 'openai', 'huggingface', 'lmstudio', 'embedded'] as const
 export const aiProviderIdSchema = z.enum(aiProviderIds)
 export type AiProviderId = z.infer<typeof aiProviderIdSchema>
 
@@ -54,6 +58,16 @@ export const PROVIDERS: ProviderInfo[] = [
     needsKey: false,
     defaultModel: 'local-model',
     defaultBaseUrl: 'http://127.0.0.1:1234'
+  },
+  {
+    id: 'embedded',
+    name: 'Embedded',
+    needsKey: false,
+    defaultModel: DEFAULT_EMBEDDED_MODEL,
+    // Filled in by main from the engine's actual port at request time. The
+    // renderer never learns it, and a stale value here could only ever point
+    // at the wrong process.
+    defaultBaseUrl: ''
   }
 ]
 
@@ -69,9 +83,36 @@ export const aiSettingsSchema = z.object({
   temperature: z.number().min(0).max(2).default(0.7),
   maxTokens: z.number().int().min(64).max(32_000).default(2048),
   /** Prepended to every conversation. The author's standing instructions. */
-  systemPrompt: z.string().default('')
+  systemPrompt: z.string().default(''),
+  /**
+   * Let the model search the project and read documents and records before it
+   * answers, and propose edits.
+   *
+   * Off by default. An ordinary question should cost one request, and a writer
+   * who has not asked for an assistant that goes looking through their project
+   * should not get one.
+   */
+  agent: z.boolean().default(false)
 })
 export type AiSettings = z.infer<typeof aiSettingsSchema>
+
+/**
+ * One tool the agent called, and what came back.
+ *
+ * Recorded on the message rather than in a private log: what the agent did is
+ * part of what it said, and a run that is only auditable through a separate
+ * file is a run nobody audits. `result` is the summary shown to a reader, not
+ * the raw payload the model saw — a search that matched forty blocks should not
+ * put forty blocks in the chat file.
+ */
+export const toolCallSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  args: z.string().default(''),
+  result: z.string().default(''),
+  ok: z.boolean().default(true)
+})
+export type ToolCall = z.infer<typeof toolCallSchema>
 
 export const chatRoles = ['user', 'assistant'] as const
 export const chatMessageSchema = z.object({
@@ -80,6 +121,8 @@ export const chatMessageSchema = z.object({
   text: z.string(),
   /** Which model produced it, so an old answer stays attributable. */
   model: z.string().default(''),
+  /** What the agent did on the way to this answer. Empty for an ordinary reply. */
+  toolCalls: z.array(toolCallSchema).default(() => []),
   created: z.string()
 })
 export type ChatMessage = z.infer<typeof chatMessageSchema>
@@ -100,7 +143,8 @@ export const aiSettingsOverrideSchema = z.object({
   baseUrl: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(64).max(32_000).optional(),
-  systemPrompt: z.string().optional()
+  systemPrompt: z.string().optional(),
+  agent: z.boolean().optional()
 })
 export type AiSettingsOverride = z.infer<typeof aiSettingsOverrideSchema>
 
@@ -168,9 +212,39 @@ export const PROMPT_PRESETS: { id: string; title: string; prompt: string }[] = [
   }
 ]
 
+/**
+ * An edit the agent proposes.
+ *
+ * It is a *proposal*, never an applied change: the agent has no write path to a
+ * document, so this is the whole of what it can do to prose. `docPath` and the
+ * quoted `find` text locate it the way every other recovery in this codebase
+ * does — by surface text rather than by offset — so a proposal survives the
+ * author editing elsewhere while they read it.
+ */
+export const editProposalSchema = z.object({
+  id: z.string(),
+  docPath: z.string(),
+  /** Existing text to replace. Empty means insert `replace` at the end. */
+  find: z.string().default(''),
+  replace: z.string().default(''),
+  /** Why, in the agent's own words. Shown beside the diff. */
+  reason: z.string().default('')
+})
+export type EditProposal = z.infer<typeof editProposalSchema>
+
 /** A streamed reply, as it reaches the renderer. */
 export const streamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delta'), requestId: z.string(), text: z.string() }),
+  /**
+   * A tool call, as it is made rather than when the run ends. An agent that
+   * spends twenty seconds searching should say so while it searches.
+   */
+  z.object({ type: z.literal('tool'), requestId: z.string(), call: toolCallSchema }),
+  z.object({
+    type: z.literal('proposal'),
+    requestId: z.string(),
+    proposal: editProposalSchema
+  }),
   z.object({ type: z.literal('done'), requestId: z.string(), message: chatMessageSchema }),
   z.object({ type: z.literal('error'), requestId: z.string(), message: z.string() })
 ])

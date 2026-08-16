@@ -1,8 +1,38 @@
 import type { AiProviderId, AiSettings } from '../../shared/model/ai.js'
 
+/** A tool call the model asked for, with its arguments as raw JSON text. */
+export interface OutboundToolCall {
+  id: string
+  name: string
+  args: string
+}
+
+/** What a tool returned, addressed back to the call that asked for it. */
+export interface OutboundToolResult {
+  id: string
+  content: string
+}
+
 export interface OutboundMessage {
   role: 'user' | 'assistant'
   text: string
+  /** Set on an assistant turn that called tools. */
+  toolCalls?: OutboundToolCall[]
+  /** Set on the turn that carries results back. */
+  toolResults?: OutboundToolResult[]
+}
+
+/**
+ * A tool, described once and serialised into whichever dialect is in use.
+ *
+ * `parameters` is JSON Schema, which is what both dialects want — Anthropic
+ * calls it `input_schema` and OpenAI calls it `parameters`, and that naming is
+ * the whole of the difference.
+ */
+export interface ToolSpec {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
 }
 
 export interface ProviderRequest {
@@ -10,6 +40,8 @@ export interface ProviderRequest {
   system: string
   messages: OutboundMessage[]
   apiKey: string | null
+  /** Absent or empty means an ordinary reply with no tool use offered. */
+  tools?: ToolSpec[]
 }
 
 export interface BuiltRequest {
@@ -38,14 +70,21 @@ export interface BuiltRequest {
  * specific bug reports about message order.
  */
 export function normalizeMessages(messages: readonly OutboundMessage[]): OutboundMessage[] {
-  const kept = messages.filter((message) => message.text.trim().length > 0)
+  // A turn carrying tool data is never empty even when its text is: an
+  // assistant turn that only called a tool, and the turn that carries the
+  // result back, are both load-bearing. Dropping either breaks the pairing the
+  // next request is validated against.
+  const kept = messages.filter((message) => message.text.trim().length > 0 || carriesTools(message))
   const leading = kept.findIndex((message) => message.role === 'user')
   const fromUser = leading === -1 ? [] : kept.slice(leading)
 
   const merged: OutboundMessage[] = []
   for (const message of fromUser) {
     const last = merged[merged.length - 1]
-    if (last && last.role === message.role) {
+    // Same-role turns merge only when neither carries tool data. Concatenating
+    // a tool result into an ordinary message would strip the id it is
+    // addressed by, which every provider rejects.
+    if (last && last.role === message.role && !carriesTools(last) && !carriesTools(message)) {
       merged[merged.length - 1] = { role: last.role, text: `${last.text}\n\n${message.text}` }
       continue
     }
@@ -54,10 +93,16 @@ export function normalizeMessages(messages: readonly OutboundMessage[]): Outboun
   return merged
 }
 
+function carriesTools(message: OutboundMessage): boolean {
+  return Boolean(message.toolCalls?.length || message.toolResults?.length)
+}
+
 export function buildRequest(request: ProviderRequest): BuiltRequest {
   const { settings, apiKey } = request
   const messages = normalizeMessages(request.messages)
   const system = request.system.trim()
+
+  const tools = request.tools ?? []
 
   if (settings.provider === 'anthropic') {
     return {
@@ -75,7 +120,16 @@ export function buildRequest(request: ProviderRequest): BuiltRequest {
           temperature: settings.temperature,
           // Anthropic takes the system prompt as its own field, not a message.
           ...(system ? { system } : {}),
-          messages: messages.map((message) => ({ role: message.role, content: message.text })),
+          messages: messages.map(anthropicMessage),
+          ...(tools.length > 0
+            ? {
+                tools: tools.map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  input_schema: tool.parameters
+                }))
+              }
+            : {}),
           stream: true
         })
       }
@@ -98,11 +152,98 @@ export function buildRequest(request: ProviderRequest): BuiltRequest {
         max_tokens: settings.maxTokens,
         messages: [
           ...(system ? [{ role: 'system', content: system }] : []),
-          ...messages.map((message) => ({ role: message.role, content: message.text }))
+          ...messages.flatMap(openAiMessages)
         ],
+        ...(tools.length > 0
+          ? {
+              tools: tools.map((tool) => ({
+                type: 'function',
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters
+                }
+              }))
+            }
+          : {}),
         stream: true
       })
     }
+  }
+}
+
+/**
+ * Anthropic carries tool use as typed blocks inside one message's content, and
+ * a tool *result* as a user turn — which is why it is a content array rather
+ * than the plain string an ordinary turn uses.
+ */
+function anthropicMessage(message: OutboundMessage): unknown {
+  if (message.toolResults?.length) {
+    return {
+      role: 'user',
+      content: message.toolResults.map((result) => ({
+        type: 'tool_result',
+        tool_use_id: result.id,
+        content: result.content
+      }))
+    }
+  }
+
+  if (message.toolCalls?.length) {
+    return {
+      role: 'assistant',
+      content: [
+        ...(message.text ? [{ type: 'text', text: message.text }] : []),
+        ...message.toolCalls.map((call) => ({
+          type: 'tool_use',
+          id: call.id,
+          name: call.name,
+          input: parseArgs(call.args)
+        }))
+      ]
+    }
+  }
+
+  return { role: message.role, content: message.text }
+}
+
+/**
+ * OpenAI puts calls on the assistant message and each result in its own message
+ * with `role: 'tool'` — so one turn here can become several messages there,
+ * which is why this returns an array where the Anthropic side returns one.
+ */
+function openAiMessages(message: OutboundMessage): unknown[] {
+  if (message.toolResults?.length) {
+    return message.toolResults.map((result) => ({
+      role: 'tool',
+      tool_call_id: result.id,
+      content: result.content
+    }))
+  }
+
+  if (message.toolCalls?.length) {
+    return [
+      {
+        role: 'assistant',
+        content: message.text || null,
+        tool_calls: message.toolCalls.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: { name: call.name, arguments: call.args || '{}' }
+        }))
+      }
+    ]
+  }
+
+  return [{ role: message.role, content: message.text }]
+}
+
+/** Arguments reach us as JSON text; a malformed set becomes an empty object. */
+function parseArgs(args: string): unknown {
+  try {
+    return args ? JSON.parse(args) : {}
+  } catch {
+    return {}
   }
 }
 
@@ -146,28 +287,95 @@ function dataOf(line: string): string | null {
 }
 
 /**
- * The text carried by one event payload, or null for the many events that
- * carry none — pings, role announcements, usage, and the `[DONE]` sentinel.
+ * One piece of a streamed reply.
+ *
+ * Text and tool calls are separate cases rather than one string because a tool
+ * call is not prose: concatenating it into the reply would print JSON into the
+ * conversation and lose the structure the loop needs to act on. A call arrives
+ * across several events — an opening block naming it, then its arguments in
+ * fragments — so `argsDelta` accumulates against `index`.
  */
-export function deltaFrom(provider: AiProviderId, payload: string): string | null {
-  if (payload === '[DONE]') return null
+export type StreamPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'toolStart'; index: number; id: string; name: string }
+  | { kind: 'toolArgs'; index: number; argsDelta: string }
+
+/**
+ * What one event payload carries, if anything.
+ *
+ * Most events carry nothing — pings, role announcements, usage, stop reasons
+ * and the `[DONE]` sentinel — so an empty array is the common case rather than
+ * an error.
+ */
+export function partsFrom(provider: AiProviderId, payload: string): StreamPart[] {
+  if (payload === '[DONE]') return []
   let parsed: unknown
   try {
     parsed = JSON.parse(payload)
   } catch {
     // A malformed event is not worth failing a whole reply over.
-    return null
+    return []
   }
 
   if (provider === 'anthropic') {
-    const event = parsed as { type?: string; delta?: { type?: string; text?: string } }
-    if (event.type !== 'content_block_delta') return null
-    return typeof event.delta?.text === 'string' ? event.delta.text : null
+    const event = parsed as {
+      type?: string
+      index?: number
+      content_block?: { type?: string; id?: string; name?: string }
+      delta?: { type?: string; text?: string; partial_json?: string }
+    }
+    const index = event.index ?? 0
+
+    if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+      return [
+        {
+          kind: 'toolStart',
+          index,
+          id: event.content_block.id ?? '',
+          name: event.content_block.name ?? ''
+        }
+      ]
+    }
+    if (event.type !== 'content_block_delta') return []
+    if (typeof event.delta?.partial_json === 'string') {
+      return [{ kind: 'toolArgs', index, argsDelta: event.delta.partial_json }]
+    }
+    return typeof event.delta?.text === 'string' ? [{ kind: 'text', text: event.delta.text }] : []
   }
 
-  const event = parsed as { choices?: { delta?: { content?: string | null } }[] }
-  const content = event.choices?.[0]?.delta?.content
-  return typeof content === 'string' && content.length > 0 ? content : null
+  const event = parsed as {
+    choices?: {
+      delta?: {
+        content?: string | null
+        tool_calls?: {
+          index?: number
+          id?: string
+          function?: { name?: string; arguments?: string }
+        }[]
+      }
+    }[]
+  }
+  const delta = event.choices?.[0]?.delta
+  const parts: StreamPart[] = []
+
+  if (typeof delta?.content === 'string' && delta.content.length > 0) {
+    parts.push({ kind: 'text', text: delta.content })
+  }
+
+  for (const call of delta?.tool_calls ?? []) {
+    const index = call.index ?? 0
+    // A name arrives once, with the id; arguments arrive in fragments after it.
+    // The two cases are distinguished by which fields the fragment carries, not
+    // by its position, because a fragment can carry both.
+    if (call.id || call.function?.name) {
+      parts.push({ kind: 'toolStart', index, id: call.id ?? '', name: call.function?.name ?? '' })
+    }
+    if (call.function?.arguments) {
+      parts.push({ kind: 'toolArgs', index, argsDelta: call.function.arguments })
+    }
+  }
+
+  return parts
 }
 
 /** An error body's message, whichever shape the provider used to say it. */

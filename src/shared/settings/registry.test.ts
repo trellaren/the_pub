@@ -24,7 +24,7 @@ describe('the settings registry', () => {
 
   it('lists groups in the order the defs first mention them', () => {
     expect(settingGroups('project')).toEqual(['Project', 'Page setup', 'Citations'])
-    expect(settingGroups('app')).toEqual(['Application'])
+    expect(settingGroups('app')).toEqual(['Application', 'AI'])
   })
 
   it('finds a setting by key', () => {
@@ -88,7 +88,12 @@ describe('the schemas built from it', () => {
   })
 
   it('builds a scope schema holding only that scope, keyed as stored', () => {
-    expect(Object.keys(buildScopeSchema('app').shape).sort()).toEqual(['theme', 'timelineOrientation'])
+    expect(Object.keys(buildScopeSchema('app').shape).sort()).toEqual([
+      'aiEnabled',
+      'embeddedIdleMinutes',
+      'theme',
+      'timelineOrientation'
+    ])
     expect(Object.keys(buildScopeSchema('project').shape)).toContain('pageWidth')
     expect(Object.keys(buildScopeSchema('project').shape)).not.toContain('theme')
   })

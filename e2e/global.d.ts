@@ -3,7 +3,8 @@ import type { StoryEntity } from '../src/shared/model/entity.js'
 import type { MentionHit } from '../src/shared/model/mention.js'
 import type { Beat, BoardColumn } from '../src/shared/model/beat.js'
 import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/model/map.js'
-import type { Chat, AiSettings } from '../src/shared/model/ai.js'
+import type { Chat, AiSettings, EditProposal } from '../src/shared/model/ai.js'
+import type { LlmStatus } from '../src/shared/model/llm.js'
 import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
 import type { Note } from '../src/shared/model/note.js'
 import type { OpenProject } from '../src/shared/model/manifest.js'
@@ -109,6 +110,9 @@ interface PubTestHook {
       deleteChat: (id: string) => Promise<void>
       saveSettings: (settings: AiSettings) => Promise<void>
       send: (chatId: string, text: string, context: string) => Promise<void>
+      proposals: EditProposal[]
+      llm: LlmStatus | null
+      refreshLlm: () => Promise<void>
     }
   }
   manuscript: {
@@ -154,6 +158,7 @@ interface PubTestHook {
     term?: string
   }) => Promise<boolean>
   runCommand: (id: string) => boolean
+  listCommands: () => { id: string; title: string }[]
 }
 
 declare global {

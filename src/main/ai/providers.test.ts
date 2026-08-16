@@ -3,7 +3,7 @@ import {
   normalizeMessages,
   buildRequest,
   SseParser,
-  deltaFrom,
+  partsFrom,
   errorMessage,
   modelsUrl,
   parseModelList,
@@ -156,28 +156,108 @@ describe('SseParser', () => {
   })
 })
 
-describe('deltaFrom', () => {
+/** The text a payload carries, which is what most of these assertions are about. */
+function textOf(provider: Parameters<typeof partsFrom>[0], payload: string): string | null {
+  const text = partsFrom(provider, payload)
+    .filter((part) => part.kind === 'text')
+    .map((part) => (part.kind === 'text' ? part.text : ''))
+    .join('')
+  return text.length > 0 ? text : null
+}
+
+describe('partsFrom', () => {
   it('reads Anthropic text deltas and ignores its other events', () => {
     expect(
-      deltaFrom('anthropic', JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hi' } }))
+      textOf('anthropic', JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hi' } }))
     ).toBe('Hi')
-    expect(deltaFrom('anthropic', JSON.stringify({ type: 'message_start' }))).toBeNull()
-    expect(deltaFrom('anthropic', JSON.stringify({ type: 'ping' }))).toBeNull()
+    expect(textOf('anthropic', JSON.stringify({ type: 'message_start' }))).toBeNull()
+    expect(textOf('anthropic', JSON.stringify({ type: 'ping' }))).toBeNull()
   })
 
   it('reads OpenAI-style deltas', () => {
-    expect(deltaFrom('openai', JSON.stringify({ choices: [{ delta: { content: 'Hi' } }] }))).toBe('Hi')
+    expect(textOf('openai', JSON.stringify({ choices: [{ delta: { content: 'Hi' } }] }))).toBe('Hi')
     // The first event announces the role and carries no text.
-    expect(deltaFrom('openai', JSON.stringify({ choices: [{ delta: { role: 'assistant' } }] }))).toBeNull()
-    expect(deltaFrom('openai', JSON.stringify({ choices: [{ delta: { content: null } }] }))).toBeNull()
+    expect(textOf('openai', JSON.stringify({ choices: [{ delta: { role: 'assistant' } }] }))).toBeNull()
+    expect(textOf('openai', JSON.stringify({ choices: [{ delta: { content: null } }] }))).toBeNull()
   })
 
   it('treats the done sentinel as no text', () => {
-    expect(deltaFrom('openai', '[DONE]')).toBeNull()
+    expect(textOf('openai', '[DONE]')).toBeNull()
+    expect(partsFrom('openai', '[DONE]')).toEqual([])
   })
 
   it('survives a malformed event rather than failing the reply', () => {
-    expect(deltaFrom('openai', '{not json')).toBeNull()
+    expect(partsFrom('openai', '{not json')).toEqual([])
+  })
+
+  it('reports an Anthropic tool call as structure rather than as text', () => {
+    // The whole reason this returns parts rather than a string: JSON
+    // concatenated into the reply would print into the conversation and lose
+    // the structure the agent loop acts on.
+    const start = partsFrom(
+      'anthropic',
+      JSON.stringify({
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'tool_use', id: 'call_1', name: 'search_manuscript' }
+      })
+    )
+    expect(start).toEqual([{ kind: 'toolStart', index: 1, id: 'call_1', name: 'search_manuscript' }])
+
+    const args = partsFrom(
+      'anthropic',
+      JSON.stringify({
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'input_json_delta', partial_json: '{"query":' }
+      })
+    )
+    expect(args).toEqual([{ kind: 'toolArgs', index: 1, argsDelta: '{"query":' }])
+  })
+
+  it('reports an OpenAI tool call, including a fragment carrying both name and arguments', () => {
+    const parts = partsFrom(
+      'openai',
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_1', function: { name: 'read_document', arguments: '{"pa' } }
+              ]
+            }
+          }
+        ]
+      })
+    )
+
+    expect(parts).toEqual([
+      { kind: 'toolStart', index: 0, id: 'call_1', name: 'read_document' },
+      { kind: 'toolArgs', index: 0, argsDelta: '{"pa' }
+    ])
+  })
+
+  it('keeps two concurrent tool calls apart by index', () => {
+    const parts = partsFrom(
+      'openai',
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { arguments: '"a"' } },
+                { index: 1, function: { arguments: '"b"' } }
+              ]
+            }
+          }
+        ]
+      })
+    )
+
+    expect(parts).toEqual([
+      { kind: 'toolArgs', index: 0, argsDelta: '"a"' },
+      { kind: 'toolArgs', index: 1, argsDelta: '"b"' }
+    ])
   })
 })
 

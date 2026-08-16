@@ -15,7 +15,22 @@ import { createAdapter } from '../vfs/vfsRegistry.js'
 import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
-import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/model/ai.js'
+import os from 'node:os'
+import {
+  resolveSettings,
+  providerInfo,
+  type ChatMessage,
+  type StreamEvent
+} from '../../shared/model/ai.js'
+import {
+  resolveVariant,
+  isSideloadedModel,
+  DEFAULT_SIDELOAD_CONTEXT,
+  type LlmProgress
+} from '../../shared/model/llm.js'
+import type { ModelStore } from '../llm/modelStore.js'
+import type { LlmEngine } from '../llm/engine.js'
+import { runAgent } from '../ai/agentRunner.js'
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
@@ -133,6 +148,13 @@ export interface HandlerContext {
    * project is open at all.
    */
   templates: TemplateService
+  /**
+   * The embedded model, app-wide rather than per project: the weights are one
+   * copy on disk serving every project, and only one model is loaded at a time
+   * regardless of how many windows are open.
+   */
+  models: ModelStore
+  engine: LlmEngine
 }
 
 /** A host key offered during a connection test, held until the author rules on it. */
@@ -144,7 +166,7 @@ interface PendingHostKey {
 }
 
 export function registerHandlers(context: HandlerContext): void {
-  const { windows, sessions, appState, oneDrive, templates } = context
+  const { windows, sessions, appState, oneDrive, templates, models, engine } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
   const connections = new ConnectionStore()
@@ -200,6 +222,17 @@ export function registerHandlers(context: HandlerContext): void {
     appState.setKeybinding(commandId, accelerator)
   )
   handle('app:resetKeybindings', () => appState.resetKeybindings())
+  handle('app:setAiEnabled', async ({ enabled }) => {
+    // Turning it off stops the model now rather than at the next quit: the
+    // point of the switch is that nothing AI-shaped is running, and gigabytes
+    // of resident memory would make a liar of it.
+    if (!enabled) await engine.stop()
+    return appState.setAiEnabled(enabled)
+  })
+  handle('app:setEmbeddedIdleMinutes', ({ minutes }) => {
+    engine.setIdleMs(minutes * 60_000)
+    return appState.setEmbeddedIdleMinutes(minutes)
+  })
 
   handle('project:openDialog', async (_payload, event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -727,6 +760,87 @@ export function registerHandlers(context: HandlerContext): void {
     requireSession(event).chats.saveSettings(settings)
   )
 
+  /**
+   * Get the embedded model running, and say where to send.
+   *
+   * Absent weights fail here rather than starting a download: pressing send is
+   * never what begins a 16 GB transfer, and the panel turns this message into
+   * the affordance that does.
+   */
+  async function startEmbedded(model: string): Promise<string> {
+    if (!engine.available()) {
+      throw new Error('This build has no embedded model runtime for your platform.')
+    }
+
+    if (isSideloadedModel(model)) {
+      const file = models.resolveSideloaded(model)
+      if (!file) throw new Error(`No model file at ${model}.`)
+      const url = await engine.ensure({
+        modelPath: file,
+        modelId: model,
+        contextLength: DEFAULT_SIDELOAD_CONTEXT
+      })
+      if (!url) throw new Error(engine.status().message || 'The embedded model could not start.')
+      return url
+    }
+
+    const variant = resolveVariant(model)
+    if (!variant) throw new Error(`"${model}" is not a model this build knows about.`)
+
+    const file = models.resolve(variant.id)
+    if (!file) {
+      throw new Error(`${variant.label} is not downloaded yet. Download it in the AI settings.`)
+    }
+
+    const url = await engine.ensure({
+      modelPath: file,
+      modelId: variant.id,
+      contextLength: variant.contextLength
+    })
+    if (!url) throw new Error(engine.status().message || 'The embedded model could not start.')
+    return url
+  }
+
+  handle('llm:status', async () => ({
+    variants: await models.status(),
+    engine: engine.status(),
+    totalMemoryBytes: os.totalmem(),
+    runtimeAvailable: engine.available()
+  }))
+
+  handle('llm:download', async ({ variantId }, event) => {
+    const ownerId = windows.ownerWindowId(event.sender)
+    const emit = (progress: LlmProgress): void => {
+      // Broadcast rather than sent to one window: a download belongs to the
+      // app, and a second window with the manager open should see it move.
+      if (ownerId !== null) windows.sendToSession(ownerId, 'llm:progress', progress)
+    }
+
+    const result = await models.download(variantId, (receivedBytes, totalBytes) =>
+      emit({ variantId, receivedBytes, totalBytes, done: false, error: '' })
+    )
+    emit({
+      variantId,
+      receivedBytes: result.bytes,
+      totalBytes: result.bytes,
+      done: true,
+      error: result.error ?? ''
+    })
+    return { ok: result.ok, error: result.error ?? '' }
+  })
+
+  handle('llm:cancelDownload', ({ variantId }) => {
+    models.cancel(variantId)
+    return { ok: true as const }
+  })
+
+  handle('llm:remove', async ({ variantId }) => {
+    // Stop it before deleting the file underneath it.
+    if (engine.status().model === variantId) await engine.stop()
+    await models.remove(variantId)
+    return { ok: true as const }
+  })
+
   handle('ai:keyStatus', () => ({
     configured: keys.configured(),
     secureStorage: keys.available()
@@ -748,11 +862,20 @@ export function registerHandlers(context: HandlerContext): void {
     const chat = session.chats.get(chatId)
     if (!chat) throw new Error('That chat no longer exists')
 
-    const settings = resolveSettings(session.chats.settings(), chat.settings)
+    // Defence in depth. The renderer registers no AI surface when this is off,
+    // so reaching here means something bypassed the UI — a stale popout, or a
+    // caller that should not exist.
+    if (!appState.get().aiEnabled) throw new Error('AI features are turned off.')
+
+    let settings = resolveSettings(session.chats.settings(), chat.settings)
     const info = providerInfo(settings.provider)
     const apiKey = keys.get(settings.provider)
     if (info.needsKey && !apiKey) {
       throw new Error(`No API key is set for ${info.name}. Add one in the AI panel's settings.`)
+    }
+
+    if (settings.provider === 'embedded') {
+      settings = { ...settings, baseUrl: await startEmbedded(settings.model) }
     }
 
     const body = attached.trim() ? `${text}\n\n---\n${attached.trim()}` : text
@@ -761,6 +884,7 @@ export function registerHandlers(context: HandlerContext): void {
       role: 'user',
       text: body,
       model: '',
+      toolCalls: [],
       created: new Date().toISOString()
     }
     const updated = await session.chats.append(chatId, message)
@@ -768,23 +892,35 @@ export function registerHandlers(context: HandlerContext): void {
 
     const requestId = ulid()
     const ownerId = windows.ownerWindowId(event.sender)
-    void session.ai
-      .run({
-        requestId,
-        settings,
-        system: settings.systemPrompt,
-        messages: updated.messages.map((item) => ({ role: item.role, text: item.text })),
-        apiKey,
-        onEvent: (streamEvent) => {
-          if (ownerId !== null) windows.sendToSession(ownerId, 'ai:stream', streamEvent)
-          // Persist only the finished reply: writing every delta would rewrite
-          // the whole chat file on each token.
-          if (streamEvent.type === 'done') {
-            void session.chats.append(chatId, streamEvent.message).catch(() => {})
-          }
-        }
-      })
-      .catch(() => {})
+    const onEvent = (streamEvent: StreamEvent): void => {
+      if (ownerId !== null) windows.sendToSession(ownerId, 'ai:stream', streamEvent)
+      // A generation in progress is not an idle app, however long it runs.
+      if (settings.provider === 'embedded') engine.keepAlive()
+      // Persist only the finished reply: writing every delta would rewrite the
+      // whole chat file on each token.
+      if (streamEvent.type === 'done') {
+        void session.chats.append(chatId, streamEvent.message).catch(() => {})
+      }
+    }
+
+    const run = {
+      requestId,
+      settings,
+      system: settings.systemPrompt,
+      messages: updated.messages.map((item) => ({
+        role: item.role,
+        text: item.text
+      })),
+      apiKey,
+      onEvent
+    }
+
+    // An ordinary question costs one request; only an agent run loops. Which
+    // path a message takes is the writer's setting, not a guess about intent.
+    const started = settings.agent
+      ? runAgent(session.ai, { ...run, session })
+      : session.ai.run(run)
+    void started.catch(() => {})
 
     return { requestId, message }
   })

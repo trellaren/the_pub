@@ -5,6 +5,9 @@ import { LocalAdapter } from './localAdapter.js'
 import { SftpAdapter } from './sftpAdapter.js'
 import { FtpAdapter } from './ftpAdapter.js'
 import { OneDriveAdapter } from './oneDriveAdapter.js'
+import { DbAdapter } from './dbAdapter.js'
+import { DbStore } from './db/store.js'
+import { sqliteDialect, postgresDialect, mysqlDialect } from './db/dialects.js'
 import { GraphClient, type TokenSource } from '../onedrive/graph.js'
 import { pollingWatch } from './pollingWatcher.js'
 import type { HostKeyPolicy } from './hostKeys.js'
@@ -96,12 +99,20 @@ export interface AdapterOverrides {
    * accept something opening a project would not.
    */
   hostKeys?: HostKeyPolicy
+  /**
+   * Let a `db` project create its tables when they are not there.
+   *
+   * Off unless the caller is the flow that has said, in words, that it is about
+   * to create tables in this database — opening a project must never be what
+   * quietly writes to someone's production server.
+   */
+  createDatabase?: boolean
 }
 
 export function createAdapter(uri: string, overrides: AdapterOverrides = {}): VfsAdapter {
   const { scheme, location } = parseUri(uri)
   if (scheme === 'local') return new WatchableAdapter(new LocalAdapter(location))
-  if (scheme === 'sftp' || scheme === 'ftp' || scheme === 'onedrive') {
+  if (scheme === 'sftp' || scheme === 'ftp' || scheme === 'onedrive' || scheme === 'db') {
     return new WatchableAdapter(createRemote(uri, overrides))
   }
   throw new Error(`Unknown project location: ${uri}`)
@@ -121,7 +132,18 @@ function createRemote(uri: string, overrides: AdapterOverrides): VfsAdapter {
   // A path in the URI overrides the profile's own root, so one server can hold
   // several projects.
   const remotePath = parsed.path || profile.remotePath
-  const port = profile.port || defaultPort(profile.protocol)
+  const port = profile.port || defaultPort(profile.protocol, profile.engine)
+
+  if (profile.protocol === 'db') {
+    return new DbAdapter({
+      dialect: dbDialectFor(profile, port, resolver.secret(profile.id) ?? ''),
+      // A path in the URI names the schema, the way it names a directory on
+      // every other backend: one server, a manuscript per schema.
+      schema: parsed.path || profile.schema,
+      label: `db://${profile.id}`,
+      create: overrides.createDatabase ?? false
+    })
+  }
 
   if (profile.protocol === 'onedrive') {
     if (!profile.clientId) {
@@ -160,4 +182,80 @@ function createRemote(uri: string, overrides: AdapterOverrides): VfsAdapter {
     hostKeys: overrides.hostKeys ?? resolver.hostKeys,
     ...(privateKey ? { privateKey, passphrase: secret || undefined } : { password: secret })
   })
+}
+
+/**
+ * The dialect for a saved `db` profile.
+ *
+ * SQLite keeps its file path in `host`, because that is the field that already
+ * means "where the thing is"; a second one would be a second thing to keep in
+ * step, and they would disagree.
+ */
+function dbDialectFor(profile: ConnectionProfile, port: number, password: string) {
+  const target = {
+    host: profile.host,
+    port,
+    user: profile.user,
+    password,
+    database: profile.database
+  }
+  if (profile.engine === 'sqlite') return sqliteDialect(profile.host)
+  if (profile.engine === 'mysql') return mysqlDialect(target)
+  return postgresDialect(target)
+}
+
+/**
+ * Look at a `db` profile's database without opening a project on it.
+ *
+ * Its own entrance rather than a mode of `createAdapter`, because the two
+ * questions are different: "can I reach this, and is a project already here"
+ * is what the connect dialog asks *before* it offers to create anything.
+ */
+export async function inspectDatabase(
+  profileId: string,
+  schemaOverride = ''
+): Promise<{ exists: boolean; tooNew: boolean }> {
+  const { store, close } = await openDbStore(profileId, schemaOverride)
+  try {
+    return await store.inspect()
+  } finally {
+    await close()
+  }
+}
+
+/**
+ * Create the tables for a project.
+ *
+ * Only ever called from the flow that has told the writer, in words, that it is
+ * about to create tables in this database. Nothing else in the app writes DDL.
+ */
+export async function createDatabaseProject(profileId: string, schemaOverride = ''): Promise<void> {
+  const { store, close } = await openDbStore(profileId, schemaOverride)
+  try {
+    const { exists, tooNew } = await store.inspect()
+    if (tooNew) {
+      throw new Error('That database holds a project written by a newer version of The Pub.')
+    }
+    if (!exists) await store.create()
+  } finally {
+    await close()
+  }
+}
+
+async function openDbStore(
+  profileId: string,
+  schemaOverride: string
+): Promise<{ store: DbStore; close: () => Promise<void> }> {
+  if (!resolver) throw new Error('Saved servers are unavailable in this process')
+  const profile = resolver.profile(profileId)
+  if (!profile) throw new Error('That saved server no longer exists on this machine')
+  if (profile.protocol !== 'db') throw new Error('That server is not a database.')
+
+  const port = profile.port || defaultPort(profile.protocol, profile.engine)
+  const dialect = dbDialectFor(profile, port, resolver.secret(profile.id) ?? '')
+  const connection = await dialect.connect()
+  return {
+    store: new DbStore(dialect, connection, schemaOverride || profile.schema),
+    close: () => connection.close()
+  }
 }

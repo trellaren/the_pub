@@ -79,7 +79,15 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // path is not, so the version moves.
     { from: 3, to: 4, up: (raw) => raw }
   ],
-  connections: [],
+  connections: [
+    // Phase 10a adds the `db` protocol and its engine/database/schema fields. A
+    // build that predates it fails `connectionProtocolSchema`'s enum on a file
+    // naming one — and `ConnectionStore.read` treats an unparseable file as an
+    // empty one, so it would silently drop *every saved server*, not only the
+    // new profile. The version moving is what turns that into a read-only
+    // refusal instead. This is the highest-value line in Track A.
+    { from: 1, to: 2, up: (raw) => raw }
+  ],
   notes: [],
   sources: []
 }

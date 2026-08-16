@@ -33,9 +33,9 @@ export function ModelManager() {
       <SectionTitle>Embedded models</SectionTitle>
 
       {!llm.runtimeAvailable ? (
-        <p className="mb-2 text-[11px] text-muted">
-          This build has no embedded model runtime for your platform, so models cannot be run here.
-          The other providers are unaffected.
+        <p className="mb-2 text-[11px] text-muted" data-testid="no-runtime">
+          This build has no embedded model runtime for your platform, so a model can be downloaded
+          here but not run. The other providers are unaffected.
         </p>
       ) : null}
 
@@ -98,7 +98,10 @@ export function ModelManager() {
                 ) : (
                   <ToolbarButton
                     label={`Download ${formatBytes(variant.bytes)}`}
-                    disabled={!llm.runtimeAvailable}
+                    // Not gated on the runtime. Weights and the program that
+                    // loads them are separate things to have, and a checkout
+                    // with no `llama-server` — every development one — could
+                    // otherwise not fetch a model at all.
                     onClick={async () => {
                       setError(null)
                       setError(await useChatStore.getState().downloadModel(variant.id))

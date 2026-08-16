@@ -12,7 +12,7 @@ export const FORMAT_VERSIONS = {
   maps: 1,
   layouts: 1,
   chats: 4,
-  connections: 1,
+  connections: 2,
   notes: 1,
   sources: 1
 } as const

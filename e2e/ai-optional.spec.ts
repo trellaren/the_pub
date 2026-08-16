@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { launch, openProject, cleanup, readJson, waitFor, type Harness } from './helpers.js'
 import type { ChatFile } from '../src/shared/model/ai.js'
-import type { LlmStatus } from '../src/shared/model/llm.js'
+import { EMBEDDED_MODELS, type LlmStatus } from '../src/shared/model/llm.js'
 
 let harness: Harness
 
@@ -106,6 +106,52 @@ test('embedded models report their state without a runtime present', async () =>
   // refuses a large one.
   expect(status.variants.length).toBeGreaterThan(0)
   expect(status.variants.every((variant: LlmStatus['variants'][number]) => variant.state === 'absent')).toBe(true)
+})
+
+test('the model picker offers variants, and a file on this computer can be used instead', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  await harness.page.evaluate(() =>
+    window.__pub.chats.getState().saveSettings({
+      provider: 'embedded',
+      model: '',
+      baseUrl: '',
+      temperature: 0.7,
+      maxTokens: 512,
+      systemPrompt: '',
+      agent: false,
+      embedModel: ''
+    })
+  )
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+  await harness.page.getByRole('button', { name: 'Settings' }).click()
+
+  // Variants, not models: choosing "the 27B" without saying which quantisation
+  // is choosing nothing, and the variant is what gets downloaded and run.
+  const picker = harness.page.getByTestId('embedded-model')
+  const options = await picker.locator('option').allTextContents()
+  expect(options.length).toBeGreaterThan(EMBEDDED_MODELS.length)
+  expect(options.some((option) => option.includes('—'))).toBe(true)
+
+  // A model already on disk needs no catalogue entry and no transfer.
+  await harness.page.evaluate(() =>
+    window.__pub.chats.getState().saveSettings({
+      ...window.__pub.chats.getState().settings!,
+      model: '/models/mistral-7b.gguf'
+    })
+  )
+  await expect(picker.locator('option:checked')).toHaveText('mistral-7b.gguf')
+
+  // And weights can be fetched on a machine that cannot run them — every
+  // development checkout is one.
+  await expect(harness.page.getByTestId('no-runtime')).toContainText('downloaded here but not run')
+  // Whichever variants this machine can hold are offered; the rest show their
+  // memory gate instead, which is the point of a catalogue spanning a range.
+  const status = await harness.page.evaluate(() => window.pub.invoke('llm:status', {}))
+  const offered = status.variants.filter((variant: LlmStatus['variants'][number]) => !variant.gate)
+  expect(offered.length).toBeGreaterThan(0)
+  await expect(harness.page.getByTestId(`download-${offered[0]!.variantId}`)).toBeEnabled()
 })
 
 test('an embedded model that is not downloaded says so rather than starting a download', async () => {

@@ -435,6 +435,12 @@ export const ipcContract = defineContract({
     },
     'llm:cancelDownload': { req: z.object({ variantId: z.string() }), res: ok },
     'llm:remove': { req: z.object({ variantId: z.string() }), res: ok },
+    /**
+     * Pick a `.gguf` already on this machine. Null when the dialog is
+     * dismissed. The path becomes the model id, which is how a sideloaded
+     * model is told from a catalogue one everywhere else.
+     */
+    'llm:chooseFile': { req: empty, res: z.object({ path: z.string() }).nullable() },
 
     /** Saved servers. Profiles only — no channel ever returns a secret. */
     'connections:list': {
@@ -472,7 +478,15 @@ export const ipcContract = defineContract({
         ok: z.boolean(),
         message: z.string(),
         entries: z.number().int(),
-        hostKey: untrustedHostKeySchema.nullable().default(null)
+        hostKey: untrustedHostKeySchema.nullable().default(null),
+        /**
+         * `db` only: reachable, but holding no project yet.
+         *
+         * Its own field rather than a failure, because those are different
+         * answers — the server is fine and the tables are simply not there,
+         * which is a thing to offer to fix rather than an error to report.
+         */
+        needsCreate: z.boolean().default(false)
       })
     },
     /**
@@ -483,6 +497,17 @@ export const ipcContract = defineContract({
      * so a dialog left open while something else changed cannot commit a key
      * nobody read.
      */
+    /**
+     * Create a `db` project's tables.
+     *
+     * Its own channel, reached only from a dialog that has said what it is
+     * about to do: creating tables in someone's database is not a side effect
+     * of opening a project.
+     */
+    'connections:createDatabase': {
+      req: z.object({ id: z.string() }),
+      res: z.object({ ok: z.boolean(), message: z.string() })
+    },
     'connections:trustHostKey': {
       req: z.object({ id: z.string(), fingerprint: z.string() }),
       res: z.object({ ok: z.boolean(), message: z.string() })

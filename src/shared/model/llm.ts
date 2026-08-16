@@ -197,6 +197,34 @@ export const variantStatusSchema = z.object({
 })
 export type VariantStatus = z.infer<typeof variantStatusSchema>
 
+/**
+ * What choosing a model should do about it.
+ *
+ * Pure, and separate from the store that acts on it, because the interesting
+ * part is the decision rather than the plumbing: a file already on this machine
+ * needs nothing, a variant this machine cannot hold must be refused before any
+ * bytes move, and everything else is a download. Getting that wrong wastes
+ * either someone's bandwidth or their afternoon.
+ */
+export type ModelChoice =
+  | { kind: 'ready' }
+  | { kind: 'download'; variantId: string }
+  | { kind: 'refuse'; reason: string }
+
+export function modelChoice(model: string, statuses: readonly VariantStatus[]): ModelChoice {
+  if (isSideloadedModel(model)) return { kind: 'ready' }
+
+  const variant = resolveVariant(model)
+  if (!variant) return { kind: 'refuse', reason: `"${model}" is not a model this build knows about.` }
+
+  const status = statuses.find((candidate) => candidate.variantId === variant.id)
+  // Already here, or already on its way — either way, pressing again should not
+  // start a second transfer of the same file.
+  if (status?.state === 'ready' || status?.state === 'downloading') return { kind: 'ready' }
+  if (status?.gate) return { kind: 'refuse', reason: status.gate }
+  return { kind: 'download', variantId: variant.id }
+}
+
 export const engineStateSchema = z.enum(['stopped', 'starting', 'running', 'error'])
 export type EngineState = z.infer<typeof engineStateSchema>
 

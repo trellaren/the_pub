@@ -8,6 +8,7 @@ import {
   type ConnectionFile,
   type ConnectionProfile
 } from '../../shared/model/connection.js'
+import { migrate } from '../../shared/model/migrate.js'
 import { FORMAT_VERSIONS } from '../../shared/constants.js'
 
 interface StoredFile extends ConnectionFile {
@@ -30,19 +31,54 @@ export class ConnectionStore {
     return path.join(app.getPath('userData'), 'connections.json')
   }
 
-  private read(): StoredFile {
+  /**
+   * True when the file on disk was written by a newer build.
+   *
+   * Read fresh on each call rather than cached: this store has no lifecycle to
+   * hang a cache on, and the file is small.
+   */
+  readOnly(): boolean {
+    return this.read().tooNew
+  }
+
+  private read(): StoredFile & { tooNew: boolean } {
     try {
       const raw = JSON.parse(fs.readFileSync(this.file(), 'utf8')) as unknown
-      const parsed = connectionFileSchema.parse(raw)
-      return { ...parsed, secrets: (raw as StoredFile).secrets ?? {} }
+      const { value, tooNew } = migrate('connections', raw)
+      // A file this build cannot understand is not parsed against this build's
+      // schema at all. Its profiles may name a protocol that does not exist
+      // here, and the enum would reject the whole file — which the `catch`
+      // below would then quietly turn into "you have no saved servers".
+      if (tooNew) {
+        return {
+          formatVersion: FORMAT_VERSIONS.connections,
+          connections: [],
+          secrets: (raw as StoredFile).secrets ?? {},
+          tooNew: true
+        }
+      }
+      const parsed = connectionFileSchema.parse(value)
+      return { ...parsed, secrets: (raw as StoredFile).secrets ?? {}, tooNew: false }
     } catch {
-      return { formatVersion: FORMAT_VERSIONS.connections, connections: [], secrets: {} }
+      return { formatVersion: FORMAT_VERSIONS.connections, connections: [], secrets: {}, tooNew: false }
     }
   }
 
   private write(stored: StoredFile): void {
+    // Nothing overwrites a file written by a newer build. Doing so would drop
+    // every profile whose protocol this build has never heard of — silently,
+    // and for good.
+    if (this.readOnly()) {
+      throw new Error(
+        'Your saved servers were written by a newer version of The Pub, so they cannot be changed here.'
+      )
+    }
     fs.mkdirSync(path.dirname(this.file()), { recursive: true })
-    fs.writeFileSync(this.file(), JSON.stringify(stored, null, 2), { mode: 0o600 })
+    fs.writeFileSync(
+      this.file(),
+      JSON.stringify({ ...stored, formatVersion: FORMAT_VERSIONS.connections }, null, 2),
+      { mode: 0o600 }
+    )
   }
 
   list(): ConnectionProfile[] {

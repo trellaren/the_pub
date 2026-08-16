@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { CslItem } from '../src/shared/model/source.js'
@@ -148,4 +149,102 @@ test('Chicago notes-bibliography places a citation in a footnote, and a repeat c
   await expect(reopenedCitations).toHaveCount(2)
   await expect(reopenedCitations.nth(0)).toContainText('2019')
   await expect(reopenedCitations.nth(1)).toHaveText(second)
+})
+
+/*
+ * Phase 5's import surface. The dialog-free `sources:import` is what these
+ * drive, for the reason the Word importer is split the same way: Playwright
+ * cannot operate a native file dialog.
+ */
+test('a BibTeX file imports into the source library', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  const bib = path.join(harness.projectDir, 'refs.bib')
+  await fs.writeFile(
+    bib,
+    `@article{smith2019,
+  title = {Attention and the {Reading} Brain},
+  author = {Smith, Jane A. and Doe, John},
+  journal = {Journal of Cognitive Science},
+  year = {2019},
+  pages = {201--229}
+}
+`,
+    'utf8'
+  )
+
+  const result = await harness.page.evaluate(
+    (file) => window.pub.invoke('sources:import', { files: [file] }),
+    bib
+  )
+  expect(result.added).toBe(1)
+  expect(result.skipped).toBe(0)
+
+  await waitFor(async () => {
+    const file = await readJson<SourceFile>(sourcesFile())
+    const source = file.sources.find((candidate) => candidate.id === 'smith2019')
+    // Brace-protected casing comes through as plain text, and the TeX en-dash
+    // range as a plain one.
+    return source?.title === 'Attention and the Reading Brain' && source.page === '201-229'
+  }, 'the imported BibTeX source to reach sources.json')
+})
+
+test('a RIS file imports, and re-importing it updates rather than duplicating', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  const ris = path.join(harness.projectDir, 'refs.ris')
+  const write = (title: string): Promise<void> =>
+    fs.writeFile(ris, `TY  - JOUR\nAU  - Smith, Jane\nTI  - ${title}\nPY  - 2019\nER  -\n`, 'utf8')
+
+  await write('First Title')
+  const first = await harness.page.evaluate(
+    (file) => window.pub.invoke('sources:import', { files: [file] }),
+    ris
+  )
+  expect(first.added).toBe(1)
+
+  await write('Corrected Title')
+  const second = await harness.page.evaluate(
+    (file) => window.pub.invoke('sources:import', { files: [file] }),
+    ris
+  )
+  // Re-importing a corrected file is how a typo gets fixed; doubling the
+  // library for it would be a cleanup job for the author.
+  expect(second).toMatchObject({ added: 0, replaced: 1 })
+
+  await waitFor(async () => {
+    const file = await readJson<SourceFile>(sourcesFile())
+    return file.sources.length === 1 && file.sources[0]?.title === 'Corrected Title'
+  }, 'the re-imported source to be updated in place')
+})
+
+test('an unreadable bibliography file is reported without losing the good one', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  const good = path.join(harness.projectDir, 'good.bib')
+  const bad = path.join(harness.projectDir, 'bad.bib')
+  await fs.writeFile(good, '@book{ok2020, title = {Fine}, author = {Real, Author}, year = {2020}}\n', 'utf8')
+  await fs.writeFile(bad, 'this file is not a bibliography at all\n', 'utf8')
+
+  const result = await harness.page.evaluate(
+    (files) => window.pub.invoke('sources:import', { files }),
+    [good, bad]
+  )
+
+  expect(result.added).toBe(1)
+  expect(result.warnings.join(' ')).toContain('bad.bib')
+})
+
+test('looking up something that is neither a DOI nor an ISBN says so, without a network call', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  const result = await harness.page.evaluate(() =>
+    window.pub.invoke('sources:lookup', { query: 'definitely not an identifier' })
+  )
+
+  expect(result).toEqual({ ok: false, reason: 'unsupported' })
 })

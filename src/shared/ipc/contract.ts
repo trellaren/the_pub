@@ -43,6 +43,20 @@ const docxImportResultSchema = z.object({
   stylesAdded: z.number().int()
 })
 
+/**
+ * What a bibliography import did.
+ *
+ * `replaced` is reported separately from `added` because re-importing a
+ * corrected `.bib` is the normal way to fix an entry, and "12 added" would be
+ * a lie about what just happened to the library.
+ */
+const sourceImportResultSchema = z.object({
+  added: z.number().int(),
+  replaced: z.number().int(),
+  skipped: z.number().int(),
+  warnings: z.array(z.string())
+})
+
 /** Fountain carries no styles of its own to reconcile — see `docxImportResultSchema`. */
 const fountainImportResultSchema = z.object({
   imported: z.array(z.object({ path: z.string(), title: z.string(), docId: z.string() })),
@@ -321,6 +335,30 @@ export const ipcContract = defineContract({
     'sources:create': { req: z.object({ type: z.string() }), res: cslItemSchema },
     'sources:save': { req: z.object({ source: cslItemSchema }), res: cslItemSchema },
     'sources:delete': { req: z.object({ id: z.string() }), res: ok },
+    /*
+     * Bibliography import, split into a dialog-free half and a dialog wrapper
+     * for the reason `docx:import` is: Playwright cannot operate a native
+     * dialog, so without the split the feature would be untestable end to end.
+     */
+    'sources:import': { req: z.object({ files: z.array(z.string()) }), res: sourceImportResultSchema },
+    'sources:importDialog': { req: empty, res: sourceImportResultSchema.nullable() },
+    /**
+     * Fetch a source by DOI or ISBN, deciding which from the text itself.
+     *
+     * Answers with a reason rather than throwing: a mistyped DOI is an
+     * ordinary thing, and the panel has to tell "no such record" from "could
+     * not reach the service" because they ask different things of the person.
+     */
+    'sources:lookup': {
+      req: z.object({ query: z.string().min(1) }),
+      res: z.union([
+        z.object({ ok: z.literal(true), item: cslItemSchema }),
+        z.object({
+          ok: z.literal(false),
+          reason: z.enum(['not-found', 'offline', 'malformed', 'unsupported'])
+        })
+      ])
+    },
 
     /** Chats and the project's AI settings in one round trip. */
     'ai:list': { req: empty, res: chatFileSchema },

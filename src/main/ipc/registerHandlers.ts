@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { ipcMain, dialog, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ipcContract, type IpcInvokeChannel, type IpcReq, type IpcRes } from '../../shared/ipc/contract.js'
 import type { WindowManager } from '../windows/windowManager.js'
@@ -20,6 +21,10 @@ import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
 import { DOC_EXT, IGNORED_DIRS, MANIFEST_FILE } from '../../shared/constants.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
+import type { CslItem } from '../../shared/model/source.js'
+import { parseBibtex } from '../sources/fromBibtex.js'
+import { parseRis } from '../sources/fromRis.js'
+import { lookupSource } from '../sources/lookup.js'
 
 /**
  * Refuse a name no Windows filesystem can hold.
@@ -364,6 +369,52 @@ export function registerHandlers(context: HandlerContext): void {
    * so a chapter brought in from Word is searchable and has its characters
    * suggested without waiting for the next full pass.
    */
+  /**
+   * Read `.bib`/`.ris` files off the local disk and merge what they hold.
+   *
+   * `fs` directly rather than the project's `VfsAdapter`, deliberately: these
+   * are files being imported *from* the machine, chosen in a native file
+   * dialog, and have nothing to do with where the project itself lives — the
+   * same reason `docx:import` takes absolute paths.
+   *
+   * The format is chosen by extension, falling back to sniffing the contents,
+   * because a file saved as `references.txt` from a browser is common and
+   * refusing it on the name alone would be unhelpful.
+   */
+  const importSourceFiles = async (
+    session: ProjectSession,
+    files: string[]
+  ): Promise<IpcRes<'sources:import'>> => {
+    const items: CslItem[] = []
+    const warnings: string[] = []
+
+    for (const file of files) {
+      let text: string
+      try {
+        text = await fs.readFile(file, 'utf8')
+      } catch {
+        warnings.push(`Could not read ${path.basename(file)}.`)
+        continue
+      }
+
+      const extension = path.extname(file).toLowerCase()
+      const looksRis = /^\s*TY {2}-/m.test(text)
+      const parsed =
+        extension === '.ris' || (extension !== '.bib' && extension !== '.bibtex' && looksRis)
+          ? parseRis(text)
+          : parseBibtex(text)
+
+      if (parsed.items.length === 0 && parsed.warnings.length === 0) {
+        warnings.push(`${path.basename(file)} held no references this build could read.`)
+      }
+      items.push(...parsed.items)
+      warnings.push(...parsed.warnings.map((warning) => `${path.basename(file)}: ${warning}`))
+    }
+
+    const merged = await session.sources.merge(items)
+    return { ...merged, warnings }
+  }
+
   const importDocxFiles = async (
     session: ProjectSession,
     files: string[],
@@ -640,6 +691,29 @@ export function registerHandlers(context: HandlerContext): void {
   handle('sources:delete', async ({ id }, event) => {
     await requireSession(event).sources.remove(id)
     return { ok: true as const }
+  })
+  handle('sources:import', ({ files }, event) => importSourceFiles(requireSession(event), files))
+  handle('sources:importDialog', async (_payload, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const picked = await dialog.showOpenDialog(window!, {
+      title: 'Import sources',
+      filters: [
+        { name: 'Bibliography files', extensions: ['bib', 'bibtex', 'ris'] },
+        { name: 'BibTeX', extensions: ['bib', 'bibtex'] },
+        { name: 'RIS', extensions: ['ris'] }
+      ],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return null
+    return importSourceFiles(session, picked.filePaths)
+  })
+  handle('sources:lookup', async ({ query }, event) => {
+    const session = requireSession(event)
+    const result = await lookupSource(query)
+    if (!result.ok) return result
+    await session.sources.merge([result.item])
+    return result
   })
 
   handle('ai:list', (_payload, event) => requireSession(event).chats.snapshot())

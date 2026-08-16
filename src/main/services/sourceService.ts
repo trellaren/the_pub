@@ -47,9 +47,39 @@ export class SourceService extends JsonCollectionService<CslItem, SourceFile> {
     this.deleteById(id)
     await this.flush()
   }
-}
 
-// BibTeX/RIS import and DOI/ISBN lookup are deliberately not here yet — see
-// docs/phase-5-plan.md Part 5. Both would land as a `merge(items: CslItem[])`
-// that upserts by id, the same way `save` does for a hand-edited source; there
-// is no caller for that yet, so it isn't written until there is one.
+  /**
+   * Add imported or looked-up sources to the library.
+   *
+   * Importing the same file twice, or looking a DOI up after already having
+   * it, must not double the library — both are ordinary things to do. An
+   * incoming id that is already present replaces the stored source rather than
+   * being skipped, so re-importing a corrected `.bib` is how you fix a typo
+   * without hunting for the entry by hand.
+   *
+   * A source that arrives without an id, or with one this build cannot parse,
+   * is counted as skipped rather than failing the whole import: one bad record
+   * in a library of four hundred must not cost the other three hundred and
+   * ninety-nine.
+   */
+  async merge(incoming: CslItem[]): Promise<{ added: number; replaced: number; skipped: number }> {
+    await this.load()
+    let added = 0
+    let replaced = 0
+    let skipped = 0
+
+    for (const candidate of incoming) {
+      const parsed = cslItemSchema.safeParse(candidate)
+      if (!parsed.success || !parsed.data.id) {
+        skipped++
+        continue
+      }
+      if (this.get(parsed.data.id)) replaced++
+      else added++
+      this.upsert(parsed.data)
+    }
+
+    if (added > 0 || replaced > 0) await this.flush()
+    return { added, replaced, skipped }
+  }
+}

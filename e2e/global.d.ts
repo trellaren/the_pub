@@ -5,6 +5,7 @@ import type { Beat, BoardColumn } from '../src/shared/model/beat.js'
 import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/model/map.js'
 import type { Chat, AiSettings } from '../src/shared/model/ai.js'
 import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
+import type { Note } from '../src/shared/model/note.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -116,6 +117,16 @@ interface PubTestHook {
       setRole: (id: string, role: PartRole) => Promise<void>
       relink: (id: string, path: string) => Promise<void>
       remove: (id: string) => Promise<void>
+    }
+  }
+  notes: {
+    getState: () => {
+      notesByDoc: Record<string, Note[]>
+      loadForDoc: (docId: string) => Promise<void>
+      create: (docId: string, anchorId: string, anchorText: string, blockIndex: number) => Promise<Note | null>
+      patch: (docId: string, noteId: string, changes: Partial<Note>) => void
+      remove: (docId: string, noteId: string) => Promise<void>
+      flush: () => Promise<void>
     }
   }
   confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>

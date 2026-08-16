@@ -287,7 +287,11 @@ export function registerHandlers(context: HandlerContext): void {
   handle('doc:write', async ({ path: target, doc, expectedMtime }, event) => {
     const session = requireSession(event)
     const result = await session.documents.write(target, doc, expectedMtime)
-    if (result.ok) await session.search.indexDocument(target, result.mtime).catch(() => {})
+    if (result.ok) {
+      await session.search.indexDocument(target, result.mtime).catch(() => {})
+      const reconciled = await session.notes.reconcile(doc.docId, doc.content).catch(() => null)
+      if (reconciled) noteChanged(event, doc.docId)
+    }
     return result
   })
 
@@ -413,6 +417,28 @@ export function registerHandlers(context: HandlerContext): void {
     await requireSession(event).mentions.dismiss(entityId, docId, surface)
     const ownerId = windows.ownerWindowId(event.sender)
     if (ownerId !== null) windows.sendToSession(ownerId, 'mentions:changed', {})
+    return { ok: true as const }
+  })
+
+  function noteChanged(event: IpcMainInvokeEvent, docId: string): void {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'notes:changed', { docId })
+  }
+
+  handle('notes:list', ({ docId }, event) => requireSession(event).notes.listForDoc(docId))
+  handle('notes:create', async ({ docId, anchorId, anchorText, blockIndex }, event) => {
+    const note = await requireSession(event).notes.create(docId, anchorId, anchorText, blockIndex)
+    noteChanged(event, docId)
+    return note
+  })
+  handle('notes:save', async ({ docId, note }, event) => {
+    const saved = await requireSession(event).notes.save(docId, note)
+    noteChanged(event, docId)
+    return saved
+  })
+  handle('notes:delete', async ({ docId, noteId }, event) => {
+    await requireSession(event).notes.remove(docId, noteId)
+    noteChanged(event, docId)
     return { ok: true as const }
   })
 

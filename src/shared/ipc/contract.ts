@@ -7,6 +7,7 @@ import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
+import { noteSchema } from '../model/note.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
 import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
@@ -162,6 +163,19 @@ export const ipcContract = defineContract({
       req: z.object({ entityId: z.string(), docId: z.string(), surface: z.string() }),
       res: ok
     },
+
+    'notes:list': { req: z.object({ docId: z.string() }), res: z.array(noteSchema) },
+    'notes:create': {
+      req: z.object({
+        docId: z.string(),
+        anchorId: z.string(),
+        anchorText: z.string(),
+        blockIndex: z.number().int()
+      }),
+      res: noteSchema
+    },
+    'notes:save': { req: z.object({ docId: z.string(), note: noteSchema }), res: noteSchema },
+    'notes:delete': { req: z.object({ docId: z.string(), noteId: z.string() }), res: ok },
 
     /** Beats and columns together: both views need the whole board at once. */
     'beats:list': { req: empty, res: beatFileSchema },
@@ -380,6 +394,14 @@ export const ipcContract = defineContract({
      * true of the manifest today.
      */
     'mentions:changed': z.object({}),
+    /**
+     * A document's notes changed — including from `doc:write`'s automatic
+     * reconcile, which happens without the renderer ever calling a notes
+     * endpoint. That path is exactly why this one, unlike `entities:changed`,
+     * earns its keep: a shared store catches up on its own when the write
+     * came from a notes action, but not when it came from saving the document.
+     */
+    'notes:changed': z.object({ docId: z.string() }),
     /** Deltas, completion and failure of an in-flight reply. */
     'ai:stream': streamEventSchema,
     'app:stateChanged': appStateSchema,

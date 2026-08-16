@@ -24,7 +24,8 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   maps: [],
   layouts: [],
   chats: [],
-  connections: []
+  connections: [],
+  notes: []
 }
 
 export interface MigrationResult {

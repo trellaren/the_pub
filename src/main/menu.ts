@@ -20,6 +20,7 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
     {
       label: 'File',
       submenu: [
+        { label: 'New Project from Template…', click: send('project.newFromTemplate') },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: send('project.open') },
         { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
         { type: 'separator' },

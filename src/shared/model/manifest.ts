@@ -20,12 +20,25 @@ export const projectSettingsSchema = z.object({
 })
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>
 
+/**
+ * What kind of thing this project is, which is a question only the *shell*
+ * asks: which panels to offer, which template produced it, which vocabulary
+ * its records use. Nothing in the editor, the VFS or the export path branches
+ * on it, and nothing should start to — a project type that reached into
+ * document behaviour would be a second, weaker styles system.
+ */
+export const projectTypes = ['novel', 'thesis', 'essay', 'screenplay'] as const
+export const projectTypeSchema = z.enum(projectTypes)
+export type ProjectType = z.infer<typeof projectTypeSchema>
+
 export const projectManifestSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.manifest),
   id: z.string(),
   name: z.string(),
   created: z.string(),
   modified: z.string(),
+  /** Every project made before templates existed is a novel. */
+  projectType: projectTypeSchema.default('novel'),
   // `prefault` (not `default`) so an absent or partial settings block still gets
   // each field's own default filled in rather than requiring the whole object.
   settings: projectSettingsSchema.prefault({}),

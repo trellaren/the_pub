@@ -1,0 +1,6 @@
+{
+  "id": "builtin-novel",
+  "name": "Novel",
+  "description": "A blank manuscript with The Pub's default styles: chapter titles, body text, scene breaks and six heading levels.",
+  "projectType": "novel"
+}

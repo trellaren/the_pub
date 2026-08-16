@@ -3,6 +3,7 @@ import type { RecentProject } from '@shared/model/app.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
 import { PanelShell } from '@renderer/ui/primitives.js'
+import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
 
 const NO_RECENTS: RecentProject[] = []
@@ -21,7 +22,7 @@ export function WelcomePanel() {
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 p-10">
         <div>
           <h1 className="font-[var(--font-read)] text-3xl text-text">The Pub</h1>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-[13px] text-muted" data-testid="welcome-project-root">
             {project ? project.root : 'A workshop for long stories.'}
           </p>
         </div>
@@ -29,8 +30,16 @@ export function WelcomePanel() {
         <div className="flex flex-col items-start gap-2">
           <button
             type="button"
-            onClick={() => void openDialog()}
+            onClick={() => void runCommand('project.newFromTemplate')}
             className="rounded border border-accent bg-accent-soft px-3 py-1.5 text-[13px] text-accent hover:brightness-110"
+            data-testid="open-new-project"
+          >
+            New project from a template…
+          </button>
+          <button
+            type="button"
+            onClick={() => void openDialog()}
+            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text"
           >
             Open a project folder…
           </button>

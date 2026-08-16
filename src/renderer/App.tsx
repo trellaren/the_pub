@@ -19,6 +19,7 @@ import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
 import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
 import { DOC_EXT } from '@shared/constants.js'
 import { THEMES } from '@shared/themes.js'
+import { NewProjectDialog } from './panels/welcome/NewProjectDialog.js'
 
 const STYLE_ELEMENT_ID = 'pub-named-styles'
 const MENTION_STYLE_ELEMENT_ID = 'pub-mention-colors'
@@ -32,6 +33,9 @@ export function App() {
   const defaultStyleId = useProjectStore((store) => store.project?.manifest.settings.defaultStyleId)
   const entities = useEntityStore((store) => store.entities)
   const [palette, setPalette] = useState<'hidden' | 'commands' | 'files'>('hidden')
+  // Here rather than in the Welcome panel, because a project can be created
+  // from the menu and the palette with no Welcome panel on screen at all.
+  const [newProject, setNewProject] = useState(false)
   const [notices, setNotices] = useState<Notice[]>([])
 
   useEffect(() => {
@@ -81,6 +85,11 @@ export function App() {
   useEffect(() => {
     const unregister = [
       registerCommand({ id: 'project.open', title: 'Open Folder…', run: () => void openDialog() }),
+      registerCommand({
+        id: 'project.newFromTemplate',
+        title: 'New Project from Template…',
+        run: () => setNewProject(true)
+      }),
       ...THEMES.map(({ id, label }) =>
         registerCommand({
           id: `app.setTheme.${id}`,
@@ -193,6 +202,7 @@ export function App() {
       {palette !== 'hidden' ? (
         <CommandPalette mode={palette} onClose={() => setPalette('hidden')} />
       ) : null}
+      {newProject ? <NewProjectDialog onClose={() => setNewProject(false)} /> : null}
       <PromptHost />
       {notices.length > 0 ? (
         <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">

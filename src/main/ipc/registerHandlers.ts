@@ -9,6 +9,7 @@ import { AiKeyStore } from '../services/aiKeyStore.js'
 import { ConnectionStore } from '../services/connectionStore.js'
 import { KnownHostsStore } from '../services/knownHostsStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
+import type { TemplateService } from '../services/templateService.js'
 import { createAdapter } from '../vfs/vfsRegistry.js'
 import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
@@ -17,7 +18,7 @@ import { resolveSettings, providerInfo, type ChatMessage } from '../../shared/mo
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
-import { DOC_EXT, IGNORED_DIRS } from '../../shared/constants.js'
+import { DOC_EXT, IGNORED_DIRS, MANIFEST_FILE } from '../../shared/constants.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
 
 /**
@@ -121,6 +122,12 @@ export interface HandlerContext {
    * invalidates a rotated refresh token the moment the other one is spent.
    */
   oneDrive: OneDriveAuth
+  /**
+   * App-wide, not per project: templates outlive the project a "Save as
+   * Template…" was run from, and the picker has to list them before any
+   * project is open at all.
+   */
+  templates: TemplateService
 }
 
 /** A host key offered during a connection test, held until the author rules on it. */
@@ -132,7 +139,7 @@ interface PendingHostKey {
 }
 
 export function registerHandlers(context: HandlerContext): void {
-  const { windows, sessions, appState, oneDrive } = context
+  const { windows, sessions, appState, oneDrive, templates } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
   const connections = new ConnectionStore()
@@ -214,6 +221,51 @@ export function registerHandlers(context: HandlerContext): void {
   handle('project:updateManifest', async ({ manifest }, event) =>
     requireSession(event).saveManifest(manifest)
   )
+
+  handle('templates:list', () => templates.list())
+
+  handle('templates:instantiate', async ({ templateId, targetUri, name }, event) => {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId === null) throw new Error('Unknown window')
+
+    let uri = targetUri
+    if (!uri) {
+      const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
+        title: `New ${name}`,
+        message: 'Choose an empty folder for the new project',
+        buttonLabel: 'Create Project',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      uri = result.filePaths[0]!
+    }
+
+    // A folder that already holds a project would have its manifest replaced
+    // and its styles overwritten by the template's. Refuse rather than ask: the
+    // author reached for "new project", and there is no reading of that which
+    // means "overwrite the one already here".
+    const target = createAdapter(uri)
+    try {
+      if (await target.stat(MANIFEST_FILE)) {
+        throw new Error('That folder already holds a project. Choose an empty folder.')
+      }
+      await templates.instantiate(templateId, target, name)
+    } finally {
+      await target.dispose()
+    }
+    const session = await openInto(ownerId, uri)
+    return session.toOpenProject()
+  })
+
+  handle('templates:saveAs', async ({ options }, event) => {
+    const session = requireSession(event)
+    return templates.saveAsTemplate(session.adapter, session.manifest, options)
+  })
+
+  handle('templates:delete', async ({ templateId }) => {
+    await templates.remove(templateId)
+    return { ok: true as const }
+  })
 
   handle('vfs:list', ({ path: target }, event) => requireSession(event).adapter.list(target))
   handle('vfs:stat', ({ path: target }, event) => requireSession(event).adapter.stat(target))

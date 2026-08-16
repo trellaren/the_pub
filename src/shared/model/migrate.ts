@@ -26,7 +26,13 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 3b adds the `footnote` node type; same reasoning as the step above.
     { from: 2, to: 3, up: (raw) => raw }
   ],
-  manifest: [],
+  manifest: [
+    // Phase 4 adds `projectType`. The schema's own default would fill it in
+    // regardless, so this step changes nothing about the value — it exists so
+    // the *version* moves, which is what stops a build that predates templates
+    // from treating a v2 manifest as one it fully understands.
+    { from: 1, to: 2, up: (raw) => raw }
+  ],
   manuscript: [],
   entities: [],
   beats: [],

@@ -5,7 +5,7 @@
  */
 export const FORMAT_VERSIONS = {
   document: 3,
-  manifest: 1,
+  manifest: 2,
   manuscript: 1,
   entities: 1,
   beats: 1,
@@ -47,6 +47,16 @@ export const CHATS_FILE = `${PUB_DIR}/chats.json`
  * on any other, and a remote VFS write stays small either way.
  */
 export const NOTES_DIR = `${PUB_DIR}/notes`
+
+/**
+ * A template's own metadata, at the root of a template directory.
+ *
+ * Deliberately *not* under `.thepub/`: everything under that directory in a
+ * template is a project file destined to be copied into the new project as-is,
+ * and this file is the one thing that must not be. Keeping it a directory level
+ * up is what lets `instantiate` copy `.thepub/` wholesale without a skip-list.
+ */
+export const TEMPLATE_MANIFEST_FILE = 'template.json'
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']

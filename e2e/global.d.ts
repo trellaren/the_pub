@@ -6,13 +6,14 @@ import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/mode
 import type { Chat, AiSettings } from '../src/shared/model/ai.js'
 import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
 import type { Note } from '../src/shared/model/note.js'
+import type { OpenProject } from '../src/shared/model/manifest.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
   project: {
     getState: () => {
       open: (uri: string) => Promise<unknown>
-      project: { root: string; readOnly: boolean } | null
+      project: OpenProject | null
     }
   }
   documents: {

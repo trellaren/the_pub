@@ -3,6 +3,7 @@ import { defineContract } from './defineContract.js'
 import type { ContractShape, InvokeChannel, InvokeReq, InvokeRes, EventChannel, EventPayload } from './defineContract.js'
 import type { InvokeChannelName, EventChannelName } from './channels.js'
 import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
+import { templateSummarySchema, saveTemplateOptionsSchema } from '../model/template.js'
 import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
@@ -59,6 +60,28 @@ export const ipcContract = defineContract({
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },
     'project:close': { req: empty, res: ok },
     'project:updateManifest': { req: z.object({ manifest: projectManifestSchema }), res: projectManifestSchema },
+
+    'templates:list': { req: empty, res: z.array(templateSummarySchema) },
+    /**
+     * Seed a folder from a template and open it. Returns the opened project
+     * rather than just the manifest: instantiating and then opening as two
+     * calls would leave a window where the folder is a project nobody has.
+     *
+     * `targetUri` omitted means "ask", the same native folder dialog
+     * `project:openDialog` uses — and null comes back if it is cancelled. A
+     * caller that already knows where the project goes (a remote backend, which
+     * has no native dialog) passes the URI instead.
+     */
+    'templates:instantiate': {
+      req: z.object({
+        templateId: z.string(),
+        targetUri: z.string().optional(),
+        name: z.string().min(1)
+      }),
+      res: openProjectSchema.nullable()
+    },
+    'templates:saveAs': { req: z.object({ options: saveTemplateOptionsSchema }), res: templateSummarySchema },
+    'templates:delete': { req: z.object({ templateId: z.string() }), res: ok },
 
     'vfs:list': { req: projectPath, res: z.array(vfsEntrySchema) },
     'vfs:stat': { req: projectPath, res: vfsEntrySchema.nullable() },

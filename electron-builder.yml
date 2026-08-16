@@ -26,6 +26,14 @@ files:
 # if it stopped.
 asarUnpack:
   - out/renderer/**
+# Built-in project templates. They are read as ordinary directories rather than
+# imported as modules, so they have to exist on disk next to the app — `files`
+# above only ships the bundles. `TemplateService` is pointed at this directory
+# in a packaged build and at `resources/templates` in a dev run; nothing else
+# differs between the two.
+extraResources:
+  - from: resources/templates
+    to: templates
 # Do not rebuild native modules against Electron's ABI.
 #
 # The only runtime dependency with native code is ssh2, and both of its bindings

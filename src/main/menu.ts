@@ -67,6 +67,8 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Maps', click: send('panel.maps') },
         { label: 'AI', click: send('panel.ai') },
         { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: send('panel.settings') },
+        { type: 'separator' },
         { label: 'Save Layout As…', click: send('layout.savePreset') },
         { label: 'Reset Layout', click: send('layout.reset') },
         { label: 'Move Tab to New Window', click: send('layout.popout') },

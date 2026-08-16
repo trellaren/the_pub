@@ -56,6 +56,14 @@ export function DockRoot() {
   )
 
   // A project's own saved arrangement replaces the default once it's open.
+  //
+  // Keyed on `project.uri`, not on `project` itself: every manifest write —
+  // a style edit, a settings change — replaces the whole `project` object in
+  // the store with a new reference, and re-running this on each of those
+  // would re-fetch the last-*saved* layout and stomp on whatever panel the
+  // user opened since (layout saves are debounced, so anything opened within
+  // that window would simply vanish again). The project's identity, not its
+  // manifest, is what should trigger reloading its layout.
   useEffect(() => {
     if (!project) return
     const api = useLayoutStore.getState().api
@@ -70,7 +78,7 @@ export function DockRoot() {
     return () => {
       cancelled = true
     }
-  }, [project])
+  }, [project?.uri])
 
   useEffect(() => {
     const unregister = [
@@ -138,6 +146,11 @@ export function DockRoot() {
         id: 'panel.ai',
         title: 'Show AI',
         run: () => useLayoutStore.getState().showPanel('ai', 'AI')
+      }),
+      registerCommand({
+        id: 'panel.settings',
+        title: 'Show Settings',
+        run: () => useLayoutStore.getState().showPanel('settings', 'Settings')
       }),
       registerCommand({
         id: 'search.focus',

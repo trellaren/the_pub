@@ -34,6 +34,15 @@ export default defineConfig({
     // without this the chunks fall through to the JS transform and the build
     // fails on them as invalid syntax.
     assetsInclude: ['**/*.gz'],
+    // The dev server's dependency pre-bundler (esbuild) crawls citeproc-plus's
+    // own dynamic imports of those `.gz` chunks to decide what to prebundle,
+    // and esbuild — unlike Rollup — has no loader for `.gz` and has no
+    // `assetsInclude` option to tell it to treat them as assets instead of
+    // source. `npm run build`'s production Rollup build already handles this
+    // correctly via `assetsInclude` above; excluding the package from
+    // pre-bundling keeps `npm run dev` from ever handing those files to
+    // esbuild in the first place.
+    optimizeDeps: { exclude: ['citeproc-plus'] },
     build: {
       rollupOptions: {
         input: {

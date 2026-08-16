@@ -77,9 +77,14 @@ export const ipcContract = defineContract({
         /** Guards against clobbering an edit made outside the app. */
         expectedMtime: z.number().nullable()
       }),
-      res: z.discriminatedUnion('ok', [
+      // Not a `discriminatedUnion`: two of the three shapes share `ok: false`, and
+      // TypeScript narrows a plain union on a literal field exactly as well —
+      // `result.ok` first, then `result.reason` — without needing a second
+      // discriminator zod has to reconcile.
+      res: z.union([
         z.object({ ok: z.literal(true), mtime: z.number() }),
-        z.object({ ok: z.literal(false), reason: z.literal('conflict'), diskMtime: z.number() })
+        z.object({ ok: z.literal(false), reason: z.literal('conflict'), diskMtime: z.number() }),
+        z.object({ ok: z.literal(false), reason: z.literal('format-too-new'), diskVersion: z.number() })
       ])
     },
     /** Writes a pasted/imported image into the project's assets directory. */
@@ -352,8 +357,9 @@ export const ipcContract = defineContract({
         z.object({ ok: z.literal(true), docId: z.string(), path: z.string(), mtime: z.number() }),
         z.object({
           ok: z.literal(false),
-          reason: z.enum(['conflict', 'missing-document']),
-          diskMtime: z.number().optional()
+          reason: z.enum(['conflict', 'format-too-new', 'missing-document']),
+          diskMtime: z.number().optional(),
+          diskVersion: z.number().optional()
         })
       ])
     },

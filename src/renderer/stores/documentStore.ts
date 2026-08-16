@@ -15,6 +15,12 @@ export interface OpenDocument {
   saving: boolean
   /** Set when the file changed underneath us; the editor shows a keep/reload bar. */
   conflict: boolean
+  /**
+   * The file on disk was written by a newer version of The Pub. Autosave has
+   * stopped trying — this build cannot rewrite it without a chance of losing
+   * whatever it doesn't yet understand — and the editor goes read-only.
+   */
+  tooNew: boolean
   /** The file backing this panel has disappeared. */
   missing: boolean
   /** Last mtime we know about, used to detect outside edits. */
@@ -110,6 +116,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           dirty: false,
           saving: false,
           conflict: false,
+          tooNew: false,
           missing: false,
           mtime,
           envelope: doc
@@ -170,6 +177,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       const state = get().docs[docId]
       const editor = editors.get(docId)
       if (!state || !editor || state.missing) return
+      // The manifest is newer than this build; the project opened read-only
+      // rather than risk a save that can't round-trip it. Not this document's
+      // problem to solve, but the project-level bar already says so.
+      if (useProjectStore.getState().project?.readOnly) return
       if (saving.has(docId)) {
         // A save is already writing; make sure the newer content follows it.
         schedule(docId)
@@ -188,10 +199,16 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         })
         if (result.ok) {
           patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false })
-        } else {
+        } else if (result.reason === 'conflict') {
           // Someone else wrote the file. Keep the buffer dirty so nothing is lost
           // and let the writer choose.
           patch(docId, { saving: false, dirty: true, conflict: true })
+        } else {
+          // The file on disk is newer than this build understands. Keep the
+          // buffer dirty — nothing here is lost — but there is no choice to
+          // offer: overwriting would risk destroying content this build can't
+          // even see. The editor goes read-only instead of retrying forever.
+          patch(docId, { saving: false, dirty: true, tooNew: true })
         }
       } catch (error) {
         patch(docId, { saving: false, dirty: true })
@@ -228,6 +245,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       patch(docId, {
         dirty: false,
         conflict: false,
+        tooNew: false,
         missing: false,
         mtime: loaded.mtime,
         envelope: loaded.doc,

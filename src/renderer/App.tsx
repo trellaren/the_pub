@@ -186,6 +186,7 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col">
+      {project?.readOnly ? <ReadOnlyProjectBar /> : null}
       <div className="min-h-0 flex-1">
         <DockRoot />
       </div>
@@ -211,6 +212,24 @@ export function App() {
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * This project's manifest was written by a newer version of The Pub.
+ *
+ * It still opened — refusing outright would strand someone who only wants to
+ * read — but nothing here may write the manifest back, since this build's
+ * schema cannot be trusted to round-trip a shape it doesn't fully know.
+ */
+function ReadOnlyProjectBar() {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[12px]">
+      <span className="text-danger">
+        This project was last saved by a newer version of The Pub. It's open read-only until you
+        upgrade — styles and settings can't be changed here.
+      </span>
     </div>
   )
 }

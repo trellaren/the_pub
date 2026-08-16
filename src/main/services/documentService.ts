@@ -7,7 +7,8 @@ import {
   type LoadedDocument
 } from '../../shared/model/document.js'
 import { countWords } from '../../shared/pm/extractText.js'
-import { FORMAT_VERSION, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
+import { migrate } from '../../shared/model/migrate.js'
+import { FORMAT_VERSION, FORMAT_VERSIONS, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
 import type { SnapshotService } from './snapshotService.js'
 
@@ -17,6 +18,7 @@ const MAX_ASSET_BYTES = 20 * 1024 * 1024
 export type WriteResult =
   | { ok: true; mtime: number }
   | { ok: false; reason: 'conflict'; diskMtime: number }
+  | { ok: false; reason: 'format-too-new'; diskVersion: number }
 
 /** Reads and writes `.pubdoc` envelopes, with the crash- and conflict-safety around them. */
 export class DocumentService {
@@ -27,7 +29,8 @@ export class DocumentService {
 
   async read(docPath: string): Promise<LoadedDocument> {
     const raw = await this.adapter.readFile(docPath)
-    const doc = pubDocumentSchema.parse(JSON.parse(raw.toString('utf8')))
+    const { value } = migrate('document', JSON.parse(raw.toString('utf8')))
+    const doc = pubDocumentSchema.parse(value)
     const stat = await this.adapter.stat(docPath)
     return { doc, path: docPath, mtime: stat?.mtime ?? 0 }
   }
@@ -66,12 +69,29 @@ export class DocumentService {
     }
 
     if (stat) {
+      const previousRaw = await this.adapter.readFile(docPath)
+      let previousJson: unknown
       try {
-        const previousRaw = await this.adapter.readFile(docPath)
-        const previous = pubDocumentSchema.parse(JSON.parse(previousRaw.toString('utf8')))
-        await this.snapshots.maybeSnapshot(previous)
+        previousJson = JSON.parse(previousRaw.toString('utf8'))
       } catch {
-        // Unparseable previous version: nothing worth archiving.
+        previousJson = undefined
+      }
+
+      if (previousJson !== undefined) {
+        // Checked before anything else touches the file: a version this build
+        // doesn't understand must never be snapshotted with today's (possibly
+        // lossy) schema, let alone overwritten.
+        const { value, tooNew } = migrate('document', previousJson)
+        if (tooNew) {
+          const diskVersion =
+            (previousJson as { formatVersion?: number }).formatVersion ?? FORMAT_VERSIONS.document
+          return { ok: false, reason: 'format-too-new', diskVersion }
+        }
+        try {
+          await this.snapshots.maybeSnapshot(pubDocumentSchema.parse(value))
+        } catch {
+          // Unparseable previous version: nothing worth archiving.
+        }
       }
     }
 

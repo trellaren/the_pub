@@ -6,6 +6,7 @@ import type { LoadedDocument } from '../../shared/model/document.js'
 export type RestoreResult =
   | { ok: true; path: string; mtime: number }
   | { ok: false; reason: 'conflict'; diskMtime: number }
+  | { ok: false; reason: 'format-too-new'; diskVersion: number }
   | { ok: false; reason: 'missing-document' }
 
 /**

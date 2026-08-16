@@ -5,6 +5,19 @@ import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
 import { entityKindDefSchema } from './entity.js'
 
 /**
+ * A project-defined highlight category: `Evidence`, `Quote to use`, and so
+ * on. The colour lives here, not on the highlight record, so choosing a
+ * category *is* choosing the mark's colour — the two can never disagree. See
+ * `docs/phase-11-plan.md`.
+ */
+export const highlightCategoryDefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  color: z.string()
+})
+export type HighlightCategoryDef = z.infer<typeof highlightCategoryDefSchema>
+
+/**
  * Per-project preferences, derived from the settings registry rather than
  * written out here.
  *
@@ -47,7 +60,13 @@ export const projectManifestSchema = z.object({
    * fiction defaults (`DEFAULT_ENTITY_KINDS`), so every project made before
    * this field existed is unaffected.
    */
-  entityKinds: z.array(entityKindDefSchema).optional()
+  entityKinds: z.array(entityKindDefSchema).optional(),
+  /**
+   * Project-defined highlight categories, alongside `entityKinds`. Absent
+   * means no categories are defined yet — every project made before this
+   * field existed opens with an empty list, not a crash.
+   */
+  highlightCategories: z.array(highlightCategoryDefSchema).optional()
 })
 export type ProjectManifest = z.infer<typeof projectManifestSchema>
 

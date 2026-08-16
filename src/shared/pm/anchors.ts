@@ -26,7 +26,27 @@ export interface AnchorLocation {
  * reporting only the first would silently drop the rest of what a note is
  * attached to.
  */
-export function findAnchorLocations(doc: PmDoc, anchorId: string): AnchorLocation[] {
+/**
+ * Which mark type and attribute to look for. Defaults to the `anchor` mark's
+ * own `anchorId` — every other caller passes this explicitly, naming the mark
+ * and attribute it actually reconciles, e.g. `{ markType: 'highlight',
+ * attrKey: 'highlightId' }` for Phase 11's collected highlights. Keeping this
+ * one walker generic is what "one text-walking implementation" means in
+ * practice: a second mark that needs anchor-style recovery reuses it instead
+ * of growing its own copy of `forEachTextNode` plus offset bookkeeping.
+ */
+export interface AnchorMarkConfig {
+  markType: string
+  attrKey: string
+}
+
+const DEFAULT_ANCHOR_MARK_CONFIG: AnchorMarkConfig = { markType: ANCHOR_MARK, attrKey: 'anchorId' }
+
+export function findAnchorLocations(
+  doc: PmDoc,
+  anchorId: string,
+  config: AnchorMarkConfig = DEFAULT_ANCHOR_MARK_CONFIG
+): AnchorLocation[] {
   const locations: AnchorLocation[] = []
   for (const block of extractRawBlocks(doc)) {
     const { unmap, text: normalized } = normalizeBlockText(block.text)
@@ -35,7 +55,7 @@ export function findAnchorLocations(doc: PmDoc, anchorId: string): AnchorLocatio
 
     forEachTextNode(block.node, (entry) => {
       const marked = entry.node.marks?.some(
-        (mark) => mark.type === ANCHOR_MARK && mark.attrs?.anchorId === anchorId
+        (mark) => mark.type === config.markType && mark.attrs?.[config.attrKey] === anchorId
       )
       if (!marked) return
       rawStart = rawStart === null ? entry.start : Math.min(rawStart, entry.start)
@@ -57,8 +77,12 @@ export function findAnchorLocations(doc: PmDoc, anchorId: string): AnchorLocatio
 }
 
 /** The common case: an anchor confined to one block. `null` if it isn't there at all. */
-export function findAnchor(doc: PmDoc, anchorId: string): AnchorLocation | null {
-  return findAnchorLocations(doc, anchorId)[0] ?? null
+export function findAnchor(
+  doc: PmDoc,
+  anchorId: string,
+  config: AnchorMarkConfig = DEFAULT_ANCHOR_MARK_CONFIG
+): AnchorLocation | null {
+  return findAnchorLocations(doc, anchorId, config)[0] ?? null
 }
 
 /** Every anchor id currently marking text anywhere in the document. */

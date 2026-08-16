@@ -39,7 +39,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // open a document under review read-only rather than stripping the marks
     // and autosaving the loss — which would silently accept every pending
     // insertion and reject every pending deletion, with nothing to undo it by.
-    { from: 5, to: 6, up: (raw) => raw }
+    { from: 5, to: 6, up: (raw) => raw },
+    // Phase 11 adds the lazily-allocated `highlightId` attr to the `highlight`
+    // mark. No v6 document's own shape changes — an existing highlight has no
+    // id and stays that way until collected — so this exists only to carry
+    // the version forward, for the reason the steps above already record.
+    { from: 6, to: 7, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in
@@ -59,7 +64,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // (read as "the fiction defaults") fills in regardless, so again nothing
     // about the value changes — only the version, so an older build doesn't
     // silently re-save a v5 manifest as v4 and drop a project's custom kinds.
-    { from: 4, to: 5, up: (raw) => raw }
+    { from: 4, to: 5, up: (raw) => raw },
+    // Phase 11 adds `highlightCategories`. The schema's own `undefined`
+    // default (read as "no project-defined categories yet") fills in
+    // regardless, so again nothing about the value changes — only the
+    // version, for the same reason `entityKinds` moved it above.
+    { from: 5, to: 6, up: (raw) => raw }
   ],
   manuscript: [],
   entities: [],
@@ -97,7 +107,8 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   sources: [],
   authors: [],
   reviews: [],
-  presence: []
+  presence: [],
+  highlights: []
 }
 
 export interface MigrationResult {

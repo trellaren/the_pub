@@ -1,7 +1,6 @@
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyle, Color, FontFamily, FontSize, BackgroundColor } from '@tiptap/extension-text-style'
-import Highlight from '@tiptap/extension-highlight'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import TextAlign from '@tiptap/extension-text-align'
@@ -20,6 +19,7 @@ import { Mention } from './extensions/mention.js'
 import { NamedStyles } from './extensions/namedStyles.js'
 import { ParagraphFormat } from './extensions/paragraphFormat.js'
 import { FindHighlight } from './extensions/findHighlight.js'
+import { HighlightId } from './extensions/highlightId.js'
 import { BlockIds } from './extensions/blockIds.js'
 import { Anchors } from './extensions/anchors.js'
 import { Insertion, Deletion, SuggestingMode } from './extensions/suggestions.js'
@@ -75,7 +75,7 @@ export function createEditor(options: CreateEditorOptions): Editor {
       FontFamily,
       FontSize,
       BackgroundColor,
-      Highlight.configure({ multicolor: true }),
+      HighlightId.configure({ multicolor: true }),
       Subscript,
       Superscript,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),

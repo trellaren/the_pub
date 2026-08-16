@@ -110,7 +110,7 @@ export class ProjectSession {
       wordCountsFor: (docIds) => this.search.wordCountsFor(docIds),
       indexing: () => this.search.getProgress().indexing
     })
-    this.history = new HistoryService(this.documents, this.snapshots, this.search)
+    this.history = new HistoryService(this.documents, this.snapshots, this.search, this.notes)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.docx = new DocxService(adapter, this.documents)
     this.fountain = new FountainService(adapter, this.documents)

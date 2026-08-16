@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
 import type { IDockviewPanelProps } from 'dockview-react'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
@@ -9,6 +9,8 @@ import { RichToolbar } from './RichToolbar.js'
 import { FindReplaceBar } from './FindReplaceBar.js'
 import { EndnotesRegion } from './EndnotesRegion.js'
 import { wordCount } from './editorActions.js'
+import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
+import { currentSources } from '@renderer/stores/sourceStore.js'
 
 export interface EditorPanelParams {
   docId: string
@@ -28,6 +30,9 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   const setActive = useDocumentStore((store) => store.setActive)
   const openDocId = useDocumentStore((store) => store.openDocId)
   const settings = useProjectStore((store) => store.project?.manifest.settings)
+  // Selected as the string rather than off `settings`, whose object identity
+  // changes on every manifest write — including each keystroke in Settings.
+  const citationStyleId = useProjectStore((store) => store.project?.manifest.settings.citationStyleId)
   const [find, setFindBar] = useState<'hidden' | 'find' | 'replace'>('hidden')
   const [status, setStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
 
@@ -53,6 +58,33 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
     if (!state) return
     props.api.setTitle(`${state.dirty ? '● ' : ''}${state.title}`)
   }, [props.api, state?.dirty, state?.title, state])
+
+  /*
+   * Re-render this document's citations when the project's citation style
+   * changes.
+   *
+   * The only automatic trigger. Editing a source stays manual, matching how a
+   * moved heading does not retitle a cross-reference until this document's own
+   * refresh is asked for — but a style is a project-wide switch, and one that
+   * appeared to do nothing until every open document was visited and a toolbar
+   * button pressed would simply read as broken.
+   *
+   * The ref makes this a change-only effect: firing on mount would refresh on
+   * document open, which is the behaviour deliberately not wanted here.
+   */
+  const lastCitationStyle = useRef(citationStyleId)
+  useEffect(() => {
+    if (lastCitationStyle.current === citationStyleId) return
+    lastCitationStyle.current = citationStyleId
+    if (!citationStyleId) return
+    const target = getEditor(docId)
+    if (!target) return
+    void (async () => {
+      const sources = currentSources()
+      const engine = await refreshCitations(target, sources, citationStyleId)
+      if (engine) insertOrRefreshBibliography(target, sources, engine)
+    })()
+  }, [citationStyleId, docId])
 
   useEffect(() => {
     return registerCommand({

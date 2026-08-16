@@ -104,6 +104,32 @@ export function SettingsPanel() {
       )
     }
 
+    // A datalist rather than a `<select>`: the listed options are suggestions,
+    // and the schema behind a combo setting accepts any string.
+    if (def.control.kind === 'combo') {
+      const listId = `setting-options-${def.key.replace(/\./g, '-')}`
+      return (
+        <Field key={def.key} label={def.title}>
+          <TextInput
+            value={value as string}
+            list={listId}
+            disabled={disabled}
+            onChange={(event) => commit(event.target.value)}
+          />
+          <datalist id={listId}>
+            {def.control.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </datalist>
+          {def.description ? (
+            <span className="text-[11px] text-faint">{def.description}</span>
+          ) : null}
+        </Field>
+      )
+    }
+
     const options =
       'options' in def.control
         ? def.control.options

@@ -211,6 +211,78 @@ describe('TemplateService.saveAsTemplate', () => {
     }
   })
 
+  /*
+   * The record kinds are the project's vocabulary, and every built-in template
+   * ships its own. Dropping them turned a thesis saved as a template back into
+   * Characters and Locations — invisible until a project made from it opened
+   * with the wrong panels.
+   */
+  it('carries the project’s record kinds, not just its styles', async () => {
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-source-'))
+    const source = new LocalAdapter(sourceDir)
+
+    try {
+      const entityKinds = [
+        { id: 'interviewee', label: 'Interviewee', labelPlural: 'Interviewees' },
+        { id: 'concept', label: 'Concept', labelPlural: 'Concepts' }
+      ]
+      const manifest: ProjectManifest = projectManifestSchema.parse({
+        id: 'p1',
+        name: 'Fieldwork',
+        created: '2026-01-01T00:00:00.000Z',
+        modified: '2026-01-01T00:00:00.000Z',
+        settings: {},
+        styles: BUILTIN_STYLES,
+        entityKinds
+      })
+
+      const summary = await templates.saveAsTemplate(source, manifest, {
+        name: 'Fieldwork Template',
+        description: '',
+        projectType: 'thesis',
+        include: { entities: false, beats: false, maps: false, manuscript: false, layout: false, documents: [] }
+      })
+
+      const savedRaw = await fs.readFile(path.join(userDir, summary.id, MANIFEST_FILE), 'utf8')
+      const saved = projectManifestSchema.parse(JSON.parse(savedRaw))
+      expect(saved.entityKinds).toEqual(entityKinds)
+    } finally {
+      await source.dispose()
+      await fs.rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the record kinds absent when the project never set any', async () => {
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-source-'))
+    const source = new LocalAdapter(sourceDir)
+
+    try {
+      const manifest: ProjectManifest = projectManifestSchema.parse({
+        id: 'p1',
+        name: 'Draft',
+        created: '2026-01-01T00:00:00.000Z',
+        modified: '2026-01-01T00:00:00.000Z',
+        settings: {},
+        styles: BUILTIN_STYLES
+      })
+
+      const summary = await templates.saveAsTemplate(source, manifest, {
+        name: 'Plain',
+        description: '',
+        projectType: 'novel',
+        include: { entities: false, beats: false, maps: false, manuscript: false, layout: false, documents: [] }
+      })
+
+      const savedRaw = await fs.readFile(path.join(userDir, summary.id, MANIFEST_FILE), 'utf8')
+      // Absent, not an empty list: absent means the fiction defaults, while an
+      // empty array would be a project offering no record panels at all.
+      expect(projectManifestSchema.parse(JSON.parse(savedRaw)).entityKinds).toBeUndefined()
+    } finally {
+      await source.dispose()
+      await fs.rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('includes entities only when opted in', async () => {
     const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-source-'))
     const source = new LocalAdapter(sourceDir)

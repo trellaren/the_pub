@@ -3,6 +3,15 @@ import type { CslItem, CslName } from '@shared/model/source.js'
 import { CSL_TYPES, describeSource } from '@shared/model/source.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
+import { invoke, attempt, reportNotice } from '@renderer/lib/ipc.js'
+
+/** Written to be shown verbatim: each failure calls for a different response. */
+const LOOKUP_FAILURES: Record<string, string> = {
+  'not-found': 'No record was found for that identifier.',
+  offline: 'Could not reach the lookup service. Check your connection and try again.',
+  malformed: 'The service answered with something this build could not read.',
+  unsupported: 'That does not look like a DOI or an ISBN.'
+}
 import {
   PanelShell,
   PanelHeader,
@@ -30,13 +39,56 @@ export function SourcesPanel() {
   const create = useSourceStore((store) => store.create)
   const remove = useSourceStore((store) => store.remove)
 
+  const load = useSourceStore((store) => store.load)
+
   const sorted = [...sources].sort((a, b) => describeSource(a).localeCompare(describeSource(b)))
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [lookupText, setLookupText] = useState('')
+  const [busy, setBusy] = useState(false)
   const selected = sorted.find((source) => source.id === selectedId) ?? sorted[0] ?? null
 
   const addSource = async (): Promise<void> => {
     const source = await create('book')
     if (source) setSelectedId(source.id)
+  }
+
+  /**
+   * Both import paths reload the whole library rather than splicing the result
+   * in: a merge can add *and* replace, and reproducing that arithmetic in the
+   * store would be a second implementation of it to keep in step.
+   */
+  const importSources = async (): Promise<void> => {
+    setBusy(true)
+    const result = await attempt(invoke('sources:importDialog', {}), 'Could not import sources')
+    setBusy(false)
+    // Null is the file dialog being cancelled, which is not a failure.
+    if (!result) return
+    await load()
+    for (const warning of result.warnings) reportNotice(warning)
+    reportNotice(
+      result.added + result.replaced === 0
+        ? 'No sources were imported.'
+        : `Imported ${result.added} new source${result.added === 1 ? '' : 's'}` +
+            (result.replaced > 0 ? `, updating ${result.replaced}.` : '.')
+    )
+  }
+
+  const lookUp = async (): Promise<void> => {
+    const query = lookupText.trim()
+    if (!query || busy) return
+    setBusy(true)
+    const result = await attempt(invoke('sources:lookup', { query }), 'Could not look that up')
+    setBusy(false)
+    if (!result) return
+
+    if (!result.ok) {
+      reportNotice(LOOKUP_FAILURES[result.reason])
+      return
+    }
+    await load()
+    setLookupText('')
+    setSelectedId(result.item.id)
+    reportNotice(`Added “${describeSource(result.item)}”.`)
   }
 
   const removeSource = async (): Promise<void> => {
@@ -62,10 +114,35 @@ export function SourcesPanel() {
         <ToolbarButton label="New source" onClick={() => void addSource()}>
           ＋
         </ToolbarButton>
+        <ToolbarButton label="Import sources" onClick={() => void importSources()} disabled={busy}>
+          Import…
+        </ToolbarButton>
         <ToolbarButton label="Delete source" onClick={() => void removeSource()} disabled={!selected}>
           ✕
         </ToolbarButton>
       </PanelHeader>
+
+      {/*
+        One field for both identifiers rather than a DOI box and an ISBN box:
+        which one a string is can be told from the string, and asking someone
+        to classify what they just copied is asking them to do the computer's
+        job.
+      */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+        <TextInput
+          value={lookupText}
+          placeholder="Add by DOI or ISBN"
+          aria-label="Add by DOI or ISBN"
+          data-testid="source-lookup"
+          onChange={(event) => setLookupText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void lookUp()
+          }}
+        />
+        <ToolbarButton label="Look up" onClick={() => void lookUp()} disabled={!lookupText.trim() || busy}>
+          Add
+        </ToolbarButton>
+      </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ul className="w-40 shrink-0 overflow-auto border-r border-border py-1" data-testid="source-list">

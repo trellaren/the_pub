@@ -5,9 +5,11 @@ import os from 'node:os'
 import { HistoryService } from './historyService.js'
 import { DocumentService } from './documentService.js'
 import { SnapshotService } from './snapshotService.js'
+import { NoteService } from './noteService.js'
 import type { SearchIndexService } from './searchIndexService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
 import { pubDocumentSchema, type PubDocument } from '../../shared/model/document.js'
+import { ANCHOR_MARK } from '../../shared/model/anchor.js'
 import { SNAPSHOTS_DIR } from '../../shared/constants.js'
 
 /**
@@ -23,6 +25,7 @@ let adapter: LocalAdapter
 let documents: DocumentService
 let snapshots: SnapshotService
 let history: HistoryService
+let notes: NoteService
 let paths: Map<string, string>
 
 function stubIndex(): SearchIndexService {
@@ -74,7 +77,11 @@ beforeEach(async () => {
   snapshots = new SnapshotService(adapter)
   documents = new DocumentService(adapter, snapshots)
   paths = new Map()
-  history = new HistoryService(documents, snapshots, stubIndex())
+  // A real NoteService, not a stub: what the restore path has to get right is
+  // that notes are actually re-anchored on disk, which a stub would assert
+  // nothing about.
+  notes = new NoteService(adapter)
+  history = new HistoryService(documents, snapshots, stubIndex(), notes)
 })
 
 afterEach(async () => {
@@ -225,5 +232,96 @@ describe('restoring into a new file', () => {
     await history.restoreToNewFile(created.doc.docId, target, 'copy.pubdoc')
 
     expect(await snapshotCount(created.doc.docId)).toBe(before)
+  })
+})
+
+/*
+ * The roadmap's Phase 2 requirement, and the one case the `doc:write` handler
+ * cannot cover: restoring an old version resurrects the anchor ids it was
+ * saved with, so recovery has to run again afterwards.
+ */
+describe('notes and a restore', () => {
+  const ANCHOR_ID = 'anchor-1'
+
+  /** A document whose sentence carries an `anchor` mark, or plain text without one. */
+  async function writeAnchored(target: string, text: string, anchored: boolean): Promise<PubDocument> {
+    const loaded = await documents.read(target)
+    const next: PubDocument = {
+      ...loaded.doc,
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              anchored
+                ? { type: 'text', text, marks: [{ type: ANCHOR_MARK, attrs: { anchorId: ANCHOR_ID } }] }
+                : { type: 'text', text }
+            ]
+          }
+        ]
+      }
+    }
+    const result = await documents.write(target, next, loaded.mtime)
+    expect(result.ok).toBe(true)
+    return next
+  }
+
+  it('un-orphans a note when the version holding its anchor comes back', async () => {
+    const created = await documents.create('chapter.pubdoc', 'Chapter')
+    const docId = created.doc.docId
+    paths.set(docId, created.path)
+
+    const anchored = await writeAnchored('chapter.pubdoc', 'The anchored sentence.', true)
+    await snapshots.forceSnapshot(anchored)
+    await notes.create(docId, ANCHOR_ID, 'The anchored sentence.', 0)
+
+    // The edit that loses the anchor, reconciled the way a normal save would.
+    const stripped = await writeAnchored('chapter.pubdoc', 'Rewritten without it.', false)
+    await notes.reconcile(docId, stripped.content)
+    expect((await notes.listForDoc(docId))[0]!.orphaned).toBe(true)
+
+    const result = await history.restoreInPlace(
+      docId,
+      await versionContaining(docId, 'The anchored sentence.')
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.notesChanged).toBe(true)
+    expect((await notes.listForDoc(docId))[0]!.orphaned).toBe(false)
+  })
+
+  it('orphans a note when the restored version predates its anchor', async () => {
+    const created = await documents.create('chapter.pubdoc', 'Chapter')
+    const docId = created.doc.docId
+    paths.set(docId, created.path)
+
+    const before = await writeAnchored('chapter.pubdoc', 'Before the note existed.', false)
+    await snapshots.forceSnapshot(before)
+    await writeAnchored('chapter.pubdoc', 'The anchored sentence.', true)
+    await notes.create(docId, ANCHOR_ID, 'The anchored sentence.', 0)
+
+    const result = await history.restoreInPlace(
+      docId,
+      await versionContaining(docId, 'Before the note existed.')
+    )
+
+    expect(result.ok).toBe(true)
+    // Marked, never deleted — re-attaching is the author's decision.
+    expect((await notes.listForDoc(docId))[0]!.orphaned).toBe(true)
+    expect(await notes.listForDoc(docId)).toHaveLength(1)
+  })
+
+  it('reports no note change for a document that has none', async () => {
+    const created = await documents.create('chapter.pubdoc', 'Chapter')
+    paths.set(created.doc.docId, created.path)
+    await snapshots.forceSnapshot(await write('chapter.pubdoc', 'Draft.'))
+
+    const result = await history.restoreInPlace(
+      created.doc.docId,
+      await versionContaining(created.doc.docId, 'Draft.')
+    )
+
+    expect(result.ok && result.notesChanged).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { NamedStyle } from '@shared/model/style.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { computeHeadingNumbers } from '@shared/pm/headingNumbers.js'
@@ -42,16 +42,26 @@ export const HeadingNumbers = Extension.create<HeadingNumbersOptions>({
               const number = numbers.get(blockIndex)
               blockIndex++
               if (!number) return
-              const widget = document.createElement('span')
-              widget.className = 'pub-heading-number'
-              // No extra space appended: `number` is `levelText` rendered
-              // verbatim, and every numbering config in this codebase already
-              // ends its `levelText` with the separator it wants ("%1. ") —
-              // the same string DOCX numbering and the TOC's `number` field
-              // read, so all three agree on spacing without this widget
-              // adding its own.
-              widget.textContent = number
-              decorations.push(Decoration.widget(offset + 1, widget, { side: -1 }))
+              /*
+               * Built in the widget's own callback rather than eagerly, and
+               * from the view's document rather than the global one: a
+               * torn-off editor window is a different `document`, and an
+               * element created in this one does not render there. Every
+               * other popup and decoration in this codebase reaches for
+               * `ownerDocument` for the same reason.
+               */
+              const toDom = (view: EditorView): HTMLElement => {
+                const widget = view.dom.ownerDocument.createElement('span')
+                widget.className = 'pub-heading-number'
+                // No extra space appended: `number` is `levelText` rendered
+                // verbatim, and every numbering config in this codebase already
+                // ends its `levelText` with the separator it wants ("%1. ") —
+                // the same string DOCX numbering and the TOC's label read, so
+                // all three agree on spacing without this widget adding its own.
+                widget.textContent = number
+                return widget
+              }
+              decorations.push(Decoration.widget(offset + 1, toDom, { side: -1 }))
             })
             return DecorationSet.create(state.doc, decorations)
           }

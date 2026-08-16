@@ -15,6 +15,20 @@ export interface TocEntry {
 }
 
 /**
+ * How a heading reads when something other than the heading itself shows it —
+ * a contents line, or a cross-reference to it.
+ *
+ * The number is concatenated with no separator of its own, because
+ * `levelText` already ends with the one it wants ("%1. "). That is the same
+ * string the on-screen widget renders and the same one DOCX numbering emits,
+ * so a contents line reads exactly as the heading does in the body — which is
+ * the only property that makes a table of contents trustworthy.
+ */
+export function tocEntryLabel(entry: TocEntry): string {
+  return entry.number ? `${entry.number}${entry.text}` : entry.text
+}
+
+/**
  * Every top-level block that belongs in a table of contents, in document
  * order.
  *

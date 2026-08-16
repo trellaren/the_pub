@@ -5,8 +5,6 @@ import { invoke, attempt } from '@renderer/lib/ipc.js'
 interface SourceStore {
   sources: CslItem[]
   loaded: boolean
-  /** Bumped on every load/create/patch/remove — a signal, not a value, for anything that must recompute when the library changes. */
-  revision: number
   load: () => Promise<void>
   create: (type: string) => Promise<CslItem | null>
   /** Optimistic edit; the write is debounced behind it, the same shape `entityStore.patch` uses. */
@@ -22,25 +20,23 @@ const SOURCE_SAVE_DEBOUNCE_MS = 600
 export const useSourceStore = create<SourceStore>((set, get) => ({
   sources: [],
   loaded: false,
-  revision: 0,
 
   load: async () => {
     const file = await attempt(invoke('sources:list', {}), 'Could not load sources')
     if (!file) return
-    set({ sources: file.sources, loaded: true, revision: get().revision + 1 })
+    set({ sources: file.sources, loaded: true })
   },
 
   create: async (type) => {
     const source = await attempt(invoke('sources:create', { type }), 'Could not add a source')
     if (!source) return null
-    set({ sources: [...get().sources, source], revision: get().revision + 1 })
+    set({ sources: [...get().sources, source] })
     return source
   },
 
   patch: (id, changes) => {
     set({
-      sources: get().sources.map((source) => (source.id === id ? { ...source, ...changes } : source)),
-      revision: get().revision + 1
+      sources: get().sources.map((source) => (source.id === id ? { ...source, ...changes } : source))
     })
     const existing = pending.get(id)
     if (existing) clearTimeout(existing)
@@ -58,7 +54,7 @@ export const useSourceStore = create<SourceStore>((set, get) => ({
     if (timer) clearTimeout(timer)
     pending.delete(id)
     await attempt(invoke('sources:delete', { id }), 'Could not delete the source')
-    set({ sources: get().sources.filter((source) => source.id !== id), revision: get().revision + 1 })
+    set({ sources: get().sources.filter((source) => source.id !== id) })
   },
 
   flush: async () => {

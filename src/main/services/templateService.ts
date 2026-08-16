@@ -141,7 +141,12 @@ export class TemplateService {
           modified: now,
           projectType: options.projectType,
           settings: manifest.settings,
-          styles: manifest.styles
+          styles: manifest.styles,
+          // Travels with the styles rather than being opt-in: the record kinds
+          // *are* the project's vocabulary, and every built-in template ships
+          // its own. Leaving them behind turned a thesis saved as a template
+          // back into Characters and Locations.
+          entityKinds: manifest.entityKinds
         })
       )
     )

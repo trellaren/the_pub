@@ -21,6 +21,7 @@ import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js
 import { DOC_EXT } from '@shared/constants.js'
 import { THEMES } from '@shared/themes.js'
 import { NewProjectDialog } from './panels/welcome/NewProjectDialog.js'
+import { SaveAsTemplateDialog } from './panels/welcome/SaveAsTemplateDialog.js'
 
 const STYLE_ELEMENT_ID = 'pub-named-styles'
 const MENTION_STYLE_ELEMENT_ID = 'pub-mention-colors'
@@ -37,6 +38,7 @@ export function App() {
   // Here rather than in the Welcome panel, because a project can be created
   // from the menu and the palette with no Welcome panel on screen at all.
   const [newProject, setNewProject] = useState(false)
+  const [saveTemplate, setSaveTemplate] = useState(false)
   const [notices, setNotices] = useState<Notice[]>([])
 
   useEffect(() => {
@@ -91,6 +93,14 @@ export function App() {
         id: 'project.newFromTemplate',
         title: 'New Project from Template…',
         run: () => setNewProject(true)
+      }),
+      registerCommand({
+        id: 'project.saveAsTemplate',
+        title: 'Save Project as Template…',
+        // Nothing to serialise without a project open, and the dialog reads the
+        // manifest for its defaults.
+        isEnabled: () => useProjectStore.getState().project !== null,
+        run: () => setSaveTemplate(true)
       }),
       ...THEMES.map(({ id, label }) =>
         registerCommand({
@@ -216,6 +226,7 @@ export function App() {
         <CommandPalette mode={palette} onClose={() => setPalette('hidden')} />
       ) : null}
       {newProject ? <NewProjectDialog onClose={() => setNewProject(false)} /> : null}
+      {saveTemplate ? <SaveAsTemplateDialog onClose={() => setSaveTemplate(false)} /> : null}
       <PromptHost />
       {notices.length > 0 ? (
         <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">

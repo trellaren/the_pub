@@ -30,6 +30,13 @@ export type SettingControl =
   | { kind: 'text' }
   | { kind: 'select'; options: ReadonlyArray<{ value: string; label: string }> }
   | { kind: 'select'; optionsFrom: 'projectStyles' }
+  /**
+   * Named suggestions that are not the only allowed values — a text field with
+   * a datalist. A plain `select` cannot express this, and using one for a
+   * setting whose schema is an open string silently narrows it to the handful
+   * of options someone happened to list.
+   */
+  | { kind: 'combo'; options: ReadonlyArray<{ value: string; label: string }> }
 
 export interface SettingDef {
   key: string
@@ -185,9 +192,10 @@ export const SETTING_DEFS = [
     scope: 'project',
     group: 'Citations',
     title: 'Citation style',
-    description: 'Any CSL style id — the four named here are not the only ones.',
+    description:
+      'Any CSL style id — the four suggested here are not the only ones. IEEE, Harvard, Vancouver and several hundred journal styles are bundled and can be typed in by id.',
     schema: z.string().default('chicago-author-date'),
-    control: { kind: 'select', options: CITATION_STYLE_OPTIONS }
+    control: { kind: 'combo', options: CITATION_STYLE_OPTIONS }
   }
 ] as const satisfies readonly SettingDef[]
 

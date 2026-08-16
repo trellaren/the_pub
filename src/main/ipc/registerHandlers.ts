@@ -31,6 +31,9 @@ import {
 import type { ModelStore } from '../llm/modelStore.js'
 import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
+import { Embedder, embedderConfig, embedderRefusal } from '../ai/embedder.js'
+import type { EmbedderResolution } from '../ai/embeddingIndexer.js'
+import type { RetrievalResult } from '../ai/tools.js'
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
@@ -205,7 +208,9 @@ export function registerHandlers(context: HandlerContext): void {
     await sessions.close(ownerId)
     const session = await ProjectSession.open(uri, {
       onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
-      onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress)
+      onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
+      resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
+      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status)
     })
     sessions.set(ownerId, session)
     appState.addRecent(uri, session.manifest.name)
@@ -801,6 +806,84 @@ export function registerHandlers(context: HandlerContext): void {
     return url
   }
 
+  /**
+   * Find something to embed with, or say why there is nothing.
+   *
+   * `allowStart` is the whole of the policy. A person who pressed Build has
+   * asked for this and may be charged a model load or a hosted API call for it;
+   * the background top-up that runs when a project opens has asked for nothing,
+   * and gets an embedder only if one is already there and free. That is what
+   * keeps a manuscript from being quietly posted to a paid endpoint, and a
+   * laptop from warming up for reasons its owner cannot account for.
+   */
+  async function resolveEmbedder(ownerId: number, allowStart: boolean): Promise<EmbedderResolution> {
+    if (!appState.get().aiEnabled) {
+      return { embedder: null, unavailable: 'AI features are turned off.' }
+    }
+    const session = sessions.get(ownerId)
+    if (!session) return { embedder: null, unavailable: 'No project is open.' }
+
+    const settings = resolveSettings(session.chats.settings())
+    const info = providerInfo(settings.provider)
+    const apiKey = keys.get(settings.provider)
+    if (info.needsKey && !apiKey) {
+      return { embedder: null, unavailable: `No API key is set for ${info.name}.` }
+    }
+
+    let baseUrl = settings.baseUrl
+    if (settings.provider === 'embedded') {
+      const running = engine.runningUrl()
+      if (!running && !allowStart) {
+        return {
+          embedder: null,
+          unavailable: 'The embedded model is not running. Build the index to start it.'
+        }
+      }
+      if (running) baseUrl = running
+      else {
+        try {
+          baseUrl = await startEmbedded(settings.model)
+        } catch (error) {
+          return { embedder: null, unavailable: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    } else if (info.needsKey && !allowStart) {
+      return {
+        embedder: null,
+        unavailable: `Indexing with ${info.name} sends your manuscript to them, so it only happens when you ask for it.`
+      }
+    }
+
+    const config = embedderConfig({ ...settings, baseUrl }, apiKey)
+    const refusal = embedderRefusal(config, info.name)
+    if (refusal) return { embedder: null, unavailable: refusal }
+    return { embedder: new Embedder(config), unavailable: '' }
+  }
+
+  /** Search this project by meaning, for the agent's `find_passages` tool. */
+  async function findPassages(
+    ownerId: number,
+    session: ProjectSession,
+    query: string,
+    limit: number
+  ): Promise<RetrievalResult> {
+    const coverage = session.search.embeddingCoverage()
+    // Allowed to start, because a person asked a question and is waiting: this
+    // runs inside a reply they are watching stream, not in the background.
+    const { embedder } = await resolveEmbedder(ownerId, true)
+    if (!embedder) return { hits: [], ...coverage }
+    const [vector] = await embedder.embed([query])
+    if (!vector) return { hits: [], ...coverage }
+    return { hits: session.search.nearestBlocks(vector, limit), ...coverage }
+  }
+
+  handle('ai:retrievalStatus', (_payload, event) => requireSession(event).retrieval.status())
+  handle('ai:buildRetrieval', (_payload, event) => requireSession(event).retrieval.build(true))
+  handle('ai:cancelRetrieval', (_payload, event) => {
+    requireSession(event).retrieval.cancel()
+    return { ok: true as const }
+  })
+
   handle('llm:status', async () => ({
     variants: await models.status(),
     engine: engine.status(),
@@ -900,6 +983,10 @@ export function registerHandlers(context: HandlerContext): void {
       // whole chat file on each token.
       if (streamEvent.type === 'done') {
         void session.chats.append(chatId, streamEvent.message).catch(() => {})
+        // The moment a model is warm is the cheapest moment to embed, so a
+        // finished reply is what tops the index up. Still `false`: this is the
+        // app noticing an opportunity, not the writer asking.
+        void session.retrieval.build(false).catch(() => {})
       }
     }
 
@@ -917,8 +1004,18 @@ export function registerHandlers(context: HandlerContext): void {
 
     // An ordinary question costs one request; only an agent run loops. Which
     // path a message takes is the writer's setting, not a guess about intent.
+    // Offered only when there is something to search. A project with an empty
+    // index gets the keyword tools and no mention of the other, rather than a
+    // tool the model spends a step calling to be told it is useless.
+    const indexed = session.search.embeddingCoverage().embedded > 0
     const started = settings.agent
-      ? runAgent(session.ai, { ...run, session })
+      ? runAgent(session.ai, {
+          ...run,
+          session,
+          ...(indexed && ownerId !== null
+            ? { findPassages: (query: string, limit: number) => findPassages(ownerId, session, query, limit) }
+            : {})
+        })
       : session.ai.run(run)
     void started.catch(() => {})
 

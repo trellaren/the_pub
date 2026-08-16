@@ -81,7 +81,8 @@ async function useAgent(): Promise<void> {
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: true
+      agent: true,
+      embedModel: ''
     })
   }, baseUrl)
 }

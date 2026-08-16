@@ -1,7 +1,7 @@
 import type { AiSettings, StreamEvent, ToolCall, EditProposal } from '../../shared/model/ai.js'
 import type { ProjectSession } from '../services/projectSession.js'
 import { streamCompletion, assistantMessage, type AiRunner } from './aiRunner.js'
-import { toolSpecs, runTool } from './tools.js'
+import { toolSpecs, runTool, type RetrievalResult } from './tools.js'
 import type { OutboundMessage } from './providers.js'
 
 /**
@@ -21,6 +21,12 @@ export interface AgentRunOptions {
   messages: OutboundMessage[]
   apiKey: string | null
   session: ProjectSession
+  /**
+   * Semantic retrieval, when this project has an index to search. Passed in
+   * rather than reached for, because building the query vector needs the same
+   * provider and key the reply is using, and tools know about neither.
+   */
+  findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
   onEvent: (event: StreamEvent) => void
 }
 
@@ -39,7 +45,7 @@ export interface AgentRunOptions {
 export async function runAgent(runner: AiRunner, options: AgentRunOptions): Promise<void> {
   const { requestId, settings, session, onEvent } = options
   const controller = runner.track(requestId)
-  const tools = toolSpecs()
+  const tools = toolSpecs({ retrieval: Boolean(options.findPassages) })
 
   const conversation: OutboundMessage[] = [...options.messages]
   const performed: ToolCall[] = []
@@ -86,6 +92,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
         const proposals: EditProposal[] = []
         const result = await runTool(call.name, call.args, {
           session,
+          findPassages: options.findPassages,
           onProposal: (proposal) => proposals.push(proposal)
         })
 

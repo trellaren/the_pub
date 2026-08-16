@@ -375,3 +375,119 @@ describe('mentions', () => {
     expect(index.mentionsForEntity({ ...mentionQuery, entityId: 'e1' })).toHaveLength(1)
   })
 })
+
+describe('embeddings', () => {
+  /** A vector pointing along one axis, so similarity is easy to reason about. */
+  function axis(index: number, size = 4): Float32Array {
+    const vector = new Float32Array(size)
+    vector[index] = 1
+    return vector
+  }
+
+  it('lists every block as pending until it has a vector, then none', async () => {
+    await write('a.pubdoc', document('doc-e1', 'A', ['The harbour was quiet.', 'Rain came late.']))
+    await index.syncAll()
+
+    expect(index.embeddingCoverage()).toEqual({ embedded: 0, total: 2 })
+    const pending = index.pendingEmbeddings(10)
+    expect(pending).toHaveLength(2)
+
+    for (const [position, block] of pending.entries()) {
+      index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(position))
+    }
+    expect(index.pendingEmbeddings(10)).toHaveLength(0)
+    expect(index.embeddingCoverage()).toEqual({ embedded: 2, total: 2 })
+  })
+
+  it('keeps the vector of a paragraph an edit did not touch', async () => {
+    await write('a.pubdoc', document('doc-e2', 'A', ['Unchanged line.', 'Original line.']))
+    await index.syncAll()
+    for (const block of index.pendingEmbeddings(10)) {
+      index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(block.blockIndex))
+    }
+
+    await write('a.pubdoc', document('doc-e2', 'A', ['Unchanged line.', 'Rewritten line.']))
+    await index.indexDocument('a.pubdoc')
+
+    // This is the whole of what makes embedding incremental: a one-word fix in
+    // a chapter must not re-embed the book.
+    const pending = index.pendingEmbeddings(10)
+    expect(pending.map((block) => block.text)).toEqual(['Rewritten line.'])
+  })
+
+  it('drops the vectors of paragraphs an edit removed', async () => {
+    await write('a.pubdoc', document('doc-e3', 'A', ['One.', 'Two.', 'Three.']))
+    await index.syncAll()
+    for (const block of index.pendingEmbeddings(10)) {
+      index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(block.blockIndex))
+    }
+
+    await write('a.pubdoc', document('doc-e3', 'A', ['One.']))
+    await index.indexDocument('a.pubdoc')
+
+    // Otherwise the chapter keeps answering searches with prose it no longer
+    // contains.
+    expect(index.embeddingCoverage()).toEqual({ embedded: 1, total: 1 })
+  })
+
+  it('ranks passages by cosine and resolves them to a document and block', async () => {
+    await write('a.pubdoc', document('doc-e4', 'Harbour', ['The harbour was quiet.', 'Rain came late.']))
+    await index.syncAll()
+    const blocks = index.pendingEmbeddings(10)
+    index.writeEmbedding(blocks[0]!.docId, blocks[0]!.blockIndex, blocks[0]!.text, axis(0))
+    index.writeEmbedding(blocks[1]!.docId, blocks[1]!.blockIndex, blocks[1]!.text, axis(1))
+
+    const hits = index.nearestBlocks(axis(0), 5)
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({
+      path: 'a.pubdoc',
+      title: 'Harbour',
+      blockIndex: 0,
+      text: 'The harbour was quiet.'
+    })
+    expect(hits[0]!.score).toBeCloseTo(1, 5)
+  })
+
+  it('returns nothing when the query vector has a different width', async () => {
+    // Reachable by changing the embedding model: the stored vectors keep their
+    // old width until the index is rebuilt. Nothing matches, rather than a
+    // crash mid-search.
+    await write('a.pubdoc', document('doc-e5', 'A', ['The harbour was quiet.']))
+    await index.syncAll()
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0, 4))
+
+    expect(index.nearestBlocks(axis(0, 8), 5)).toEqual([])
+  })
+
+  it('forgets a document’s vectors when the file goes away', async () => {
+    await write('a.pubdoc', document('doc-e6', 'A', ['The harbour was quiet.']))
+    await index.syncAll()
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0))
+
+    await adapter.delete('a.pubdoc')
+    await index.syncAll()
+    expect(index.embeddingCoverage()).toEqual({ embedded: 0, total: 0 })
+  })
+
+  it('rebuilds from empty when the schema version moves', async () => {
+    await write('a.pubdoc', document('doc-e7', 'A', ['The harbour was quiet.']))
+    await index.syncAll()
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0))
+    index.close()
+
+    const { DatabaseSync } = await import('node:sqlite')
+    const raw = new DatabaseSync(dbPath())
+    raw.exec('PRAGMA user_version = 2')
+    raw.close()
+
+    // Adding a table without dropping `files` would leave it permanently empty
+    // on every existing project, because `syncAll` diffs mtimes.
+    index = new SearchIndexService(adapter, dbPath(), () => {}, () => roster)
+    expect(index.embeddingCoverage()).toEqual({ embedded: 0, total: 0 })
+    await index.syncAll()
+    expect(index.embeddingCoverage()).toEqual({ embedded: 0, total: 1 })
+  })
+})

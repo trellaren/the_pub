@@ -86,6 +86,16 @@ export class LlmEngine {
     if (this.child) this.touch()
   }
 
+  /**
+   * Where to send right now, without loading anything.
+   *
+   * Null when nothing is running. This is what lets background work use a model
+   * that already happens to be up while never being the reason one starts.
+   */
+  runningUrl(): string | null {
+    return this.state === 'running' && this.child ? `http://127.0.0.1:${this.port}` : null
+  }
+
   /** Whether a runtime shipped for this platform at all. */
   available(): boolean {
     return this.binaryPath() !== null

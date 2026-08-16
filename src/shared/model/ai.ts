@@ -23,6 +23,15 @@ export interface ProviderInfo {
   needsKey: boolean
   defaultModel: string
   defaultBaseUrl: string
+  /**
+   * What to embed with, when the writer has not named a model.
+   *
+   * Empty means "whatever this backend already has loaded", which is right for
+   * the two that serve one model at a time. Empty also on a backend with no
+   * embeddings endpoint at all — see `embeddingsUrl` — where the absence is the
+   * answer rather than a default worth guessing.
+   */
+  defaultEmbedModel: string
   /** Where to get a key, shown beside the field. */
   keyUrl?: string
 }
@@ -34,6 +43,9 @@ export const PROVIDERS: ProviderInfo[] = [
     needsKey: true,
     defaultModel: 'claude-sonnet-4-5',
     defaultBaseUrl: 'https://api.anthropic.com',
+    // Anthropic has no embeddings endpoint; retrieval falls back rather than
+    // inventing one.
+    defaultEmbedModel: '',
     keyUrl: 'https://console.anthropic.com/settings/keys'
   },
   {
@@ -42,6 +54,7 @@ export const PROVIDERS: ProviderInfo[] = [
     needsKey: true,
     defaultModel: 'gpt-4o',
     defaultBaseUrl: 'https://api.openai.com',
+    defaultEmbedModel: 'text-embedding-3-small',
     keyUrl: 'https://platform.openai.com/api-keys'
   },
   {
@@ -50,6 +63,7 @@ export const PROVIDERS: ProviderInfo[] = [
     needsKey: true,
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
     defaultBaseUrl: 'https://router.huggingface.co',
+    defaultEmbedModel: 'sentence-transformers/all-MiniLM-L6-v2',
     keyUrl: 'https://huggingface.co/settings/tokens'
   },
   {
@@ -57,7 +71,8 @@ export const PROVIDERS: ProviderInfo[] = [
     name: 'LM Studio',
     needsKey: false,
     defaultModel: 'local-model',
-    defaultBaseUrl: 'http://127.0.0.1:1234'
+    defaultBaseUrl: 'http://127.0.0.1:1234',
+    defaultEmbedModel: ''
   },
   {
     id: 'embedded',
@@ -67,7 +82,8 @@ export const PROVIDERS: ProviderInfo[] = [
     // Filled in by main from the engine's actual port at request time. The
     // renderer never learns it, and a stale value here could only ever point
     // at the wrong process.
-    defaultBaseUrl: ''
+    defaultBaseUrl: '',
+    defaultEmbedModel: ''
   }
 ]
 
@@ -92,7 +108,16 @@ export const aiSettingsSchema = z.object({
    * who has not asked for an assistant that goes looking through their project
    * should not get one.
    */
-  agent: z.boolean().default(false)
+  agent: z.boolean().default(false),
+  /**
+   * What to embed the retrieval index with. Empty takes the provider's default.
+   *
+   * Its own field rather than reusing `model`, because on a hosted backend they
+   * are different models entirely — asking OpenAI to embed with `gpt-4o` is a
+   * 400, and a writer with no way to name the right one would have no way to
+   * fix it.
+   */
+  embedModel: z.string().default('')
 })
 export type AiSettings = z.infer<typeof aiSettingsSchema>
 
@@ -144,7 +169,8 @@ export const aiSettingsOverrideSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(64).max(32_000).optional(),
   systemPrompt: z.string().optional(),
-  agent: z.boolean().optional()
+  agent: z.boolean().optional(),
+  embedModel: z.string().optional()
 })
 export type AiSettingsOverride = z.infer<typeof aiSettingsOverrideSchema>
 
@@ -257,6 +283,7 @@ export function resolveSettings(base: AiSettings, overrides: AiSettingsOverride 
   return {
     ...merged,
     model: merged.model || info.defaultModel,
+    embedModel: merged.embedModel || info.defaultEmbedModel,
     baseUrl: (merged.baseUrl || info.defaultBaseUrl).replace(/\/+$/, '')
   }
 }

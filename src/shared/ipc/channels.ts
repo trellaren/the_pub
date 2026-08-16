@@ -91,6 +91,9 @@ export const INVOKE_CHANNELS = [
   'ai:keyStatus',
   'ai:setKey',
   'ai:listModels',
+  'ai:retrievalStatus',
+  'ai:buildRetrieval',
+  'ai:cancelRetrieval',
   'llm:status',
   'llm:download',
   'llm:cancelDownload',
@@ -120,6 +123,7 @@ export const EVENT_CHANNELS = [
   'notes:changed',
   'ai:stream',
   'llm:progress',
+  'ai:retrievalProgress',
   'app:stateChanged',
   'command:invoke',
   'window:requestClose'

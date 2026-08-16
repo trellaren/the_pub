@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { VfsAdapter } from '../vfs/types.js'
@@ -15,8 +16,32 @@ import {
 } from '../../shared/pm/mentions.js'
 import { DOC_EXT, IGNORED_DIRS, MAX_SUGGESTIONS_PER_DOC } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
+import { dot, fromBlob, toBlob } from '../ai/vectors.js'
 
 const SNIPPET_RADIUS = 60
+
+/**
+ * A passage found by meaning rather than by words.
+ *
+ * Not a `SearchHit`: there are no matched ranges to highlight, and the score is
+ * a cosine rather than a bm25 rank, so pouring it into the same shape would put
+ * two incomparable numbers in one field. Nothing but the agent's retrieval tool
+ * consumes these, so they stay in main rather than becoming a shared model.
+ */
+export interface SemanticHit {
+  docId: string
+  path: string
+  title: string
+  blockIndex: number
+  text: string
+  /** Cosine similarity, 0 to 1. */
+  score: number
+}
+
+/** Identifies a block's text, so an unchanged paragraph keeps its vector. */
+function textHash(text: string): string {
+  return createHash('sha1').update(text).digest('hex').slice(0, 16)
+}
 
 /**
  * Bumped whenever the schema below changes.
@@ -27,7 +52,7 @@ const SNIPPET_RADIUS = 60
  * `files` is what forces the mtime diff to re-index everything. The database is
  * a pure cache, so a rebuild is the cheapest correct migration.
  */
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 /** How the indexer reaches the current roster; see the constructor. */
 export type RosterSource = () => EntityFile
@@ -51,6 +76,9 @@ export class SearchIndexService {
   private deleteFile: StatementSync
   private insertMention: StatementSync
   private deleteMentions: StatementSync
+  private insertEmbedding: StatementSync
+  private deleteEmbeddings: StatementSync
+  private pruneEmbedding: StatementSync
   /** Compiled forms and dismissals, rebuilt on demand; see `invalidateRoster`. */
   private compiled: { forms: ScanForm[]; dismissed: Map<string, Set<string>> } | null = null
 
@@ -100,6 +128,13 @@ export class SearchIndexService {
       ) WITHOUT ROWID;
       CREATE INDEX IF NOT EXISTS mentions_by_entity
         ON mentions (entity_id, confirmed, doc_id, block_index);
+      CREATE TABLE IF NOT EXISTS embeddings (
+        doc_id      TEXT    NOT NULL,
+        block_index INTEGER NOT NULL,
+        text_hash   TEXT    NOT NULL,
+        vector      BLOB    NOT NULL,
+        PRIMARY KEY (doc_id, block_index)
+      ) WITHOUT ROWID;
     `)
     this.insertBlock = this.db.prepare('INSERT INTO blocks (text, doc_id, block_index) VALUES (?, ?, ?)')
     this.upsertFile = this.db.prepare(
@@ -120,6 +155,18 @@ export class SearchIndexService {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     this.deleteMentions = this.db.prepare('DELETE FROM mentions WHERE doc_id = ?')
+    this.insertEmbedding = this.db.prepare(
+      `INSERT INTO embeddings (doc_id, block_index, text_hash, vector) VALUES (?, ?, ?, ?)
+       ON CONFLICT(doc_id, block_index) DO UPDATE SET
+         text_hash = excluded.text_hash, vector = excluded.vector`
+    )
+    this.deleteEmbeddings = this.db.prepare('DELETE FROM embeddings WHERE doc_id = ?')
+    // Keyed on the text rather than on the block, so re-saving a chapter costs
+    // embeddings only for the paragraphs that actually changed. Without this a
+    // one-word fix would re-embed the whole book.
+    this.pruneEmbedding = this.db.prepare(
+      'DELETE FROM embeddings WHERE doc_id = ? AND block_index = ? AND text_hash <> ?'
+    )
   }
 
   /** Drop everything derived when the schema moves on. See `SCHEMA_VERSION`. */
@@ -127,6 +174,7 @@ export class SearchIndexService {
     const row = this.db.prepare('PRAGMA user_version').get() as { user_version: number } | undefined
     if (Number(row?.user_version ?? 0) === SCHEMA_VERSION) return
     this.db.exec(`
+      DROP TABLE IF EXISTS embeddings;
       DROP TABLE IF EXISTS mentions;
       DROP TABLE IF EXISTS blocks;
       DROP TABLE IF EXISTS files;
@@ -220,7 +268,7 @@ export class SearchIndexService {
     this.setProgress({ indexing: true, done: 0, total: 0 })
     try {
       if (force) {
-        this.db.exec('DELETE FROM mentions; DELETE FROM blocks; DELETE FROM files;')
+        this.db.exec('DELETE FROM embeddings; DELETE FROM mentions; DELETE FROM blocks; DELETE FROM files;')
       }
       const files = (await this.adapter.walk('', IGNORED_DIRS)).filter((entry) =>
         entry.path.endsWith(DOC_EXT)
@@ -298,6 +346,7 @@ export class SearchIndexService {
       for (const mention of extracted.mentions) {
         this.writeMention(parsed.docId, mention, blockText.get(mention.blockIndex) ?? '')
       }
+      this.pruneEmbeddingsFor(parsed.docId, blocks)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -327,9 +376,118 @@ export class SearchIndexService {
     )
   }
 
+  /**
+   * Drop the vectors this document's edit invalidated.
+   *
+   * A block whose text is unchanged keeps its vector even though the row it
+   * came from was just deleted and reinserted — that is the whole of what makes
+   * embedding incremental. Blocks past the new end go too: a chapter that lost
+   * its last three paragraphs would otherwise keep answering searches with
+   * prose that is no longer in it.
+   */
+  private pruneEmbeddingsFor(docId: string, blocks: readonly { index: number; text: string }[]): void {
+    const kept = new Set<number>()
+    for (const block of blocks) {
+      kept.add(block.index)
+      this.pruneEmbedding.run(docId, block.index, textHash(block.text))
+    }
+    for (const row of this.db
+      .prepare('SELECT block_index FROM embeddings WHERE doc_id = ?')
+      .all(docId) as { block_index: number }[]) {
+      if (!kept.has(row.block_index)) {
+        this.db.prepare('DELETE FROM embeddings WHERE doc_id = ? AND block_index = ?').run(docId, row.block_index)
+      }
+    }
+  }
+
+  /** Blocks with no current vector, oldest document first. */
+  pendingEmbeddings(limit: number): { docId: string; blockIndex: number; text: string }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT b.doc_id, b.block_index, b.text FROM blocks b
+         LEFT JOIN embeddings e ON e.doc_id = b.doc_id AND e.block_index = b.block_index
+         WHERE e.doc_id IS NULL LIMIT ?`
+      )
+      .all(limit) as { doc_id: string; block_index: number; text: string }[]
+    return rows.map((row) => ({ docId: row.doc_id, blockIndex: row.block_index, text: row.text }))
+  }
+
+  writeEmbedding(docId: string, blockIndex: number, text: string, vector: Float32Array): void {
+    this.insertEmbedding.run(docId, blockIndex, textHash(text), toBlob(vector))
+  }
+
+  /** How much of the manuscript can be searched by meaning, and how much cannot. */
+  embeddingCoverage(): { embedded: number; total: number } {
+    const embedded = this.db.prepare('SELECT COUNT(*) AS count FROM embeddings').get() as { count: number }
+    const total = this.db.prepare('SELECT COUNT(*) AS count FROM blocks').get() as { count: number }
+    return { embedded: Number(embedded.count), total: Number(total.count) }
+  }
+
+  clearEmbeddings(): void {
+    this.db.exec('DELETE FROM embeddings')
+  }
+
+  /**
+   * The passages closest in meaning to a query vector.
+   *
+   * A brute-force scan, on purpose — see `vectors.ts`. Both vectors are already
+   * unit length, so the cosine is the dot product and the whole search is one
+   * multiply-add per dimension per block.
+   *
+   * The block texts are read in one pass afterwards rather than joined per hit:
+   * `blocks` is an FTS5 table whose `doc_id` is UNINDEXED, so a lookup by it is
+   * a full scan either way, and doing it once beats doing it per result.
+   */
+  nearestBlocks(query: Float32Array, limit: number): SemanticHit[] {
+    const scored: { docId: string; blockIndex: number; score: number }[] = []
+    for (const row of this.db.prepare('SELECT doc_id, block_index, vector FROM embeddings').iterate() as Iterable<{
+      doc_id: string
+      block_index: number
+      vector: Uint8Array
+    }>) {
+      const vector = fromBlob(row.vector)
+      if (!vector) continue
+      const score = dot(query, vector)
+      if (score <= 0) continue
+      scored.push({ docId: row.doc_id, blockIndex: row.block_index, score })
+    }
+    scored.sort((a, b) => b.score - a.score)
+    const top = scored.slice(0, limit)
+    if (top.length === 0) return []
+
+    const texts = new Map<string, string>()
+    for (const row of this.db.prepare('SELECT doc_id, block_index, text FROM blocks').all() as {
+      doc_id: string
+      block_index: number
+      text: string
+    }[]) {
+      texts.set(`${row.doc_id} ${row.block_index}`, row.text)
+    }
+
+    const hits: SemanticHit[] = []
+    for (const item of top) {
+      const file = this.db.prepare('SELECT path, title FROM files WHERE doc_id = ?').get(item.docId) as
+        | { path: string; title: string }
+        | undefined
+      if (!file) continue
+      const text = texts.get(`${item.docId} ${item.blockIndex}`)
+      if (text === undefined) continue
+      hits.push({
+        docId: item.docId,
+        path: file.path,
+        title: file.title,
+        blockIndex: item.blockIndex,
+        text,
+        score: item.score
+      })
+    }
+    return hits
+  }
+
   removeDoc(docId: string): void {
     this.deleteBlocks.run(docId)
     this.deleteMentions.run(docId)
+    this.deleteEmbeddings.run(docId)
     this.deleteFile.run(docId)
   }
 

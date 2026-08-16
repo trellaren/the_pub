@@ -3,6 +3,7 @@ import type { AiProviderId, ToolCall, EditProposal } from '@shared/model/ai.js'
 import { PROVIDERS, PROMPT_PRESETS, providerInfo, resolveSettings } from '@shared/model/ai.js'
 import { EMBEDDED_MODELS } from '@shared/model/llm.js'
 import { ModelManager } from './ModelManager.js'
+import { RetrievalManager } from './RetrievalManager.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useChatStore, listenForReplies } from '@renderer/stores/chatStore.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
@@ -362,6 +363,8 @@ function SettingsForm() {
         It can search and read your documents and records, and suggest edits for you to accept —
         it never changes a document itself.
       </p>
+
+      {settings.agent ? <RetrievalManager /> : null}
 
       {settings.provider === 'embedded' ? <ModelManager /> : null}
     </div>

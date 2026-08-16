@@ -35,6 +35,7 @@ export interface FixtureParts {
   numbering?: string
   relationships?: string
   media?: Record<string, Uint8Array>
+  footnotes?: string
 }
 
 /** Wrap body XML into a complete, unzippable `.docx`. */
@@ -61,8 +62,18 @@ export function buildDocx(parts: FixtureParts): Uint8Array {
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering ${W}>${parts.numbering}</w:numbering>`
     )
   }
+  if (parts.footnotes !== undefined) {
+    files['word/footnotes.xml'] = strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes ${W}>${parts.footnotes}</w:footnotes>`
+    )
+  }
   for (const [name, data] of Object.entries(parts.media ?? {})) files[name] = data
   return zipSync(files)
+}
+
+/** A `w:footnote` entry, Word's own shape: an id and a body of paragraphs. */
+export function footnote(id: string, body: string): string {
+  return `<w:footnote w:id="${id}">${body}</w:footnote>`
 }
 
 /** The style part Word writes for a plain document with headings. */

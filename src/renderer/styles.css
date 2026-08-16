@@ -415,6 +415,85 @@ body {
   display: inline-block;
 }
 
+/*
+ * Footnotes: a superscript marker inline in the text, with its own content —
+ * managed by ProseMirror as ordinary editable paragraphs — hidden until
+ * clicked open. `.pub-footnote-body` is that content's one true DOM home:
+ * open/closed is a class toggled by the plugin, not a second copy of it.
+ */
+.pub-footnote {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+.pub-footnote::before {
+  content: attr(data-number);
+  vertical-align: super;
+  font-size: 0.7em;
+  color: var(--color-accent, #8a6a3f);
+  padding: 0 1px;
+}
+.pub-footnote-body {
+  display: none;
+}
+.pub-footnote.is-open .pub-footnote-body {
+  display: block;
+  position: absolute;
+  top: 1.4em;
+  left: 0;
+  z-index: 20;
+  min-width: 16rem;
+  max-width: 24rem;
+  padding: 6px 10px;
+  background: #fff;
+  color: #241f1b;
+  border: 1px solid #c3b7a4;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: normal;
+  cursor: text;
+}
+.pub-footnote-body p {
+  margin: 0 0 4px;
+}
+.pub-footnote-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* The endnotes region: a read-only reflection of every footnote, in order. */
+.pub-endnotes {
+  margin: 0 auto 96px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.pub-endnotes-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.pub-endnotes ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+  margin: 0;
+}
+.pub-endnotes li {
+  margin-bottom: 4px;
+}
+.pub-endnotes button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pub-endnotes button:hover {
+  text-decoration: underline;
+}
+
 
 /* Record notes: a compact editor, not a manuscript sheet. */
 .pub-notes {

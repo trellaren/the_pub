@@ -5,6 +5,7 @@ import {
   buildDocx,
   paragraph,
   run,
+  footnote,
   WORD_STYLES,
   WORD_NUMBERING,
   TINY_PNG
@@ -280,8 +281,53 @@ describe('links, images and tables', () => {
   })
 })
 
+describe('footnotes', () => {
+  it('reads a footnote reference into a footnote node carrying its text', () => {
+    const found = blocks(paragraph(`${run('A claim.')}<w:r><w:footnoteReference w:id="2"/></w:r>`), {
+      body: '',
+      footnotes: footnote('2', paragraph(run('The evidence.')))
+    })
+    const note = found[0]!.content!.find((node) => node.type === 'footnote')
+    expect(note).toBeDefined()
+    expect(textOf(note)).toBe('The evidence.')
+  })
+
+  it('skips separator and continuation-separator entries, not just real footnotes', () => {
+    const found = blocks(paragraph(`${run('x')}<w:r><w:footnoteReference w:id="1"/></w:r>`), {
+      body: '',
+      footnotes:
+        '<w:footnote w:type="separator" w:id="-1"><w:p/></w:footnote>' +
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p/></w:footnote>' +
+        footnote('1', paragraph(run('Real note.')))
+    })
+    const note = found[0]!.content!.find((node) => node.type === 'footnote')
+    expect(textOf(note)).toBe('Real note.')
+  })
+
+  it('carries a multi-paragraph footnote body through as multiple paragraphs', () => {
+    const found = blocks(paragraph(`${run('x')}<w:r><w:footnoteReference w:id="1"/></w:r>`), {
+      body: '',
+      footnotes: footnote('1', paragraph(run('First.')) + paragraph(run('Second.')))
+    })
+    const note = found[0]!.content!.find((node) => node.type === 'footnote')
+    expect(note!.content!.map((block) => textOf(block))).toEqual(['First.', 'Second.'])
+  })
+
+  it('no longer reports footnotes as unsupported once they are matched', () => {
+    const result = importDocx(
+      buildDocx({
+        body: paragraph(`${run('x')}<w:r><w:footnoteReference w:id="1"/></w:r>`),
+        footnotes: footnote('1', paragraph(run('Note.')))
+      })
+    )
+    expect(result.warnings).toEqual([])
+  })
+})
+
 describe('what could not be imported', () => {
   it('names each kind of loss once', () => {
+    // No `footnotes` part is given, so both references are dangling — the
+    // successful case (a real footnotes part) is covered under 'footnotes' below.
     const result = importDocx(
       buildDocx({
         body:
@@ -290,7 +336,7 @@ describe('what could not be imported', () => {
       })
     )
     // Forty identical warnings is a summary nobody reads.
-    expect(result.warnings).toEqual(['Footnotes were not imported.'])
+    expect(result.warnings).toEqual(['A footnote reference could not be matched to its text and was dropped.'])
   })
 
   it('says so rather than dropping tracked changes in silence', () => {

@@ -67,14 +67,20 @@ const DOCUMENT_PART = 'word/document.xml'
 const STYLES_PART = 'word/styles.xml'
 const NUMBERING_PART = 'word/numbering.xml'
 const RELS_PART = 'word/_rels/document.xml.rels'
+const FOOTNOTES_PART = 'word/footnotes.xml'
 
 /**
  * Features with no representation here. Each is named in a warning rather than
  * quietly discarded — an author who exported from Word with footnotes deserves
  * to know they did not survive the trip.
+ *
+ * Footnotes themselves are no longer in this list — they import as real
+ * `footnote` nodes, below. Word's *endnotes* (a distinct OOXML part from
+ * footnotes, `word/endnotes.xml`) are a separate, still-unsupported feature —
+ * not to be confused with this app's own "endnotes region", which is a
+ * rendering choice for footnote content, not an import target of its own.
  */
 const UNSUPPORTED: { tag: string; label: string }[] = [
-  { tag: 'w:footnoteReference', label: 'Footnotes' },
   { tag: 'w:endnoteReference', label: 'Endnotes' },
   { tag: 'w:commentReference', label: 'Comments' },
   { tag: 'w:ins ', label: 'Tracked insertions' },
@@ -97,6 +103,7 @@ export function importDocx(bytes: Uint8Array): DocxImport {
     relations: readRelations(zip[RELS_PART]),
     numbering: readNumbering(zip[NUMBERING_PART]),
     styleById: new Map(),
+    footnotesById: new Map(),
     warnings: [],
     seen: new Set(),
     used: new Set()
@@ -104,6 +111,8 @@ export function importDocx(bytes: Uint8Array): DocxImport {
 
   const { styles, byId } = readStyles(zip[STYLES_PART])
   context.styleById = byId
+  // Read before the body, which is what needs the lookup this populates.
+  readFootnotes(zip[FOOTNOTES_PART], context)
 
   const body = path(root(parseXml(source), 'w:document'), ['w:body'])
   if (!body) throw new Error('This Word document has no body.')
@@ -151,6 +160,8 @@ interface Context {
   relations: Map<string, string>
   numbering: Map<string, 'bullet' | 'ordered'>
   styleById: Map<string, { name: string; headingLevel?: number }>
+  /** A footnote's Word id to its already-parsed content, read from `word/footnotes.xml`. */
+  footnotesById: Map<string, PmNode[]>
   warnings: string[]
   seen: Set<string>
   /** Style ids a paragraph actually referred to. */
@@ -218,6 +229,29 @@ function readNumbering(part: Uint8Array | undefined): Map<string, 'bullet' | 'or
     kinds.set(numId, (abstractId ? abstractKind.get(abstractId) : undefined) ?? 'bullet')
   }
   return kinds
+}
+
+/**
+ * A footnote's body lives in its own part, addressed by an id every
+ * `w:footnoteReference` in the body carries — the reverse of how this app
+ * models it, where the content sits directly inside the reference's own node.
+ * Reading the whole part up front, before the body, is what lets a single
+ * `w:footnoteReference` become a fully-populated `footnote` node in one step.
+ *
+ * `w:type="separator"` and `"continuationSeparator"` entries are Word's own
+ * page-layout furniture (the rule drawn above footnotes that continue onto a
+ * following page) — not an author's footnote, and skipped accordingly.
+ */
+function readFootnotes(part: Uint8Array | undefined, context: Context): void {
+  if (!part) return
+  const container = root(parseXml(strFromU8(part)), 'w:footnotes')
+  for (const footnote of childrenNamed(container, 'w:footnote')) {
+    const type = att(footnote, 'w:type')
+    if (type === 'separator' || type === 'continuationSeparator') continue
+    const id = att(footnote, 'w:id')
+    if (!id) continue
+    context.footnotesById.set(id, readBlocks(footnote, context))
+  }
 }
 
 function readStyles(part: Uint8Array | undefined): {
@@ -471,6 +505,16 @@ function readRun(run: XmlNode, context: Context, inherited: PmMark[]): PmNode[] 
       case 'w:pict': {
         const image = readImage(node, context)
         if (image) nodes.push(image)
+        break
+      }
+      case 'w:footnoteReference': {
+        const id = att(node, 'w:id')
+        const content = id ? context.footnotesById.get(id) : undefined
+        if (content) {
+          nodes.push({ type: 'footnote', content: content.length > 0 ? content : [{ type: 'paragraph' }] })
+        } else {
+          warn(context, 'A footnote reference could not be matched to its text and was dropped.')
+        }
         break
       }
       default:

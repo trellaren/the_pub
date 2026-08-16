@@ -5,6 +5,7 @@ import {
   TextRun,
   ImageRun,
   ExternalHyperlink,
+  FootnoteReferenceRun,
   Table,
   TableRow,
   TableCell,
@@ -63,19 +64,37 @@ export interface ExportOptions {
 const BULLET_REFERENCE = 'pub-bullet'
 const NUMBER_REFERENCE = 'pub-number'
 
+/**
+ * Footnote ids and bodies collected while walking the manuscript, threaded
+ * through the block/inline builders below rather than stored on
+ * `ExportOptions` — that type is the caller-facing input, and this is
+ * mutable output accumulated as a side effect of the walk.
+ *
+ * Ids are shared across every document in the export: Word footnote ids must
+ * be unique across the whole file, and chapters are exported as one
+ * continuous document (see the page-break comment below), so their footnotes
+ * number continuously too.
+ */
+interface FootnoteState {
+  next: number
+  entries: Record<string, { children: Paragraph[] }>
+}
+
 export async function exportDocx(options: ExportOptions): Promise<Buffer> {
+  const footnotes: FootnoteState = { next: 1, entries: {} }
   const children: FileChild[] = []
   options.documents.forEach((document, index) => {
     // Chapters are separated by a page break rather than a section break: one
     // continuous document is what a manuscript is, and what an agent expects.
     if (index > 0) children.push(new Paragraph({ children: [], pageBreakBefore: true }))
-    children.push(...blocksToDocx(document.content.content ?? [], options))
+    children.push(...blocksToDocx(document.content.content ?? [], options, footnotes))
   })
 
   const file = new Document({
     title: options.documents[0]?.title,
     styles: { paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles)) },
     numbering: { config: numberingConfig() },
+    footnotes: footnotes.entries,
     sections: [
       {
         properties: {
@@ -234,22 +253,22 @@ function numberingConfig(): { reference: string; levels: ILevelsOptions[] }[] {
 
 /* ----------------------------------------------------------------- blocks */
 
-function blocksToDocx(nodes: PmNode[], options: ExportOptions): FileChild[] {
+function blocksToDocx(nodes: PmNode[], options: ExportOptions, footnotes: FootnoteState): FileChild[] {
   const children: FileChild[] = []
   for (const node of nodes) {
     switch (node.type) {
       case 'paragraph':
       case 'heading':
-        children.push(paragraphToDocx(node, options))
+        children.push(paragraphToDocx(node, options, footnotes))
         break
       case 'blockquote':
         for (const inner of node.content ?? []) {
-          children.push(paragraphToDocx(inner, options, { style: 'Quote' }))
+          children.push(paragraphToDocx(inner, options, footnotes, { style: 'Quote' }))
         }
         break
       case 'bulletList':
       case 'orderedList':
-        children.push(...listToDocx(node, options, 0))
+        children.push(...listToDocx(node, options, footnotes, 0))
         break
       case 'codeBlock':
         children.push(
@@ -262,17 +281,17 @@ function blocksToDocx(nodes: PmNode[], options: ExportOptions): FileChild[] {
         children.push(new Paragraph({ thematicBreak: true }))
         break
       case 'table': {
-        const table = tableToDocx(node, options)
+        const table = tableToDocx(node, options, footnotes)
         if (table) children.push(table)
         break
       }
       case 'image':
-        children.push(new Paragraph({ children: inlineToDocx([node], options) }))
+        children.push(new Paragraph({ children: inlineToDocx([node], options, footnotes) }))
         break
       default:
         // An unknown block still carries prose; losing its shape beats losing
         // the words inside it.
-        if (node.content) children.push(...blocksToDocx(node.content, options))
+        if (node.content) children.push(...blocksToDocx(node.content, options, footnotes))
         break
     }
   }
@@ -282,6 +301,7 @@ function blocksToDocx(nodes: PmNode[], options: ExportOptions): FileChild[] {
 function paragraphToDocx(
   node: PmNode,
   options: ExportOptions,
+  footnotes: FootnoteState,
   overrides: Partial<IParagraphOptions> = {}
 ): Paragraph {
   const attrs = node.attrs ?? {}
@@ -321,33 +341,33 @@ function paragraphToDocx(
       : {}),
     ...direct,
     ...overrides,
-    children: inlineToDocx(node.content ?? [], options)
+    children: inlineToDocx(node.content ?? [], options, footnotes)
   })
 }
 
-function listToDocx(list: PmNode, options: ExportOptions, level: number): FileChild[] {
+function listToDocx(list: PmNode, options: ExportOptions, footnotes: FootnoteState, level: number): FileChild[] {
   const reference = list.type === 'orderedList' ? NUMBER_REFERENCE : BULLET_REFERENCE
   const children: FileChild[] = []
   for (const item of list.content ?? []) {
     for (const block of item.content ?? []) {
       if (block.type === 'bulletList' || block.type === 'orderedList') {
-        children.push(...listToDocx(block, options, Math.min(level + 1, 4)))
+        children.push(...listToDocx(block, options, footnotes, Math.min(level + 1, 4)))
         continue
       }
       children.push(
-        paragraphToDocx(block, options, { numbering: { reference, level: Math.min(level, 4) } })
+        paragraphToDocx(block, options, footnotes, { numbering: { reference, level: Math.min(level, 4) } })
       )
     }
   }
   return children
 }
 
-function tableToDocx(table: PmNode, options: ExportOptions): Table | null {
+function tableToDocx(table: PmNode, options: ExportOptions, footnotes: FootnoteState): Table | null {
   const rows: TableRow[] = []
   for (const row of table.content ?? []) {
     const cells: TableCell[] = []
     for (const cell of row.content ?? []) {
-      const content = blocksToDocx(cell.content ?? [], options)
+      const content = blocksToDocx(cell.content ?? [], options, footnotes)
       cells.push(
         new TableCell({
           columnSpan: numberAttr(cell.attrs?.colspan) ?? undefined,
@@ -368,7 +388,7 @@ function isHeaderRow(row: PmNode): boolean {
 
 /* ----------------------------------------------------------------- inline */
 
-function inlineToDocx(nodes: PmNode[], options: ExportOptions): ParagraphChild[] {
+function inlineToDocx(nodes: PmNode[], options: ExportOptions, footnotes: FootnoteState): ParagraphChild[] {
   const children: ParagraphChild[] = []
   for (const node of nodes) {
     switch (node.type) {
@@ -391,8 +411,17 @@ function inlineToDocx(nodes: PmNode[], options: ExportOptions): ParagraphChild[]
         if (image) children.push(image)
         break
       }
+      case 'footnote': {
+        const id = footnotes.next++
+        const body = blocksToDocx(node.content ?? [], options, footnotes).filter(
+          (child): child is Paragraph => child instanceof Paragraph
+        )
+        footnotes.entries[String(id)] = { children: body.length > 0 ? body : [new Paragraph({})] }
+        children.push(new FootnoteReferenceRun(id))
+        break
+      }
       default:
-        if (node.content) children.push(...inlineToDocx(node.content, options))
+        if (node.content) children.push(...inlineToDocx(node.content, options, footnotes))
         break
     }
   }
@@ -513,7 +542,8 @@ export const EDITOR_NODE_TYPES = new Set([
   'tableRow',
   'tableCell',
   'tableHeader',
-  'field'
+  'field',
+  'footnote'
 ])
 
 export const EDITOR_MARK_TYPES = new Set([

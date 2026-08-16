@@ -77,6 +77,56 @@ describe('exportDocx', () => {
     expect(xml).not.toContain('targetBlockId')
   })
 
+  it('writes a footnote as a real Word footnote, not inline prose', async () => {
+    const withFootnote = doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'A claim.' },
+        { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The evidence.' }] }] }
+      ]
+    })
+    const zip = unzipSync(new Uint8Array(await write(withFootnote)))
+    const documentXml = strFromU8(zip['word/document.xml']!)
+    expect(documentXml).toContain('w:footnoteReference')
+    expect(documentXml).toContain('w:id="1"')
+    // The note's own text lives in its own part, not spliced into the paragraph.
+    expect(documentXml).not.toContain('The evidence.')
+    expect(Object.keys(zip)).toContain('word/footnotes.xml')
+    expect(strFromU8(zip['word/footnotes.xml']!)).toContain('The evidence.')
+  })
+
+  it('numbers footnotes continuously across chapters', async () => {
+    const chapterOne = doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'One.' },
+        { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First note.' }] }] }
+      ]
+    })
+    const chapterTwo = doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Two.' },
+        { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second note.' }] }] }
+      ]
+    })
+    const bytes = await exportDocx({
+      documents: [
+        { title: 'One', content: chapterOne },
+        { title: 'Two', content: chapterTwo }
+      ],
+      styles: BUILTIN_STYLES,
+      page: PAGE
+    })
+    const zip = unzipSync(new Uint8Array(bytes))
+    const documentXml = strFromU8(zip['word/document.xml']!)
+    expect(documentXml).toContain('w:id="1"')
+    expect(documentXml).toContain('w:id="2"')
+    const footnotesXml = strFromU8(zip['word/footnotes.xml']!)
+    expect(footnotesXml).toContain('First note.')
+    expect(footnotesXml).toContain('Second note.')
+  })
+
   it('names the style rather than copying its formatting', async () => {
     // This is what makes an exported manuscript editable in Word the way it was
     // here: changing Chapter Title there restyles every chapter.
@@ -329,6 +379,13 @@ function everythingForSchemaCheck(): PmDoc {
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Heading' }] },
     para('text', undefined, [{ type: 'bold' }]),
     { type: 'paragraph', content: [{ type: 'image', attrs: { src: 'x' } }, { type: 'hardBreak' }] },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'claim' },
+        { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'note' }] }] }
+      ]
+    },
     { type: 'bulletList', content: [{ type: 'listItem', content: [para('item')] }] },
     {
       type: 'table',

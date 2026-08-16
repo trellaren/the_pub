@@ -7,6 +7,7 @@ import { registerCommand } from '@renderer/commands/registry.js'
 import { PanelShell, EmptyState, cx } from '@renderer/ui/primitives.js'
 import { RichToolbar } from './RichToolbar.js'
 import { FindReplaceBar } from './FindReplaceBar.js'
+import { EndnotesRegion } from './EndnotesRegion.js'
 import { wordCount } from './editorActions.js'
 
 export interface EditorPanelParams {
@@ -125,6 +126,7 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
         >
           <EditorContent editor={editor} />
         </div>
+        <EndnotesRegion editor={editor} width={`${sheetWidth}pt`} />
       </div>
 
       <StatusBar docId={docId} />

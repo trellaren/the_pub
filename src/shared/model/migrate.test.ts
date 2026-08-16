@@ -34,8 +34,14 @@ describe('migrate', () => {
     }
   })
 
-  it('carries a v1 document forward to v2 unchanged, since the step is a no-op', () => {
+  it('carries a v1 document forward to current unchanged, since every step is a no-op', () => {
     const raw = { formatVersion: 1, title: 'x' }
+    const result = migrate('document', raw)
+    expect(result).toEqual({ value: raw, migrated: true, tooNew: false })
+  })
+
+  it('carries a v2 document forward to v3 unchanged', () => {
+    const raw = { formatVersion: 2, title: 'x' }
     const result = migrate('document', raw)
     expect(result).toEqual({ value: raw, migrated: true, tooNew: false })
   })

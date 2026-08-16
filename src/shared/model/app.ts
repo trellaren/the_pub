@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { buildScopeSchema } from '../settings/registry.js'
 import { keybindingOverridesSchema } from '../menu/keybindings.js'
+import { authorProfileSchema } from './author.js'
 
 export const recentProjectSchema = z.object({
   uri: z.string(),
@@ -31,6 +32,15 @@ export const appStateSchema = z.object({
    * shortcut reaches everyone who never rebound it.
    */
   keybindings: keybindingOverridesSchema.default({}),
+  /**
+   * Who this person is when they comment or suggest.
+   *
+   * App-scoped, in userData: an identity belongs to the person and their
+   * machine, not to a manuscript — and a project folder that carries its
+   * reviewers' identities would hand them to anyone the folder is shared with.
+   * The id is minted once and never changes.
+   */
+  author: authorProfileSchema.prefault({ id: '', name: '', color: '' }),
   ...appSettingsSchema.shape
 })
 export type AppState = z.infer<typeof appStateSchema>

@@ -24,6 +24,8 @@ import {
   type XmlNode
 } from './xml.js'
 import { builtinForWordStyle } from './styleMap.js'
+import { importedAuthorId, type AuthorProfile } from '../../shared/model/author.js'
+import { INSERTION_MARK, DELETION_MARK } from '../../shared/model/suggestion.js'
 
 /**
  * Reading a `.docx`.
@@ -51,6 +53,12 @@ export interface DocxImport {
   /** Styles the document defined, still carrying Word ids. Reconciled by the caller. */
   styles: NamedStyle[]
   images: ImportedImage[]
+  /**
+   * Authors discovered in tracked changes, to be merged into the project's
+   * registry by the caller — this module knows nothing about a project, so it
+   * reports them rather than writing them.
+   */
+  authors: AuthorProfile[]
   warnings: string[]
   /** Page setup, reported to the author but never applied project-wide. */
   page: { width: number; height: number; margin: number } | null
@@ -83,8 +91,6 @@ const FOOTNOTES_PART = 'word/footnotes.xml'
 const UNSUPPORTED: { tag: string; label: string }[] = [
   { tag: 'w:endnoteReference', label: 'Endnotes' },
   { tag: 'w:commentReference', label: 'Comments' },
-  { tag: 'w:ins ', label: 'Tracked insertions' },
-  { tag: 'w:del ', label: 'Tracked deletions' },
   { tag: 'w:sdt>', label: 'Content controls' },
   { tag: 'w:object', label: 'Embedded objects' },
   { tag: 'w:txbxContent', label: 'Text boxes' },
@@ -106,7 +112,8 @@ export function importDocx(bytes: Uint8Array): DocxImport {
     footnotesById: new Map(),
     warnings: [],
     seen: new Set(),
-    used: new Set()
+    used: new Set(),
+    authors: new Map()
   }
 
   const { styles, byId } = readStyles(zip[STYLES_PART])
@@ -124,6 +131,7 @@ export function importDocx(bytes: Uint8Array): DocxImport {
     content: { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] },
     styles: usedStyles(styles, context.used),
     images: collectImages(zip),
+    authors: [...context.authors.values()],
     warnings: context.warnings,
     page: readSectionSetup(body)
   }
@@ -166,6 +174,8 @@ interface Context {
   seen: Set<string>
   /** Style ids a paragraph actually referred to. */
   used: Set<string>
+  /** Word author name to the id minted for them. */
+  authors: Map<string, AuthorProfile>
 }
 
 function warn(context: Context, message: string): void {
@@ -463,13 +473,30 @@ function readInline(container: XmlNode, context: Context, inherited: PmMark[] = 
     if (name === 'w:r') nodes.push(...readRun(node, context, inherited))
     else if (name === 'w:hyperlink') {
       nodes.push(...readInline(node, context, [...inherited, ...linkMark(node, context)]))
-    } else if (name === 'w:ins') {
-      // A tracked insertion's runs are real text; the revision itself is not
-      // representable, and the loss is already reported.
-      nodes.push(...readInline(node, context, inherited))
+    } else if (name === 'w:ins' || name === 'w:del') {
+      // The whole point of the phase in the other direction: Word's own
+      // revisions become this app's suggestion marks, so a manuscript marked up
+      // in Word arrives with its changes still pending rather than already
+      // applied.
+      const mark = name === 'w:ins' ? INSERTION_MARK : DELETION_MARK
+      nodes.push(...readInline(node, context, [...inherited, suggestionMark(node, mark, context)]))
     }
   }
   return mergeAdjacentText(nodes)
+}
+
+/**
+ * Word records the author as a display name, having no notion of our ids, so
+ * one is minted from the name — see `importedAuthorId` for why that is stable
+ * rather than random.
+ */
+function suggestionMark(revision: XmlNode, type: string, context: Context): PmMark {
+  const name = (att(revision, 'w:author') ?? '').trim()
+  const id = name ? importedAuthorId(name) : 'docx-anonymous'
+  if (!context.authors.has(id)) {
+    context.authors.set(id, { id, name: name || 'Unnamed reviewer', color: '' })
+  }
+  return { type, attrs: { authorId: id, at: att(revision, 'w:date') ?? '' } }
 }
 
 function linkMark(hyperlink: XmlNode, context: Context): PmMark[] {
@@ -485,6 +512,9 @@ function readRun(run: XmlNode, context: Context, inherited: PmMark[]): PmNode[] 
 
   for (const node of childrenOf(run)) {
     switch (nameOf(node)) {
+      // Inside a `w:del`, Word stores the text as `w:delText`; a reader that
+      // only knows `w:t` silently drops every deleted word.
+      case 'w:delText':
       case 'w:t': {
         const text = textIn(node)
         if (text.length > 0) nodes.push({ type: 'text', text, ...(marks.length ? { marks } : {}) })

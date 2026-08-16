@@ -7,6 +7,7 @@ import {
   findVariant,
   memoryGate,
   formatBytes,
+  downloadUrl,
   type ModelVariant,
   type VariantStatus
 } from '../../shared/model/llm.js'
@@ -137,7 +138,7 @@ export class ModelStore {
     const controller = new AbortController()
     const promise = downloadModel(
       {
-        url: variant.url,
+        url: downloadUrl(variant),
         destination: this.pathFor(variantId),
         bytes: variant.bytes,
         sha256: variant.sha256

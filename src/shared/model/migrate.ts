@@ -34,7 +34,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // existing v4 document's own shape changes — only the version, so an
     // older build doesn't silently re-save a v5 document as v4 and drop a
     // header an author just wrote.
-    { from: 4, to: 5, up: (raw) => raw }
+    { from: 4, to: 5, up: (raw) => raw },
+    // Phase 9 adds the `insertion` and `deletion` marks. An older build must
+    // open a document under review read-only rather than stripping the marks
+    // and autosaving the loss — which would silently accept every pending
+    // insertion and reject every pending deletion, with nothing to undo it by.
+    { from: 5, to: 6, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in
@@ -89,7 +94,10 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     { from: 1, to: 2, up: (raw) => raw }
   ],
   notes: [],
-  sources: []
+  sources: [],
+  authors: [],
+  reviews: [],
+  presence: []
 }
 
 export interface MigrationResult {

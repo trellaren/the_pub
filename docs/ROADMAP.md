@@ -370,6 +370,27 @@ Phase 0 → Phase 11  Highlighting + research library   (also needs 5)
 Phase 10 is two tracks under one number: **10a** (database connections) depends on nothing, while
 **10b** (the agent) needs both 8 and 9. They share no code and either can ship first.
 
+## Phase 15 — An assistant that can build things
+
+*Detailed build plan: [`phase-15-plan.md`](./phase-15-plan.md).*
+
+Phase 10b's agent can read a project and propose prose edits. This is the half a writer asks for
+next: draft a character, fill out a cast, bring research back with its citation attached.
+
+- **One boolean, `provisional`, on records and sources.** A draft the assistant wrote is a *real*
+  record — searchable, mentionable, linkable to a beat — that is visibly not yet accepted.
+  Accepting clears the flag; that is all accepting does. A draft in a sidecar file is a preview,
+  not a draft, because you cannot work with it.
+- **A tool may only modify what it created and nobody has accepted.** Enforced by the service
+  refusing, the way `ReviewService` refuses another author's thread — not by asking the model
+  nicely.
+- **An ensemble is generated as a group, in one request, against stated constraints** ("exactly
+  one is lying about why they signed on"), and the constraints are validated by us afterwards.
+  N independent rolls is why every ensemble generator produces the same person eight times.
+- **Research records a claim and its attributed citation; it does not browse.** A confident
+  fabricated citation in a thesis bibliography is career damage, so the card says "attributed by
+  the assistant — not verified" and fetching waits for Phase 11's research library.
+
 ## The decisions that matter most
 
 1. **Fix `formatVersion` before anything else.** It is a correctness bug today, not merely a
@@ -386,6 +407,9 @@ Phase 10 is two tracks under one number: **10a** (database connections) depends 
    marks inherits accept/reject, attribution, undo and the Word round-trip instead of rebuilding
    four mechanisms worse — and it is what makes an agent over someone's manuscript acceptable at
    all.
-7. **Every output consumes the binder.** EPUB, PDF and print go through the same
+7. **The assistant's records are provisional, not hidden.** The same proposal-then-commit shape
+   as suggestion marks, applied to records and sources — one idea implemented twice, rather than
+   two mechanisms that drift.
+8. **Every output consumes the binder.** EPUB, PDF and print go through the same
    `flattenManuscript` stream as DOCX, and PDF prints the paginated view rather than laying it
    out a second time. Two layout engines disagree; two traversals drift.

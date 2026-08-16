@@ -22,6 +22,7 @@ import { ParagraphFormat } from './extensions/paragraphFormat.js'
 import { FindHighlight } from './extensions/findHighlight.js'
 import { BlockIds } from './extensions/blockIds.js'
 import { Anchors } from './extensions/anchors.js'
+import { Insertion, Deletion, SuggestingMode } from './extensions/suggestions.js'
 import { Field } from './extensions/field.js'
 import { Footnote } from './extensions/footnote.js'
 import { Citation } from './extensions/citation.js'
@@ -39,6 +40,8 @@ export interface CreateEditorOptions {
   getCitationStyleId: () => string
   /** Live getter for the scene-heading picker, pre-filtered to location records. */
   getLocations: () => StoryEntity[]
+  /** Who this person is when suggesting. Empty until they have an author id. */
+  authorId?: string
   onUpdate: () => void
 }
 
@@ -89,6 +92,9 @@ export function createEditor(options: CreateEditorOptions): Editor {
       FindHighlight,
       BlockIds,
       Anchors,
+      Insertion,
+      Deletion,
+      SuggestingMode.configure({ authorId: options.authorId ?? '', enabled: false }),
       Field,
       Footnote,
       Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId })

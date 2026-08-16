@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { EMBEDDED_MODELS, formatBytes, type VariantStatus } from '@shared/model/llm.js'
+import { EMBEDDED_MODELS, formatBytes, isPinned, type VariantStatus } from '@shared/model/llm.js'
 import { useChatStore, listenForModelProgress } from '@renderer/stores/chatStore.js'
 import { ToolbarButton, SectionTitle } from '@renderer/ui/primitives.js'
 
@@ -68,6 +68,14 @@ export function ModelManager() {
                     // entry with no published digest cannot be checked, and
                     // saying nothing would imply a check that never ran.
                     <span className="ml-1 text-faint">(unverified)</span>
+                  ) : null}
+                  {!isPinned(variant) && status?.state !== 'ready' ? (
+                    // Said before the download rather than after it: whether
+                    // the finished file can be checked is worth knowing while
+                    // deciding to spend the bandwidth.
+                    <span className="ml-1 text-faint" data-testid={`unpinned-${variant.id}`}>
+                      (no published checksum yet)
+                    </span>
                   ) : null}
                 </span>
 

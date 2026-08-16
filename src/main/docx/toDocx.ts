@@ -3,6 +3,8 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  InsertedTextRun,
+  DeletedTextRun,
   ImageRun,
   ExternalHyperlink,
   FootnoteReferenceRun,
@@ -63,6 +65,13 @@ export interface ExportOptions {
   /** From the first document's first section (Phase 7), when it has one. */
   header?: PmDoc
   footer?: PmDoc
+  /**
+   * Author id to display name, for tracked changes. Word has no concept of our
+   * ids, so a name is what travels; an id with no entry exports as itself
+   * rather than as an empty author, which Word renders as "Unknown" and which
+   * loses the only thing that would let the importer pair it up again.
+   */
+  authors?: Record<string, string>
   /** Resolve an image `src` to bytes. Absent images are skipped, not fatal. */
   readImage?: (src: string) => { data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' } | null
 }
@@ -72,35 +81,36 @@ const NUMBER_REFERENCE = 'pub-number'
 const HEADING_NUMBERING_REFERENCE = 'pub-heading-number'
 
 /**
- * Footnote ids and bodies collected while walking the manuscript, threaded
- * through the block/inline builders below rather than stored on
- * `ExportOptions` — that type is the caller-facing input, and this is
- * mutable output accumulated as a side effect of the walk.
+ * Ids and bodies collected while walking the manuscript, threaded through the
+ * block/inline builders below rather than stored on `ExportOptions` — that type
+ * is the caller-facing input, and this is mutable output accumulated as a side
+ * effect of the walk.
  *
- * Ids are shared across every document in the export: Word footnote ids must
- * be unique across the whole file, and chapters are exported as one
- * continuous document (see the page-break comment below), so their footnotes
- * number continuously too.
+ * Both counters are shared across every document in the export: Word footnote
+ * ids and revision ids must each be unique across the whole file, and chapters
+ * are exported as one continuous document (see the page-break comment below),
+ * so they number continuously too.
  */
-interface FootnoteState {
+interface WalkState {
   next: number
   entries: Record<string, { children: Paragraph[] }>
+  nextRevision: number
 }
 
 export async function exportDocx(options: ExportOptions): Promise<Buffer> {
-  const footnotes: FootnoteState = { next: 1, entries: {} }
+  const state: WalkState = { next: 1, entries: {}, nextRevision: 1 }
   const children: FileChild[] = []
   options.documents.forEach((document, index) => {
     // Chapters are separated by a page break rather than a section break: one
     // continuous document is what a manuscript is, and what an agent expects.
     if (index > 0) children.push(new Paragraph({ children: [], pageBreakBefore: true }))
-    children.push(...blocksToDocx(document.content.content ?? [], options, footnotes))
+    children.push(...blocksToDocx(document.content.content ?? [], options, state))
   })
 
   const headingLevels = headingNumberingLevels(options.styles)
   const orientation = options.page.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT
-  const header = options.header ? new Header({ children: headerFooterChildren(options.header, options, footnotes) }) : undefined
-  const footer = options.footer ? new Footer({ children: headerFooterChildren(options.footer, options, footnotes) }) : undefined
+  const header = options.header ? new Header({ children: headerFooterChildren(options.header, options, state) }) : undefined
+  const footer = options.footer ? new Footer({ children: headerFooterChildren(options.footer, options, state) }) : undefined
   const file = new Document({
     title: options.documents[0]?.title,
     styles: { paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles)) },
@@ -110,7 +120,7 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
         ...(headingLevels ? [{ reference: HEADING_NUMBERING_REFERENCE, levels: headingLevels }] : [])
       ]
     },
-    footnotes: footnotes.entries,
+    footnotes: state.entries,
     sections: [
       {
         ...(header ? { headers: { default: header } } : {}),
@@ -139,8 +149,8 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
 }
 
 /** A header or footer's content, built from the same block walker the body uses. */
-function headerFooterChildren(doc: PmDoc, options: ExportOptions, footnotes: FootnoteState): Paragraph[] {
-  return blocksToDocx(doc.content ?? [], options, footnotes).filter(
+function headerFooterChildren(doc: PmDoc, options: ExportOptions, state: WalkState): Paragraph[] {
+  return blocksToDocx(doc.content ?? [], options, state).filter(
     (child): child is Paragraph => child instanceof Paragraph
   )
 }
@@ -319,22 +329,22 @@ function headingNumberingLevels(styles: NamedStyle[]): ILevelsOptions[] | null {
 
 /* ----------------------------------------------------------------- blocks */
 
-function blocksToDocx(nodes: PmNode[], options: ExportOptions, footnotes: FootnoteState): FileChild[] {
+function blocksToDocx(nodes: PmNode[], options: ExportOptions, state: WalkState): FileChild[] {
   const children: FileChild[] = []
   for (const node of nodes) {
     switch (node.type) {
       case 'paragraph':
       case 'heading':
-        children.push(paragraphToDocx(node, options, footnotes))
+        children.push(paragraphToDocx(node, options, state))
         break
       case 'blockquote':
         for (const inner of node.content ?? []) {
-          children.push(paragraphToDocx(inner, options, footnotes, { style: 'Quote' }))
+          children.push(paragraphToDocx(inner, options, state, { style: 'Quote' }))
         }
         break
       case 'bulletList':
       case 'orderedList':
-        children.push(...listToDocx(node, options, footnotes, 0))
+        children.push(...listToDocx(node, options, state, 0))
         break
       case 'codeBlock':
         children.push(
@@ -347,17 +357,17 @@ function blocksToDocx(nodes: PmNode[], options: ExportOptions, footnotes: Footno
         children.push(new Paragraph({ thematicBreak: true }))
         break
       case 'table': {
-        const table = tableToDocx(node, options, footnotes)
+        const table = tableToDocx(node, options, state)
         if (table) children.push(table)
         break
       }
       case 'image':
-        children.push(new Paragraph({ children: inlineToDocx([node], options, footnotes) }))
+        children.push(new Paragraph({ children: inlineToDocx([node], options, state) }))
         break
       default:
         // An unknown block still carries prose; losing its shape beats losing
         // the words inside it.
-        if (node.content) children.push(...blocksToDocx(node.content, options, footnotes))
+        if (node.content) children.push(...blocksToDocx(node.content, options, state))
         break
     }
   }
@@ -367,7 +377,7 @@ function blocksToDocx(nodes: PmNode[], options: ExportOptions, footnotes: Footno
 function paragraphToDocx(
   node: PmNode,
   options: ExportOptions,
-  footnotes: FootnoteState,
+  state: WalkState,
   overrides: Partial<IParagraphOptions> = {}
 ): Paragraph {
   const attrs = node.attrs ?? {}
@@ -413,33 +423,33 @@ function paragraphToDocx(
       : {}),
     ...direct,
     ...overrides,
-    children: inlineToDocx(node.content ?? [], options, footnotes)
+    children: inlineToDocx(node.content ?? [], options, state)
   })
 }
 
-function listToDocx(list: PmNode, options: ExportOptions, footnotes: FootnoteState, level: number): FileChild[] {
+function listToDocx(list: PmNode, options: ExportOptions, state: WalkState, level: number): FileChild[] {
   const reference = list.type === 'orderedList' ? NUMBER_REFERENCE : BULLET_REFERENCE
   const children: FileChild[] = []
   for (const item of list.content ?? []) {
     for (const block of item.content ?? []) {
       if (block.type === 'bulletList' || block.type === 'orderedList') {
-        children.push(...listToDocx(block, options, footnotes, Math.min(level + 1, 4)))
+        children.push(...listToDocx(block, options, state, Math.min(level + 1, 4)))
         continue
       }
       children.push(
-        paragraphToDocx(block, options, footnotes, { numbering: { reference, level: Math.min(level, 4) } })
+        paragraphToDocx(block, options, state, { numbering: { reference, level: Math.min(level, 4) } })
       )
     }
   }
   return children
 }
 
-function tableToDocx(table: PmNode, options: ExportOptions, footnotes: FootnoteState): Table | null {
+function tableToDocx(table: PmNode, options: ExportOptions, state: WalkState): Table | null {
   const rows: TableRow[] = []
   for (const row of table.content ?? []) {
     const cells: TableCell[] = []
     for (const cell of row.content ?? []) {
-      const content = blocksToDocx(cell.content ?? [], options, footnotes)
+      const content = blocksToDocx(cell.content ?? [], options, state)
       cells.push(
         new TableCell({
           columnSpan: numberAttr(cell.attrs?.colspan) ?? undefined,
@@ -460,16 +470,51 @@ function isHeaderRow(row: PmNode): boolean {
 
 /* ----------------------------------------------------------------- inline */
 
-function inlineToDocx(nodes: PmNode[], options: ExportOptions, footnotes: FootnoteState): ParagraphChild[] {
+/**
+ * One suggested run, as Word records it.
+ *
+ * The author is a *name*, because that is the only thing Word has: it has no
+ * concept of our author ids, so the registry is consulted here and the name is
+ * what travels. Coming back the other way, `fromDocx` matches the name into the
+ * registry and mints an id if it has never seen it.
+ */
+function trackedRun(
+  mark: { type: string; attrs?: Record<string, unknown> },
+  properties: { text: string },
+  options: ExportOptions,
+  state: WalkState
+): ParagraphChild {
+  const authorId = String(mark.attrs?.authorId ?? '')
+  const change = {
+    id: state.nextRevision++,
+    author: options.authors?.[authorId] ?? authorId,
+    date: String(mark.attrs?.at || new Date().toISOString())
+  }
+  return mark.type === 'insertion'
+    ? new InsertedTextRun({ ...properties, ...change })
+    : new DeletedTextRun({ ...properties, ...change })
+}
+
+function inlineToDocx(nodes: PmNode[], options: ExportOptions, state: WalkState): ParagraphChild[] {
   const children: ParagraphChild[] = []
   for (const node of nodes) {
     switch (node.type) {
       case 'text': {
         const link = node.marks?.find((mark) => mark.type === 'link')
-        const run = new TextRun({ text: node.text ?? '', ...markProperties(node.marks) })
+        // A suggested edit becomes Word's own tracked change, not a coloured
+        // run that looks like one: the payoff of this whole phase is that a
+        // reviewer without The Pub sees these in Word's review pane and can
+        // accept them there.
+        const suggestion = node.marks?.find(
+          (mark) => mark.type === 'insertion' || mark.type === 'deletion'
+        )
+        const properties = { text: node.text ?? '', ...markProperties(node.marks) }
+        const run = suggestion
+          ? trackedRun(suggestion, properties, options, state)
+          : new TextRun(properties)
         const href = link?.attrs?.href
         children.push(
-          typeof href === 'string' && href.length > 0
+          typeof href === 'string' && href.length > 0 && run instanceof TextRun
             ? new ExternalHyperlink({ children: [run], link: href })
             : run
         )
@@ -484,16 +529,16 @@ function inlineToDocx(nodes: PmNode[], options: ExportOptions, footnotes: Footno
         break
       }
       case 'footnote': {
-        const id = footnotes.next++
-        const body = blocksToDocx(node.content ?? [], options, footnotes).filter(
+        const id = state.next++
+        const body = blocksToDocx(node.content ?? [], options, state).filter(
           (child): child is Paragraph => child instanceof Paragraph
         )
-        footnotes.entries[String(id)] = { children: body.length > 0 ? body : [new Paragraph({})] }
+        state.entries[String(id)] = { children: body.length > 0 ? body : [new Paragraph({})] }
         children.push(new FootnoteReferenceRun(id))
         break
       }
       default:
-        if (node.content) children.push(...inlineToDocx(node.content, options, footnotes))
+        if (node.content) children.push(...inlineToDocx(node.content, options, state))
         break
     }
   }
@@ -629,5 +674,8 @@ export const EDITOR_MARK_TYPES = new Set([
   'highlight',
   'subscript',
   'superscript',
-  'mention'
+  'mention',
+  // Suggested edits round-trip as Word's own tracked changes; see `runsFor`.
+  'insertion',
+  'deletion'
 ])

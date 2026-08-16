@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { RecentProject } from '@shared/model/app.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
 import { PanelShell } from '@renderer/ui/primitives.js'
 import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
+import { invoke } from '@renderer/lib/ipc.js'
+import type { DailyPrompt } from '@shared/model/writingPrompt.js'
 
 const NO_RECENTS: RecentProject[] = []
 
@@ -57,6 +59,8 @@ export function WelcomePanel() {
           </p>
         </div>
 
+        <DailyPromptCard />
+
         {recents.length > 0 ? (
           <div>
             <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Recent</h2>
@@ -80,5 +84,49 @@ export function WelcomePanel() {
       </div>
       {connecting ? <ConnectDialog onClose={() => setConnecting(false)} /> : null}
     </PanelShell>
+  )
+}
+
+/**
+ * A prompt for the day, when there is a model already set up to write one.
+ *
+ * Renders nothing at all otherwise — no placeholder, no "connect an AI to see
+ * this". A welcome screen that advertises a feature every time it opens is a
+ * welcome screen people stop reading.
+ */
+function DailyPromptCard() {
+  const [prompt, setPrompt] = useState<DailyPrompt | null>(null)
+
+  useEffect(() => {
+    void invoke('ai:dailyPrompt', { refresh: false })
+      .then((result) => setPrompt(result.text ? result : null))
+      .catch(() => setPrompt(null))
+  }, [])
+
+  if (!prompt) return null
+
+  return (
+    <div
+      className="rounded border border-border bg-surface-2 p-3"
+      data-testid="welcome-daily-prompt"
+    >
+      <div className="mb-1 flex items-center gap-2">
+        <h2 className="flex-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+          Today's prompt
+        </h2>
+        <button
+          type="button"
+          onClick={() =>
+            void invoke('ai:dailyPrompt', { refresh: true })
+              .then((result) => result.text && setPrompt(result))
+              .catch(() => {})
+          }
+          className="text-[11px] text-faint hover:text-text"
+        >
+          Another
+        </button>
+      </div>
+      <p className="font-[var(--font-read)] text-[14px] leading-relaxed text-text">{prompt.text}</p>
+    </div>
   )
 }

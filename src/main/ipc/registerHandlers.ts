@@ -16,7 +16,20 @@ import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey 
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
 import os from 'node:os'
+import { streamCompletion } from '../ai/aiRunner.js'
 import {
+  isFresh,
+  pickAngle,
+  promptRequest,
+  today,
+  EMPTY_DAILY_PROMPT
+} from '../../shared/model/writingPrompt.js'
+
+/** Long enough for a local model on a slow machine, short enough not to hang the card. */
+const PROMPT_TIMEOUT_MS = 30_000
+
+import {
+  aiSettingsSchema,
   resolveSettings,
   providerInfo,
   type ChatMessage,
@@ -210,9 +223,13 @@ export function registerHandlers(context: HandlerContext): void {
       onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
       onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
       resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
-      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status)
+      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status),
+      author: () => appState.author()
     })
     sessions.set(ownerId, session)
+    // Put ourselves in the project's registry on open, so a collaborator sees a
+    // name against our comments rather than an id.
+    await session.reviews.registerAuthor(appState.author()).catch(() => {})
     appState.addRecent(uri, session.manifest.name)
     for (const window of windows.windowsForSession(ownerId)) {
       window.setTitle(`${session.manifest.name} — The Pub`)
@@ -390,6 +407,10 @@ export function registerHandlers(context: HandlerContext): void {
       await session.search.indexDocument(target, result.mtime).catch(() => {})
       const reconciled = await session.notes.reconcile(doc.docId, doc.content).catch(() => null)
       if (reconciled) noteChanged(event, doc.docId)
+      // Review threads anchor the same way notes do and go stale the same way,
+      // so they are re-checked on the same save rather than on a timer.
+      await session.reviews.reconcile(doc.docId, doc.content).catch(() => {})
+      reviewChanged(event, doc.docId)
     }
     return result
   })
@@ -632,6 +653,76 @@ export function registerHandlers(context: HandlerContext): void {
   handle('notes:delete', async ({ docId, noteId }, event) => {
     await requireSession(event).notes.remove(docId, noteId)
     noteChanged(event, docId)
+    return { ok: true as const }
+  })
+
+  function reviewChanged(event: IpcMainInvokeEvent, docId: string): void {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'review:changed', { docId })
+  }
+
+  handle('review:list', async ({ docId }, event) => {
+    const session = requireSession(event)
+    // Always re-read: a collaborator's file arrives by sync, not by anything
+    // this window did, so a cache trusted across calls would show yesterday's
+    // discussion.
+    session.reviews.invalidate(docId)
+    return session.reviews.list(docId)
+  })
+  handle('review:createThread', async ({ docId, anchorId, anchorText, blockIndex }, event) => {
+    const thread = await requireSession(event).reviews.createThread(docId, anchorId, anchorText, blockIndex)
+    reviewChanged(event, docId)
+    return thread
+  })
+  handle('review:saveThread', async ({ docId, thread }, event) => {
+    await requireSession(event).reviews.patchThread(docId, thread.id, thread)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:setStatus', async ({ docId, threadId, status }, event) => {
+    await requireSession(event).reviews.setStatus(docId, threadId, status)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:deleteThread', async ({ docId, threadId }, event) => {
+    await requireSession(event).reviews.removeThread(docId, threadId)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:reply', async ({ docId, threadId, text }, event) => {
+    const reply = await requireSession(event).reviews.reply(docId, threadId, text)
+    reviewChanged(event, docId)
+    return reply
+  })
+  handle('review:saveReply', async ({ docId, reply }, event) => {
+    await requireSession(event).reviews.patchReply(docId, reply.id, reply)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:deleteReply', async ({ docId, replyId }, event) => {
+    await requireSession(event).reviews.removeReply(docId, replyId)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:authors', async (_payload, event) => {
+    const session = requireSession(event)
+    session.reviews.invalidateAuthors()
+    return session.reviews.listAuthors()
+  })
+  handle('review:me', () => appState.author())
+  handle('review:setMe', async (changes, event) => {
+    const profile = appState.setAuthor(changes).author
+    const me = appState.author()
+    // Record the new name in the project so collaborators see it, if one is
+    // open — naming yourself from the welcome screen is perfectly ordinary.
+    const ownerId = windows.ownerWindowId(event.sender)
+    const session = ownerId === null ? undefined : sessions.get(ownerId)
+    await session?.reviews.registerAuthor(me).catch(() => {})
+    return { ...me, name: profile.name }
+  })
+  handle('review:presence', ({ docId }, event) => requireSession(event).presence.list(docId))
+  handle('review:enter', ({ docId }, event) => {
+    requireSession(event).presence.enter(docId)
     return { ok: true as const }
   })
 
@@ -879,6 +970,57 @@ export function registerHandlers(context: HandlerContext): void {
 
   handle('ai:retrievalStatus', (_payload, event) => requireSession(event).retrieval.status())
   handle('ai:buildRetrieval', (_payload, event) => requireSession(event).retrieval.build(true))
+  /**
+   * Today's writing prompt for the welcome screen.
+   *
+   * Cached per day in app state, so opening the app four times in a morning
+   * costs one request rather than four — and so the prompt a writer read at
+   * breakfast is still there at lunch, which is most of what makes it feel like
+   * a thing rather than a slot machine.
+   *
+   * Every unavailable case returns an empty prompt rather than throwing: the
+   * welcome screen is not a place to show an error about a feature nobody asked
+   * for, and the card simply does not appear.
+   */
+  handle('ai:dailyPrompt', async ({ refresh }, event) => {
+    const stored = appState.get().dailyPrompt
+    if (!refresh && isFresh(stored)) return stored
+    if (!appState.get().aiEnabled) return EMPTY_DAILY_PROMPT
+
+    const ownerId = windows.ownerWindowId(event.sender)
+    const session = ownerId === null ? undefined : sessions.get(ownerId)
+    const settings = resolveSettings(session?.chats.settings() ?? aiSettingsSchema.parse({}))
+    const info = providerInfo(settings.provider)
+    const apiKey = keys.get(settings.provider)
+    if (info.needsKey && !apiKey) return EMPTY_DAILY_PROMPT
+
+    let baseUrl = settings.baseUrl
+    if (settings.provider === 'embedded') {
+      // Never downloads and never waits on a cold start here: an app that
+      // fetched gigabytes because someone opened the welcome screen would be an
+      // app people learn to avoid opening.
+      const running = engine.runningUrl()
+      if (!running) return EMPTY_DAILY_PROMPT
+      baseUrl = running
+    }
+
+    const angle = pickAngle(stored.angle)
+    const outcome = await streamCompletion(
+      {
+        settings: { ...settings, baseUrl, maxTokens: 200 },
+        system: 'You write short, concrete writing prompts.',
+        messages: [{ role: 'user', text: promptRequest(angle) }],
+        apiKey
+      },
+      AbortSignal.timeout(PROMPT_TIMEOUT_MS),
+      () => {}
+    ).catch(() => null)
+
+    const text = outcome?.text.trim() ?? ''
+    if (!text || outcome?.error) return EMPTY_DAILY_PROMPT
+    return appState.setDailyPrompt({ date: today(), text, angle })
+  })
+
   handle('ai:cancelRetrieval', (_payload, event) => {
     requireSession(event).retrieval.cancel()
     return { ok: true as const }

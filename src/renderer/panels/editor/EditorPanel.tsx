@@ -11,6 +11,9 @@ import { EndnotesRegion } from './EndnotesRegion.js'
 import { wordCount } from './editorActions.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { currentSources } from '@renderer/stores/sourceStore.js'
+import { DiffView } from '../history/DiffView.js'
+import { invoke } from '@renderer/lib/ipc.js'
+import type { PmDoc } from '@shared/model/document.js'
 
 export interface EditorPanelParams {
   docId: string
@@ -181,25 +184,53 @@ function TooNewBar() {
 function ConflictBar({ docId }: { docId: string }) {
   const keepMine = useDocumentStore((store) => store.keepMine)
   const reload = useDocumentStore((store) => store.reload)
+  const path = useDocumentStore((store) => store.docs[docId]?.path ?? '')
+  const [theirs, setTheirs] = useState<PmDoc | null>(null)
+
+  /**
+   * "Keep mine" and "reload" are both destructive, and asking someone to pick
+   * one blind is asking them to guess. The comparison is the same block diff
+   * history already shows, against the file as it now stands on disk.
+   */
+  const compare = async (): Promise<void> => {
+    const loaded = await invoke('doc:read', { path }).catch(() => null)
+    if (loaded) setTheirs(loaded.doc.content)
+  }
+
+  const editor = getEditor(docId)
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[12px]">
-      <span className="flex-1 text-danger">
-        This file changed outside The Pub. Your unsaved edits are still here.
-      </span>
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-0.5 hover:bg-surface-3"
-        onClick={() => void reload(docId)}
-      >
-        Discard mine, reload
-      </button>
-      <button
-        type="button"
-        className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-accent"
-        onClick={() => void keepMine(docId)}
-      >
-        Keep mine, overwrite
-      </button>
+    <div className="shrink-0 border-b border-danger/40 bg-danger/10">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+        <span className="flex-1 text-danger">
+          This file changed outside The Pub. Your unsaved edits are still here.
+        </span>
+        <button
+          type="button"
+          className="rounded border border-border px-2 py-0.5 hover:bg-surface-3"
+          onClick={() => (theirs ? setTheirs(null) : void compare())}
+        >
+          {theirs ? 'Hide changes' : 'See what changed'}
+        </button>
+        <button
+          type="button"
+          className="rounded border border-border px-2 py-0.5 hover:bg-surface-3"
+          onClick={() => void reload(docId)}
+        >
+          Discard mine, reload
+        </button>
+        <button
+          type="button"
+          className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-accent"
+          onClick={() => void keepMine(docId)}
+        >
+          Keep mine, overwrite
+        </button>
+      </div>
+      {theirs && editor ? (
+        <div className="max-h-64 overflow-auto border-t border-danger/40 bg-bg">
+          <DiffView before={theirs} after={editor.getJSON() as PmDoc} />
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -4,7 +4,7 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 5,
+  document: 6,
   manifest: 5,
   manuscript: 1,
   entities: 1,
@@ -14,7 +14,10 @@ export const FORMAT_VERSIONS = {
   chats: 4,
   connections: 2,
   notes: 1,
-  sources: 1
+  sources: 1,
+  authors: 1,
+  reviews: 1,
+  presence: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 
@@ -50,6 +53,30 @@ export const CHATS_FILE = `${PUB_DIR}/chats.json`
 export const NOTES_DIR = `${PUB_DIR}/notes`
 /** A CSL-JSON bibliography: every source the project can cite. */
 export const SOURCES_FILE = `${PUB_DIR}/sources.json`
+/** Who has worked on this project: id, display name and colour. */
+export const AUTHORS_FILE = `${PUB_DIR}/authors.json`
+/**
+ * Review comments, one file per (document, author): `reviews/<docId>/<authorId>.json`.
+ *
+ * Not one file per document, as notes are. Notes have one writer; a review has
+ * several, and two reviewers commenting on the same chapter would race on one
+ * file and lose whichever save landed first. A file per pair is single-writer
+ * by construction, and the read side merges the directory.
+ */
+export const REVIEWS_DIR = `${PUB_DIR}/reviews`
+/** Heartbeats saying who has a document open. Advisory, never a lock. */
+export const PRESENCE_DIR = `${PUB_DIR}/presence`
+
+/**
+ * How long a presence heartbeat is believed.
+ *
+ * Comfortably longer than the polling watcher's 15-second worst case plus the
+ * beat interval, because the failure this tolerates — briefly showing someone
+ * who has just closed a document — is nothing, and the opposite failure is a
+ * collaborator flickering in and out of view.
+ */
+export const PRESENCE_TTL_MS = 90_000
+export const PRESENCE_BEAT_MS = 30_000
 
 /**
  * A template's own metadata, at the root of a template directory.

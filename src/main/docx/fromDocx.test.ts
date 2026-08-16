@@ -8,7 +8,8 @@ import {
   footnote,
   WORD_STYLES,
   WORD_NUMBERING,
-  TINY_PNG
+  TINY_PNG,
+  revision
 } from './fixtures.js'
 import type { PmNode } from '../../shared/model/document.js'
 
@@ -339,12 +340,13 @@ describe('what could not be imported', () => {
     expect(result.warnings).toEqual(['A footnote reference could not be matched to its text and was dropped.'])
   })
 
-  it('says so rather than dropping tracked changes in silence', () => {
+  it('no longer counts tracked changes as a loss', () => {
+    // They used to be warned about; now they import as suggestions, and a
+    // warning about them would be a lie.
     const result = importDocx(
       buildDocx({ body: `<w:p><w:ins w:id="1" w:author="x">${run('added')}</w:ins></w:p>` })
     )
-    expect(result.warnings).toContain('Tracked insertions were not imported.')
-    // The text itself still arrives — losing the revision is not losing the prose.
+    expect(result.warnings).toEqual([])
     expect(textOf(result.content.content![0])).toBe('added')
   })
 })
@@ -364,6 +366,51 @@ describe('page setup', () => {
 
   it('is null when the document says nothing about pages', () => {
     expect(importDocx(buildDocx({ body: paragraph(run('x')) })).page).toBeNull()
+  })
+})
+
+describe('tracked changes', () => {
+  const marked = paragraph(
+    run('The harbour ') +
+      revision('del', 'Marta Vieira', '2026-01-02T10:00:00Z', 'was ') +
+      revision('ins', 'Marta Vieira', '2026-01-02T10:00:00Z', 'is ') +
+      run('quiet.')
+  )
+
+  it('imports a revision as a pending suggestion, not as an applied edit', () => {
+    const inline = blocks(marked)[0]?.content ?? []
+    const marks = inline.flatMap((node) => node.marks ?? []).map((mark) => mark.type)
+    expect(marks).toEqual(['deletion', 'insertion'])
+  })
+
+  it('keeps deleted text, which Word stores in w:delText rather than w:t', () => {
+    // The suggestion is still awaiting a verdict, so the words it proposes to
+    // remove have to arrive with it.
+    const deleted = (blocks(marked)[0]?.content ?? []).find((node) =>
+      node.marks?.some((mark) => mark.type === 'deletion')
+    )
+    expect(deleted?.text).toBe('was ')
+  })
+
+  it('carries the author and date through', () => {
+    const inserted = (blocks(marked)[0]?.content ?? []).find((node) =>
+      node.marks?.some((mark) => mark.type === 'insertion')
+    )
+    const attrs = inserted?.marks?.[0]?.attrs ?? {}
+    expect(attrs.at).toBe('2026-01-02T10:00:00Z')
+    expect(String(attrs.authorId)).toMatch(/^docx-/)
+  })
+
+  it('reports the reviewer once, however many changes they made', () => {
+    const result = importDocx(buildDocx({ body: marked }))
+    expect(result.authors).toEqual([
+      { id: expect.stringMatching(/^docx-/), name: 'Marta Vieira', color: '' }
+    ])
+  })
+
+  it('no longer warns that tracked changes were lost, because they are not', () => {
+    const result = importDocx(buildDocx({ body: marked }))
+    expect(result.warnings.join(' ')).not.toMatch(/[Tt]racked/)
   })
 })
 

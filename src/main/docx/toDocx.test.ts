@@ -328,6 +328,43 @@ describe('round trip', () => {
     }
   )
 
+  it('exports a suggestion as a real Word revision and reads it back', async () => {
+    const suggested: PmDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'The harbour ' },
+            { type: 'text', text: 'was ', marks: [{ type: 'deletion', attrs: { authorId: 'marta', at: '2026-01-02T10:00:00Z' } }] },
+            { type: 'text', text: 'is ', marks: [{ type: 'insertion', attrs: { authorId: 'marta', at: '2026-01-02T10:00:00Z' } }] },
+            { type: 'text', text: 'quiet.' }
+          ]
+        }
+      ]
+    }
+    const bytes = await exportDocx({
+      documents: [{ title: 'Chapter One', content: suggested }],
+      styles: BUILTIN_STYLES,
+      page: PAGE,
+      authors: { marta: 'Marta Vieira' }
+    })
+    const xml = strFromU8(unzipSync(new Uint8Array(bytes))['word/document.xml']!)
+    // Word's own elements, so a reviewer without this app sees these in its
+    // review pane rather than as coloured text.
+    expect(xml).toContain('<w:ins ')
+    expect(xml).toContain('<w:del ')
+    expect(xml).toContain('Marta Vieira')
+
+    const back = importDocx(new Uint8Array(bytes))
+    const inline = back.content.content![0]!.content!
+    expect(inline.flatMap((node) => node.marks ?? []).map((mark) => mark.type)).toEqual([
+      'deletion',
+      'insertion'
+    ])
+    expect(back.authors[0]!.name).toBe('Marta Vieira')
+  })
+
   it('survives a trip through Word’s own format', async () => {
     const back = importDocx(new Uint8Array(await write(everything)))
     const blocks = back.content.content!

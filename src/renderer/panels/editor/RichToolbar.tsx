@@ -6,6 +6,7 @@ import type { PmDoc } from '@shared/model/document.js'
 import { findAnchor } from '@shared/pm/anchors.js'
 import { buildToc } from '@shared/pm/toc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
+import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { useNoteStore } from '@renderer/stores/noteStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
@@ -97,6 +98,16 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
     if (!location) return
     const note = await useNoteStore.getState().create(docId, anchorId, location.text, location.blockIndex)
     if (note) useLayoutStore.getState().showPanel('notes', 'Notes')
+  }
+
+  /** The review counterpart of `addNote`: anchor a comment thread to the selection. */
+  const addComment = async (): Promise<void> => {
+    const anchorId = ulid()
+    editor.chain().focus().setAnchor({ anchorId }).run()
+    const location = findAnchor(editor.getJSON() as PmDoc, anchorId)
+    if (!location) return
+    await useReviewStore.getState().createThread(docId, anchorId, location.text, location.blockIndex)
+    useLayoutStore.getState().showPanel('review', 'Review')
   }
 
   // Read-only preview for the picker below — minting the `blockId`s a chosen
@@ -305,6 +316,13 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
       </ToolbarButton>
       <ToolbarButton label="Add note" disabled={editor.state.selection.empty} onClick={() => void addNote()}>
         🗨
+      </ToolbarButton>
+      <ToolbarButton
+        label="Add comment"
+        disabled={editor.state.selection.empty}
+        onClick={() => void addComment()}
+      >
+        💬
       </ToolbarButton>
       <ToolbarButton label="Insert footnote" onClick={() => editor.chain().focus().insertFootnote().run()}>
         [n]

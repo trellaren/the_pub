@@ -4,6 +4,9 @@ import { app } from 'electron'
 import { appStateSchema, type AppState, type RecentProject } from '../../shared/model/app.js'
 import { keybindableCommands } from '../../shared/menu/menuModel.js'
 import { findConflict, normalizeAccelerator } from '../../shared/menu/keybindings.js'
+import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
+import { ulid } from 'ulid'
+import type { DailyPrompt } from '../../shared/model/writingPrompt.js'
 
 const MAX_RECENTS = 12
 
@@ -76,6 +79,41 @@ export class AppStateService {
     this.state = { ...this.state, aiEnabled }
     this.persist()
     return this.state
+  }
+
+  /**
+   * Name yourself, or pick a colour.
+   *
+   * The id is never taken from the caller: it is minted once on first use and
+   * kept, because everything the review system writes is stamped with it, and
+   * an id that could be changed from the renderer is one that could orphan
+   * every comment a person has ever made.
+   */
+  setAuthor(changes: { name?: string; color?: string }): AppState {
+    const current = this.state.author
+    this.state = {
+      ...this.state,
+      author: {
+        id: current.id || ulid(),
+        name: changes.name ?? current.name,
+        color: changes.color ?? current.color
+      }
+    }
+    this.persist()
+    return this.state
+  }
+
+  /** The author profile, minting an id the first time anything asks. */
+  author(): AuthorProfile {
+    if (!this.state.author.id) this.setAuthor({})
+    const profile = this.state.author
+    return { ...profile, color: profile.color || colorForAuthor(profile.id) }
+  }
+
+  setDailyPrompt(dailyPrompt: DailyPrompt): DailyPrompt {
+    this.state = { ...this.state, dailyPrompt }
+    this.persist()
+    return dailyPrompt
   }
 
   setEmbeddedIdleMinutes(embeddedIdleMinutes: number): AppState {

@@ -9,6 +9,9 @@ import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { noteSchema } from '../model/note.js'
+import { assembledThreadSchema, reviewThreadSchema, reviewReplySchema } from '../model/review.js'
+import { authorProfileSchema } from '../model/author.js'
+import { presenceBeatSchema } from '../model/presence.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
 import { sourceFileSchema, cslItemSchema } from '../model/source.js'
@@ -24,6 +27,7 @@ import {
 } from '../model/ai.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import { retrievalStatusSchema } from '../model/retrieval.js'
+import { dailyPromptSchema } from '../model/writingPrompt.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -261,6 +265,16 @@ export const ipcContract = defineContract({
       res: ok
     },
 
+    /**
+     * Today's writing prompt, or an empty one when there is no configured model
+     * to ask. `refresh` asks for another today, which is what the reroll button
+     * on the card does.
+     */
+    'ai:dailyPrompt': {
+      req: z.object({ refresh: z.boolean().default(false) }),
+      res: dailyPromptSchema
+    },
+
     'notes:list': { req: z.object({ docId: z.string() }), res: z.array(noteSchema) },
     'notes:create': {
       req: z.object({
@@ -273,6 +287,48 @@ export const ipcContract = defineContract({
     },
     'notes:save': { req: z.object({ docId: z.string(), note: noteSchema }), res: noteSchema },
     'notes:delete': { req: z.object({ docId: z.string(), noteId: z.string() }), res: ok },
+
+    /**
+     * Review threads, with every reviewer's replies already gathered — the
+     * renderer never sees the per-author files the merge is assembled from.
+     */
+    'review:list': { req: z.object({ docId: z.string() }), res: z.array(assembledThreadSchema) },
+    'review:createThread': {
+      req: z.object({
+        docId: z.string(),
+        anchorId: z.string(),
+        anchorText: z.string(),
+        blockIndex: z.number().int()
+      }),
+      res: reviewThreadSchema
+    },
+    'review:saveThread': {
+      req: z.object({ docId: z.string(), thread: reviewThreadSchema }),
+      res: ok
+    },
+    /** The one action allowed on someone else's thread; see `ReviewService.setStatus`. */
+    'review:setStatus': {
+      req: z.object({ docId: z.string(), threadId: z.string(), status: z.enum(['open', 'resolved']) }),
+      res: ok
+    },
+    'review:deleteThread': { req: z.object({ docId: z.string(), threadId: z.string() }), res: ok },
+    'review:reply': {
+      req: z.object({ docId: z.string(), threadId: z.string(), text: z.string() }),
+      res: reviewReplySchema
+    },
+    'review:saveReply': { req: z.object({ docId: z.string(), reply: reviewReplySchema }), res: ok },
+    'review:deleteReply': { req: z.object({ docId: z.string(), replyId: z.string() }), res: ok },
+    'review:authors': { req: empty, res: z.array(authorProfileSchema) },
+    'review:me': { req: empty, res: authorProfileSchema },
+    'review:setMe': {
+      // No id: it is minted once in app state and never accepted from here,
+      // because an id the renderer could set is an id that could orphan every
+      // comment its owner has ever written.
+      req: z.object({ name: z.string().optional(), color: z.string().optional() }),
+      res: authorProfileSchema
+    },
+    'review:presence': { req: z.object({ docId: z.string() }), res: z.array(presenceBeatSchema) },
+    'review:enter': { req: z.object({ docId: z.string() }), res: ok },
 
     /** Beats and columns together: both views need the whole board at once. */
     'beats:list': { req: empty, res: beatFileSchema },
@@ -584,6 +640,9 @@ export const ipcContract = defineContract({
      * came from a notes action, but not when it came from saving the document.
      */
     'notes:changed': z.object({ docId: z.string() }),
+
+    /** A document's review threads changed, from this window or a collaborator's sync. */
+    'review:changed': z.object({ docId: z.string() }),
     /** Deltas, completion and failure of an in-flight reply. */
     'ai:stream': streamEventSchema,
     /** Download progress, which belongs to main and outlives the panel showing it. */

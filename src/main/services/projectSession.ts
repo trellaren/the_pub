@@ -10,6 +10,7 @@ import { BUILTIN_STYLES } from '../../shared/model/style.js'
 import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import type { IndexProgress } from '../../shared/model/search.js'
 import type { RetrievalStatus } from '../../shared/model/retrieval.js'
+import type { AuthorProfile } from '../../shared/model/author.js'
 import { DocumentService } from './documentService.js'
 import { SnapshotService } from './snapshotService.js'
 import { HistoryService } from './historyService.js'
@@ -25,6 +26,8 @@ import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
 import { EmbeddingIndexer, type EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { MentionService } from './mentionService.js'
+import { ReviewService } from './reviewService.js'
+import { PresenceService } from './presenceService.js'
 import { DocxService } from './docxService.js'
 import { FountainService } from './fountainService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
@@ -42,6 +45,12 @@ export interface SessionHooks {
    */
   resolveEmbedder: (allowStart: boolean) => Promise<EmbedderResolution>
   onRetrievalProgress: (status: RetrievalStatus) => void
+  /**
+   * Who is using this app. A hook for the same reason `resolveEmbedder` is: the
+   * identity lives in app state, outside any project, and a session that could
+   * reach in and set it would be a session that could rewrite someone's id.
+   */
+  author: () => AuthorProfile
 }
 
 /**
@@ -65,6 +74,8 @@ export class ProjectSession {
   readonly ai = new AiRunner()
   readonly retrieval: EmbeddingIndexer
   readonly mentions: MentionService
+  readonly reviews: ReviewService
+  readonly presence: PresenceService
   readonly docx: DocxService
   readonly fountain: FountainService
   /**
@@ -130,7 +141,9 @@ export class ProjectSession {
     })
     this.history = new HistoryService(this.documents, this.snapshots, this.search, this.notes)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
-    this.docx = new DocxService(adapter, this.documents)
+    this.reviews = new ReviewService(adapter, hooks.author)
+    this.presence = new PresenceService(adapter, hooks.author)
+    this.docx = new DocxService(adapter, this.documents, this.reviews)
     this.fountain = new FountainService(adapter, this.documents)
   }
 
@@ -204,6 +217,8 @@ export class ProjectSession {
     // Stop paying for replies nobody will read.
     this.ai.cancelAll()
     this.retrieval.cancel()
+    // Before the adapter goes: leaving needs one last write.
+    await this.presence.leave()
     this.search.close()
     await this.adapter.dispose()
   }

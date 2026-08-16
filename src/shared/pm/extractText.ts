@@ -1,4 +1,22 @@
 import type { PmDoc, PmNode } from '../model/document.js'
+import { DELETION_MARK } from '../model/suggestion.js'
+
+/**
+ * Text proposed for deletion contributes nothing.
+ *
+ * Every consumer of this module measures the manuscript, and a manuscript's
+ * word count should be the manuscript's rather than the argument about it — so
+ * the document reads here **as if every suggestion were accepted**: an
+ * insertion counts because the text is really there, a pending deletion does
+ * not because it is on its way out.
+ *
+ * Landing it in the one walker is what keeps it cheap. Search snippets, mention
+ * offsets and word counts all shift together by construction, because there is
+ * only one place that turns nodes into characters.
+ */
+function isDeleted(node: PmNode): boolean {
+  return Boolean(node.marks?.some((mark) => mark.type === DELETION_MARK))
+}
 
 export interface TextBlock {
   /** Position in the document's top-level content array — the jump-to target. */
@@ -31,7 +49,7 @@ function isInline(node: PmNode): boolean {
 }
 
 function nodeText(node: PmNode): string {
-  if (node.type === 'text') return node.text ?? ''
+  if (node.type === 'text') return isDeleted(node) ? '' : (node.text ?? '')
   if (node.type === 'hardBreak') return '\n'
   // A footnote's marker is part of the sentence; its own content is not — the
   // opposite of a field, whose cached text *is* meant to read inline. Leaving
@@ -90,7 +108,10 @@ function walk(
   index: number
 ): number {
   if (node.type === 'text') {
-    const text = node.text ?? ''
+    // Mirrors `nodeText` exactly, deletion included, or the equality this
+    // module exists to guarantee — `raw.slice(start, end) === text` — would
+    // hold everywhere except documents under review.
+    const text = isDeleted(node) ? '' : (node.text ?? '')
     visit({ node, text, start: offset, end: offset + text.length, parent, index })
     return offset + text.length
   }

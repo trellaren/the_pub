@@ -114,6 +114,25 @@ export function run(text: string, properties = ''): string {
   return `<w:r>${properties ? `<w:rPr>${properties}</w:rPr>` : ''}<w:t xml:space="preserve">${text}</w:t></w:r>`
 }
 
+/**
+ * A tracked change, written the way Word writes one.
+ *
+ * The detail worth having a fixture for: a deleted run's text is in
+ * `w:delText`, not `w:t`. Round-tripping only through our own exporter would
+ * never catch a reader that assumes otherwise.
+ */
+export function revision(
+  kind: 'ins' | 'del',
+  author: string,
+  date: string,
+  text: string,
+  properties = ''
+): string {
+  const tag = kind === 'del' ? 'w:delText' : 'w:t'
+  const inner = `<w:r>${properties ? `<w:rPr>${properties}</w:rPr>` : ''}<${tag} xml:space="preserve">${text}</${tag}></w:r>`
+  return `<w:${kind} w:id="1" w:author="${author}" w:date="${date}">${inner}</w:${kind}>`
+}
+
 /** A one-pixel PNG, so image handling can be tested without a binary fixture. */
 export const TINY_PNG = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,

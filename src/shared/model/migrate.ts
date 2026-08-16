@@ -24,9 +24,23 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 0's version check exists to prevent.
     { from: 1, to: 2, up: (raw) => raw },
     // Phase 3b adds the `footnote` node type; same reasoning as the step above.
+    { from: 2, to: 3, up: (raw) => raw },
+    // Phase 5 adds the `citation` and `bibliography` field kinds, plus three
+    // new (optional) `field` attrs. No v3 document's own shape changes, so
+    // this too exists only to carry the version forward.
+    { from: 3, to: 4, up: (raw) => raw }
+  ],
+  manifest: [
+    // Phase 4 adds `projectType`. The schema's own default would fill it in
+    // regardless, so this step changes nothing about the value — it exists so
+    // the *version* moves, which is what stops a build that predates templates
+    // from treating a v2 manifest as one it fully understands.
+    { from: 1, to: 2, up: (raw) => raw },
+    // Phase 5 adds `settings.citationStyleId`. Same reasoning: an older build
+    // would otherwise re-save a v3 manifest as v2 and silently drop the
+    // project's chosen citation style.
     { from: 2, to: 3, up: (raw) => raw }
   ],
-  manifest: [],
   manuscript: [],
   entities: [],
   beats: [],
@@ -34,7 +48,8 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   layouts: [],
   chats: [],
   connections: [],
-  notes: []
+  notes: [],
+  sources: []
 }
 
 export interface MigrationResult {

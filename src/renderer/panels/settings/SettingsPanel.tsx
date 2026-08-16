@@ -13,6 +13,7 @@ import {
 import { THEMES } from '@shared/themes.js'
 import type { ProjectSettings } from '@shared/model/manifest.js'
 import type { AppState } from '@shared/model/app.js'
+import { CITATION_STYLES } from '@shared/model/source.js'
 
 /**
  * Preferences, in one place.
@@ -128,6 +129,20 @@ export function SettingsPanel() {
                 onChange={(event) => !readOnly && patchSettings({ defaultStyleId: event.target.value })}
               >
                 {project.manifest.styles.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <SectionTitle>Citations</SectionTitle>
+            <Field label="Citation style">
+              <Select
+                value={settings.citationStyleId}
+                onChange={(event) => !readOnly && patchSettings({ citationStyleId: event.target.value })}
+              >
+                {CITATION_STYLES.map((style) => (
                   <option key={style.id} value={style.id}>
                     {style.name}
                   </option>

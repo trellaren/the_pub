@@ -8,9 +8,11 @@ import { buildToc } from '@shared/pm/toc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useNoteStore } from '@renderer/stores/noteStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
+import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
 import { previewStyle, defaultStyleFor } from './extensions/namedStyles.js'
 import { headingEntries, insertCrossReference, insertOrRefreshTableOfContents } from './fieldActions.js'
+import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 
@@ -42,6 +44,9 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   const styles = useProjectStore((store) => store.project?.manifest.styles) ?? NO_STYLES
   const defaultStyleId =
     useProjectStore((store) => store.project?.manifest.settings.defaultStyleId) ?? STYLE_BODY
+  const citationStyleId =
+    useProjectStore((store) => store.project?.manifest.settings.citationStyleId) ?? 'chicago-author-date'
+  const sources = useSourceStore((store) => store.sources)
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -101,6 +106,20 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   const insertReference = (blockIndex: number): void => {
     const entry = headingEntries(editor, styles).find((candidate) => candidate.blockIndex === blockIndex)
     if (entry) insertCrossReference(editor, entry)
+  }
+
+  /**
+   * Bring every citation and the bibliography up to date with the source
+   * library and the project's citation style — the manual counterpart to
+   * the table of contents button above, for the same reason: nothing here
+   * refreshes on a timer or on document open, matching how a moved heading
+   * doesn't retitle a cross-reference until this document's own refresh is
+   * asked for. A source's title changing, or the project's citation style
+   * changing, are the two ways cached citation text goes stale.
+   */
+  const refreshCitationsAndBibliography = async (): Promise<void> => {
+    const engine = await refreshCitations(editor, sources, citationStyleId)
+    if (engine) insertOrRefreshBibliography(editor, sources, engine)
   }
 
   return (
@@ -315,6 +334,13 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
         onClick={() => insertOrRefreshTableOfContents(editor, styles)}
       >
         ☰
+      </ToolbarButton>
+      <ToolbarButton
+        label="Refresh citations and bibliography"
+        title="Type [ to cite a source; use this after editing a source or changing the citation style"
+        onClick={() => void refreshCitationsAndBibliography()}
+      >
+        [¶]
       </ToolbarButton>
 
       <Divider />

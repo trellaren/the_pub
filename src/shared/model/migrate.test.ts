@@ -24,14 +24,20 @@ describe('migrate', () => {
     expect(result.migrated).toBe(false)
   })
 
-  it('every kind but document currently has zero migration steps', () => {
-    // Phase 3 is the first format change since this machinery shipped —
-    // `document` earning a step here is expected. Any other kind showing up
-    // with one is a signal, not a typo.
+  it('every kind but document and manifest currently has zero migration steps', () => {
+    // Phase 3 (`document`) and Phase 4 (`manifest`) are the only format changes
+    // since this machinery shipped. Any other kind showing up with a step here
+    // is a signal, not a typo.
     for (const [kind, steps] of Object.entries(MIGRATIONS)) {
-      if (kind === 'document') continue
+      if (kind === 'document' || kind === 'manifest') continue
       expect(steps).toEqual([])
     }
+  })
+
+  it('carries a v1 manifest forward to current unchanged, since its one step is a no-op', () => {
+    const raw = { formatVersion: 1, name: 'x' }
+    const result = migrate('manifest', raw)
+    expect(result).toEqual({ value: raw, migrated: true, tooNew: false })
   })
 
   it('carries a v1 document forward to current unchanged, since every step is a no-op', () => {

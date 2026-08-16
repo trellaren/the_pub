@@ -18,6 +18,7 @@ import { EntityService } from './entityService.js'
 import { NoteService } from './noteService.js'
 import { BeatService } from './beatService.js'
 import { MapService } from './mapService.js'
+import { SourceService } from './sourceService.js'
 import { ManuscriptService } from './manuscriptService.js'
 import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
@@ -45,6 +46,7 @@ export class ProjectSession {
   readonly notes: NoteService
   readonly beats: BeatService
   readonly maps: MapService
+  readonly sources: SourceService
   readonly manuscript: ManuscriptService
   readonly chats: ChatService
   readonly ai = new AiRunner()
@@ -87,6 +89,7 @@ export class ProjectSession {
     this.notes = new NoteService(adapter)
     this.beats = new BeatService(adapter)
     this.maps = new MapService(adapter)
+    this.sources = new SourceService(adapter)
     this.chats = new ChatService(adapter)
     this.search = new SearchIndexService(
       adapter,
@@ -125,6 +128,7 @@ export class ProjectSession {
     await this.entities.load().catch(() => {})
     await this.beats.load().catch(() => {})
     await this.maps.load().catch(() => {})
+    await this.sources.load().catch(() => {})
     await this.chats.load().catch(() => {})
     await this.manuscript.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))

@@ -6,13 +6,16 @@ import type { StoryMap, MapShape, MapShapeKind, Point } from '../src/shared/mode
 import type { Chat, AiSettings } from '../src/shared/model/ai.js'
 import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
 import type { Note } from '../src/shared/model/note.js'
+import type { OpenProject } from '../src/shared/model/manifest.js'
+import type { CslItem } from '../src/shared/model/source.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
   project: {
     getState: () => {
       open: (uri: string) => Promise<unknown>
-      project: { root: string; readOnly: boolean } | null
+      project: OpenProject | null
+      updateManifest: (update: (manifest: OpenProject['manifest']) => OpenProject['manifest']) => Promise<void>
     }
   }
   documents: {
@@ -126,6 +129,16 @@ interface PubTestHook {
       create: (docId: string, anchorId: string, anchorText: string, blockIndex: number) => Promise<Note | null>
       patch: (docId: string, noteId: string, changes: Partial<Note>) => void
       remove: (docId: string, noteId: string) => Promise<void>
+      flush: () => Promise<void>
+    }
+  }
+  sources: {
+    getState: () => {
+      sources: CslItem[]
+      load: () => Promise<void>
+      create: (type: string) => Promise<CslItem | null>
+      patch: (id: string, changes: Partial<CslItem>) => void
+      remove: (id: string) => Promise<void>
       flush: () => Promise<void>
     }
   }

@@ -11,6 +11,7 @@ import { OneDriveAuth } from './services/oneDriveAuth.js'
 import { setConnectionResolver } from './vfs/vfsRegistry.js'
 import { KnownHostsPolicy } from './vfs/hostKeys.js'
 import { AppStateService } from './services/appState.js'
+import { TemplateService } from './services/templateService.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
 import { buildMenu } from './menu.js'
 
@@ -74,7 +75,7 @@ app.whenReady().then(async () => {
     hostKeys: new KnownHostsPolicy(new KnownHostsStore())
   })
 
-  registerHandlers({ windows, sessions, appState, oneDrive })
+  registerHandlers({ windows, sessions, appState, oneDrive, templates: new TemplateService(templateDirs()) })
   appState.onChange((state) => windows.broadcast('app:stateChanged', state))
 
   const createWindow = (): BrowserWindow => windows.createProjectWindow()
@@ -128,6 +129,24 @@ app.on('before-quit', () => {
 })
 
 /**
+ * Where the two kinds of project template live.
+ *
+ * The packaged path is not the dev path, and cannot be: `electron-vite dev`
+ * never runs electron-builder, so `process.resourcesPath` holds Electron's own
+ * resources rather than ours until a real build has copied `extraResources`
+ * across. Getting this wrong shows up only in a packaged run, which is why the
+ * packaged smoke test covers it.
+ */
+function templateDirs(): { builtin: string; user: string } {
+  return {
+    builtin: app.isPackaged
+      ? path.join(process.resourcesPath, 'templates')
+      : path.join(app.getAppPath(), 'resources', 'templates'),
+    user: path.join(app.getPath('userData'), 'templates')
+  }
+}
+
+/**
  * Lock the renderer down to its own bundle. The app never loads remote content,
  * so anything pasted into a document that tries to reach the network is inert.
  * `'unsafe-inline'` for styles is required by the editor, which sets inline
@@ -141,7 +160,11 @@ function applyContentSecurityPolicy(): void {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: pub-asset:",
     "font-src 'self' data:",
-    isDev ? 'connect-src *' : "connect-src 'self'",
+    // `data:` is a same-bundle constant, never a remote host: `citeproc-plus`
+    // ships part of its CSL style/locale catalog as `data:` URIs the browser
+    // build resolves with `fetch()` rather than inlining, and blocking it
+    // would not narrow what this policy actually defends against.
+    isDev ? 'connect-src * data:' : "connect-src 'self' data:",
     "object-src 'none'",
     "frame-src 'none'"
   ].join('; ')

@@ -11,7 +11,8 @@ import {
   type BeatFile,
   type BoardColumn
 } from '../../shared/model/beat.js'
-import { BEATS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { FORMAT_VERSIONS, BEATS_FILE } from '../../shared/constants.js'
+import { JsonCollectionService } from './jsonCollectionService.js'
 
 function emptyFile(): BeatFile {
   return { formatVersion: FORMAT_VERSIONS.beats, columns: defaultColumns(), beats: [] }
@@ -20,45 +21,28 @@ function emptyFile(): BeatFile {
 /**
  * Story beats, persisted to `.thepub/beats.json`.
  *
- * Same shape as EntityService and for the same reasons: this process is the
- * file's only writer, it never re-reads on a watcher event, and a corrupt file
- * is set aside rather than overwritten. Beats are cheap to hold in memory and
- * every view wants all of them at once, so there is no partial-load path.
+ * `columns` sits alongside `beats` in the file, outside what
+ * `JsonCollectionService` models — the same reasoning `EntityService` uses
+ * for `dismissed`. Beats are cheap to hold in memory and every view wants all
+ * of them at once, so there is no partial-load path.
  */
-export class BeatService {
-  private cache: BeatFile = emptyFile()
-  private queue: Promise<void> = Promise.resolve()
-
-  constructor(private readonly adapter: VfsAdapter) {}
-
-  async load(): Promise<BeatFile> {
-    const existing = await this.adapter.stat(BEATS_FILE)
-    if (!existing) {
-      this.cache = emptyFile()
-      return this.snapshot()
-    }
-    try {
-      const raw = await this.adapter.readFile(BEATS_FILE)
-      this.cache = beatFileSchema.parse(JSON.parse(raw.toString('utf8')))
-    } catch {
-      await this.adapter.rename(BEATS_FILE, `${BEATS_FILE}.corrupt-${Date.now()}`).catch(() => {})
-      this.cache = emptyFile()
-    }
-    return this.snapshot()
-  }
-
-  snapshot(): BeatFile {
-    return structuredClone(this.cache)
-  }
-
-  get(id: string): Beat | null {
-    return this.cache.beats.find((beat) => beat.id === id) ?? null
+export class BeatService extends JsonCollectionService<Beat, BeatFile> {
+  constructor(adapter: VfsAdapter) {
+    super(adapter, {
+      file: BEATS_FILE,
+      kind: 'beats',
+      schema: beatFileSchema,
+      empty: emptyFile,
+      items: (file) => file.beats,
+      withItems: (file, beats) => ({ ...file, beats }),
+      idOf: (beat) => beat.id
+    })
   }
 
   async create(input: { title: string; columnId?: string; docId?: string | null }): Promise<Beat> {
     const now = new Date().toISOString()
     const columnId = input.columnId ?? this.cache.columns[0]?.id ?? 'act-1'
-    const last = beatsInColumn(this.cache.beats, columnId).at(-1)
+    const last = beatsInColumn(this.items(), columnId).at(-1)
     const beat = beatSchema.parse({
       id: ulid(),
       title: input.title,
@@ -70,7 +54,7 @@ export class BeatService {
       created: now,
       modified: now
     })
-    this.cache.beats = [...this.cache.beats, beat]
+    this.upsert(beat)
     await this.flush()
     return structuredClone(beat)
   }
@@ -83,43 +67,28 @@ export class BeatService {
       created: existing?.created ?? incoming.created,
       modified: new Date().toISOString()
     })
-    this.cache.beats = existing
-      ? this.cache.beats.map((candidate) => (candidate.id === beat.id ? beat : candidate))
-      : [...this.cache.beats, beat]
+    this.upsert(beat)
     await this.flush()
     return structuredClone(beat)
   }
 
   async remove(id: string): Promise<void> {
-    this.cache.beats = this.cache.beats.filter((beat) => beat.id !== id)
+    this.deleteById(id)
     await this.flush()
   }
 
   async saveColumns(columns: BoardColumn[]): Promise<BoardColumn[]> {
-    this.cache.columns = columns.map((column, index) => ({ ...column, order: index }))
+    const nextColumns = columns.map((column, index) => ({ ...column, order: index }))
     // A column can be renamed or reordered freely, but deleting one would
     // orphan its beats, so they follow it to the first surviving column.
-    const surviving = new Set(this.cache.columns.map((column) => column.id))
-    const fallback = this.cache.columns[0]?.id
-    if (fallback) {
-      this.cache.beats = this.cache.beats.map((beat) =>
-        surviving.has(beat.columnId) ? beat : { ...beat, columnId: fallback }
-      )
-    }
+    const surviving = new Set(nextColumns.map((column) => column.id))
+    const fallback = nextColumns[0]?.id
+    const beats = fallback
+      ? this.items().map((beat) => (surviving.has(beat.columnId) ? beat : { ...beat, columnId: fallback }))
+      : this.items()
+    this.cache = { ...this.cache, columns: nextColumns, beats }
     await this.flush()
     return structuredClone(this.cache.columns)
-  }
-
-  private async flush(): Promise<void> {
-    const file: BeatFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.beats }
-    this.queue = this.queue.then(async () => {
-      await this.adapter.mkdir(PUB_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(
-        BEATS_FILE,
-        Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-      )
-    })
-    await this.queue
   }
 }
 

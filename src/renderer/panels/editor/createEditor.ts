@@ -14,6 +14,7 @@ import { ulid } from 'ulid'
 import type { PmDoc } from '@shared/model/document.js'
 import type { NamedStyle } from '@shared/model/style.js'
 import type { StoryEntity } from '@shared/model/entity.js'
+import type { CslItem } from '@shared/model/source.js'
 import { dedupeBlockIds } from '@shared/pm/blockIds.js'
 import { Mention } from './extensions/mention.js'
 import { NamedStyles } from './extensions/namedStyles.js'
@@ -23,6 +24,7 @@ import { BlockIds } from './extensions/blockIds.js'
 import { Anchors } from './extensions/anchors.js'
 import { Field } from './extensions/field.js'
 import { Footnote } from './extensions/footnote.js'
+import { Citation } from './extensions/citation.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -30,6 +32,9 @@ export interface CreateEditorOptions {
   /** Live getter for the same reason `getStyles` is one: a record created a
    *  moment ago must be @-mentionable in every open editor without a rebuild. */
   getEntities: () => StoryEntity[]
+  /** Live getter for the citation picker, same reasoning as `getEntities`. */
+  getSources: () => CslItem[]
+  getCitationStyleId: () => string
   onUpdate: () => void
 }
 
@@ -79,7 +84,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       BlockIds,
       Anchors,
       Field,
-      Footnote
+      Footnote,
+      Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId })
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any

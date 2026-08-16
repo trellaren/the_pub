@@ -6,6 +6,7 @@ import { invoke, attempt, reportError, errorMessage } from '@renderer/lib/ipc.js
 import { createEditor } from '@renderer/panels/editor/createEditor.js'
 import { useProjectStore, currentStyles } from './projectStore.js'
 import { currentEntities } from './entityStore.js'
+import { currentSources } from './sourceStore.js'
 
 export interface OpenDocument {
   docId: string
@@ -98,6 +99,9 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       content: doc.content,
       getStyles: currentStyles,
       getEntities: currentEntities,
+      getSources: currentSources,
+      getCitationStyleId: () =>
+        useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
       onUpdate: () => {
         const state = get().docs[doc.docId]
         if (!state) return

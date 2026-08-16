@@ -28,6 +28,12 @@ export default defineConfig({
     root: 'src/renderer',
     resolve: { alias: { '@shared': shared, '@renderer': resolve('src/renderer') } },
     plugins: [react(), tailwindcss()],
+    // citeproc-plus ships its CSL style and locale catalog as gzip-compressed
+    // JSON chunks, loaded with a dynamic `import()` at the URL Vite gives
+    // them. Vite's default asset handling doesn't recognise `.json.gz`, so
+    // without this the chunks fall through to the JS transform and the build
+    // fails on them as invalid syntax.
+    assetsInclude: ['**/*.gz'],
     build: {
       rollupOptions: {
         input: {

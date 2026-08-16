@@ -1,5 +1,6 @@
 import { Mark, mergeAttributes, type Editor, type Range } from '@tiptap/core'
 import Suggestion, { type SuggestionProps } from '@tiptap/suggestion'
+import { PluginKey } from '@tiptap/pm/state'
 import type { StoryEntity } from '@shared/model/entity.js'
 import { MENTION_MARK } from '@shared/model/mention.js'
 
@@ -84,6 +85,9 @@ export const Mention = Mark.create<MentionOptions>({
     return [
       Suggestion({
         editor: this.editor,
+        // Explicit and distinct from `Citation`'s `[` picker — see that
+        // file's comment on why two `Suggestion` instances can't share a key.
+        pluginKey: new PluginKey('mentionSuggestion'),
         char: '@',
         allowSpaces: true,
         items: ({ query }) => matchEntities(getEntities(), query),

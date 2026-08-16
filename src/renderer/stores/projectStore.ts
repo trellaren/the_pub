@@ -9,6 +9,7 @@ interface ProjectStore {
   opening: boolean
   open: (uri: string) => Promise<OpenProject | null>
   openDialog: () => Promise<OpenProject | null>
+  newFromTemplate: (templateId: string, name: string) => Promise<OpenProject | null>
   updateManifest: (update: (manifest: ProjectManifest) => ProjectManifest) => Promise<void>
 }
 
@@ -26,6 +27,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   openDialog: async () => {
     set({ opening: true })
     const project = await attempt(invoke('project:openDialog', {}), 'Could not open project')
+    set({ project: project ?? get().project, opening: false })
+    return project
+  },
+
+  newFromTemplate: async (templateId, name) => {
+    set({ opening: true })
+    const project = await attempt(
+      invoke('templates:instantiate', { templateId, name }),
+      'Could not create the project'
+    )
     set({ project: project ?? get().project, opening: false })
     return project
   },

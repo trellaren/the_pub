@@ -11,6 +11,7 @@ import { useChatStore } from './stores/chatStore.js'
 import { useManuscriptStore } from './stores/manuscriptStore.js'
 import { useHistoryStore } from './stores/historyStore.js'
 import { useNoteStore } from './stores/noteStore.js'
+import { useSourceStore } from './stores/sourceStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand } from './commands/registry.js'
@@ -39,6 +40,7 @@ Object.assign(window, {
     manuscript: useManuscriptStore,
     history: useHistoryStore,
     notes: useNoteStore,
+    sources: useSourceStore,
     confirmMention: confirmMentionHere,
     openLocation,
     runCommand

@@ -20,6 +20,7 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
     {
       label: 'File',
       submenu: [
+        { label: 'New Project from Template…', click: send('project.newFromTemplate') },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: send('project.open') },
         { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
         { type: 'separator' },
@@ -67,6 +68,7 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Maps', click: send('panel.maps') },
         { label: 'AI', click: send('panel.ai') },
         { label: 'Notes', click: send('panel.notes') },
+        { label: 'Sources', click: send('panel.sources') },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: send('panel.settings') },
         { type: 'separator' },

@@ -5,8 +5,12 @@ import { revealBlock } from '../editorActions.js'
 
 export interface FieldAttrsInput {
   kind: FieldKind
-  targetBlockId: string | null
+  targetBlockId?: string | null
   level?: number | null
+  /** A `citation` field's sources, by id into the project's source library. */
+  sourceIds?: string[]
+  locator?: string
+  suppressAuthor?: boolean
 }
 
 declare module '@tiptap/core' {
@@ -56,6 +60,25 @@ export const Field = Node.create({
         },
         renderHTML: (attributes) =>
           attributes.level != null ? { 'data-level': String(attributes.level) } : {}
+      },
+      sourceIds: {
+        default: null,
+        parseHTML: (element) => {
+          const value = element.getAttribute('data-source-ids')
+          return value ? value.split(',') : null
+        },
+        renderHTML: (attributes) =>
+          attributes.sourceIds?.length ? { 'data-source-ids': attributes.sourceIds.join(',') } : {}
+      },
+      locator: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-locator'),
+        renderHTML: (attributes) => (attributes.locator ? { 'data-locator': attributes.locator } : {})
+      },
+      suppressAuthor: {
+        default: false,
+        parseHTML: (element) => element.getAttribute('data-suppress-author') === 'true',
+        renderHTML: (attributes) => (attributes.suppressAuthor ? { 'data-suppress-author': 'true' } : {})
       }
     }
   },
@@ -89,7 +112,14 @@ export const Field = Node.create({
         ({ commands }) =>
           commands.insertContent({
             type: this.name,
-            attrs: { kind: attrs.kind, targetBlockId: attrs.targetBlockId, level: attrs.level ?? null },
+            attrs: {
+              kind: attrs.kind,
+              targetBlockId: attrs.targetBlockId ?? null,
+              level: attrs.level ?? null,
+              sourceIds: attrs.sourceIds?.length ? attrs.sourceIds : null,
+              locator: attrs.locator ?? null,
+              suppressAuthor: attrs.suppressAuthor ?? false
+            },
             content: text ? [{ type: 'text', text }] : []
           })
     }

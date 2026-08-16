@@ -15,6 +15,9 @@ import {
   LevelFormat,
   UnderlineType,
   WidthType,
+  Header,
+  Footer,
+  PageOrientation,
   type IParagraphOptions,
   type IRunStylePropertiesOptions,
   type IParagraphStylePropertiesOptions,
@@ -56,7 +59,10 @@ export interface ExportDocument {
 export interface ExportOptions {
   documents: ExportDocument[]
   styles: NamedStyle[]
-  page: { width: number; height: number; margin: number }
+  page: { width: number; height: number; margin: number; orientation?: 'portrait' | 'landscape' }
+  /** From the first document's first section (Phase 7), when it has one. */
+  header?: PmDoc
+  footer?: PmDoc
   /** Resolve an image `src` to bytes. Absent images are skipped, not fatal. */
   readImage?: (src: string) => { data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' } | null
 }
@@ -92,6 +98,9 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
   })
 
   const headingLevels = headingNumberingLevels(options.styles)
+  const orientation = options.page.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT
+  const header = options.header ? new Header({ children: headerFooterChildren(options.header, options, footnotes) }) : undefined
+  const footer = options.footer ? new Footer({ children: headerFooterChildren(options.footer, options, footnotes) }) : undefined
   const file = new Document({
     title: options.documents[0]?.title,
     styles: { paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles)) },
@@ -104,11 +113,14 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
     footnotes: footnotes.entries,
     sections: [
       {
+        ...(header ? { headers: { default: header } } : {}),
+        ...(footer ? { footers: { default: footer } } : {}),
         properties: {
           page: {
             size: {
               width: pointsToTwips(options.page.width),
-              height: pointsToTwips(options.page.height)
+              height: pointsToTwips(options.page.height),
+              orientation
             },
             margin: {
               top: pointsToTwips(options.page.margin),
@@ -124,6 +136,13 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
   })
 
   return Packer.toBuffer(file)
+}
+
+/** A header or footer's content, built from the same block walker the body uses. */
+function headerFooterChildren(doc: PmDoc, options: ExportOptions, footnotes: FootnoteState): Paragraph[] {
+  return blocksToDocx(doc.content ?? [], options, footnotes).filter(
+    (child): child is Paragraph => child instanceof Paragraph
+  )
 }
 
 /* ----------------------------------------------------------------- styles */

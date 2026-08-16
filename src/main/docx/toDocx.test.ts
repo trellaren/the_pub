@@ -408,6 +408,43 @@ describe('round trip', () => {
   })
 })
 
+describe('sections: page setup, headers and footers (Phase 7)', () => {
+  it('emits a header and a footer when the caller supplies them', async () => {
+    const buffer = await exportDocx({
+      documents: [{ title: 'One', content: doc(para('Body text.')) }],
+      styles: BUILTIN_STYLES,
+      page: PAGE,
+      header: doc(para('Running Title')),
+      footer: doc(para('Confidential Draft'))
+    })
+    const zip = unzipSync(new Uint8Array(buffer))
+    const headerPart = Object.keys(zip).find((name) => /^word\/header\d*\.xml$/.test(name))
+    const footerPart = Object.keys(zip).find((name) => /^word\/footer\d*\.xml$/.test(name))
+    expect(headerPart).toBeDefined()
+    expect(footerPart).toBeDefined()
+    expect(strFromU8(zip[headerPart!]!)).toContain('Running Title')
+    expect(strFromU8(zip[footerPart!]!)).toContain('Confidential Draft')
+  })
+
+  it('writes no header or footer part when the caller supplies neither', async () => {
+    const zip = unzipSync(new Uint8Array(await write(doc(para('Body text.')))))
+    expect(Object.keys(zip).some((name) => /^word\/(header|footer)\d*\.xml$/.test(name))).toBe(false)
+  })
+
+  it('emits landscape orientation when asked, and portrait by default', async () => {
+    const landscape = await exportDocx({
+      documents: [{ title: 'One', content: doc(para('Wide.')) }],
+      styles: BUILTIN_STYLES,
+      page: { ...PAGE, orientation: 'landscape' }
+    })
+    const landscapeXml = strFromU8(unzipSync(new Uint8Array(landscape))['word/document.xml']!)
+    expect(landscapeXml).toContain('w:orient="landscape"')
+
+    const portraitXml = strFromU8(unzipSync(new Uint8Array(await write(doc(para('Tall.')))))['word/document.xml']!)
+    expect(portraitXml).not.toContain('w:orient="landscape"')
+  })
+})
+
 describe('the closed world the editor allows', () => {
   it('emits no node or mark type this build cannot render', async () => {
     // The editor is built with `enableContentCheck: true`, and ProseMirror

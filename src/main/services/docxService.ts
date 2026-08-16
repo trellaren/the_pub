@@ -4,7 +4,7 @@ import type { VfsAdapter } from '../vfs/types.js'
 import type { DocumentService } from './documentService.js'
 import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { NamedStyle } from '../../shared/model/style.js'
-import type { PmDoc, PmNode } from '../../shared/model/document.js'
+import type { PmDoc, PmNode, Section } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
 import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
 import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
@@ -78,13 +78,19 @@ export class DocxService {
 
       const assets = await this.writeImages(result.images)
       const content = rewriteDocument(result.content, reconciled.mapping, assets)
+      // The page setup Word recorded for this file becomes the document's own
+      // section (Phase 7) rather than a project-wide setting nothing reads —
+      // an imported document keeps the page size it was actually written at.
+      const sections: Section[] | undefined = result.page
+        ? [{ startBlockIndex: 0, page: { ...result.page, orientation: 'portrait' as const, columns: 1 } }]
+        : undefined
 
       const title = path.basename(file).replace(/\.docx$/i, '')
       const docPath = await this.freePath(targetDir, title)
       const created = await this.documents.create(docPath, title)
       const written = await this.documents.write(
         created.path,
-        { ...created.doc, content },
+        { ...created.doc, content, ...(sections ? { sections } : {}) },
         created.mtime
       )
       if (!written.ok) {
@@ -98,12 +104,6 @@ export class DocxService {
         // when there is more than one.
         const message = files.length > 1 ? `${title}: ${warning}` : warning
         if (!warnings.includes(message)) warnings.push(message)
-      }
-      if (result.page) {
-        warnings.push(
-          `${title} is set up for a ${Math.round(result.page.width)}×${Math.round(result.page.height)}pt page. ` +
-            'Page setup is a project setting and was left as it is.'
-        )
       }
     }
 
@@ -121,6 +121,10 @@ export class DocxService {
    */
   async export(items: ExportItem[], file: string, manifest: ProjectManifest): Promise<void> {
     const documents = []
+    // The first real (non-heading) document's own section, if it has one —
+    // what makes a document's own page setup and headers/footers win over
+    // the project default once an author has actually set one.
+    let firstSection: Section | undefined
     for (const item of items) {
       if (item.kind === 'heading') {
         documents.push({
@@ -131,6 +135,7 @@ export class DocxService {
       }
       const loaded = await this.documents.read(item.path)
       documents.push({ title: loaded.doc.title, content: loaded.doc.content })
+      if (!firstSection) firstSection = loaded.doc.sections?.[0]
     }
 
     // Images are read up front: `exportDocx` resolves them synchronously,
@@ -140,11 +145,15 @@ export class DocxService {
     const buffer = await exportDocx({
       documents,
       styles: manifest.styles,
-      page: {
-        width: manifest.settings.pageWidth,
-        height: manifest.settings.pageHeight,
-        margin: manifest.settings.pageMargin
-      },
+      page: firstSection
+        ? firstSection.page
+        : {
+            width: manifest.settings.pageWidth,
+            height: manifest.settings.pageHeight,
+            margin: manifest.settings.pageMargin
+          },
+      header: firstSection?.header,
+      footer: firstSection?.footer,
       readImage: (src) => images.get(src) ?? null
     })
 

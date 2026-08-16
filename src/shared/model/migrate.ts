@@ -28,7 +28,13 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 5 adds the `citation` and `bibliography` field kinds, plus three
     // new (optional) `field` attrs. No v3 document's own shape changes, so
     // this too exists only to carry the version forward.
-    { from: 3, to: 4, up: (raw) => raw }
+    { from: 3, to: 4, up: (raw) => raw },
+    // Phase 7 adds `sections`. Same reasoning again: absent already means
+    // "the project's default page setup, no headers or footers", so no
+    // existing v4 document's own shape changes — only the version, so an
+    // older build doesn't silently re-save a v5 document as v4 and drop a
+    // header an author just wrote.
+    { from: 4, to: 5, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in

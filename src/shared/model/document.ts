@@ -2,6 +2,21 @@ import { z } from 'zod'
 import { FORMAT_VERSION } from '../constants.js'
 
 /**
+ * A section's page geometry. Envelope-level, like `sections` itself — see
+ * that field's own comment for why headers, footers and page setup are never
+ * ProseMirror content.
+ */
+export const pageSetupSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  margin: z.number(),
+  orientation: z.enum(['portrait', 'landscape']).default('portrait'),
+  /** Stored for a future pagination pass to read; export does not lay out columns yet. */
+  columns: z.number().int().min(1).default(1)
+})
+export type PageSetup = z.infer<typeof pageSetupSchema>
+
+/**
  * ProseMirror document JSON. Kept structurally loose on purpose: the editor's
  * schema is the authority on node shapes, and the persistence layer must not
  * reject documents produced by a newer extension set.
@@ -35,6 +50,34 @@ export const pmDocSchema = z.object({
 export type PmDoc = z.infer<typeof pmDocSchema>
 
 /**
+ * A run of the document with its own page setup, header and footer.
+ *
+ * Not ProseMirror content, deliberately. If it were, it would sit inside the
+ * document's own position space, and then `extractPlainText` would feed
+ * header text to search and to the AI context, `countWords` would count it,
+ * `diffBlocks` would show a header edit as a body change in the History
+ * panel, the mention scanner would match a name in a running header, and
+ * find/replace would walk into it. Every one of those is a real bug, and
+ * each would need a special case in a different file. Keeping sections a
+ * sibling of `content` costs one schema field and makes all five not exist —
+ * and it is what makes the `.docx` mapping mechanical, since OOXML's
+ * `sectPr` is itself envelope-level.
+ *
+ * `startBlockIndex` is unused until a second section can exist (nothing
+ * today creates more than one); it is here now so that shape does not become
+ * a later format migration.
+ */
+export const sectionSchema = z.object({
+  startBlockIndex: z.number().int().min(0),
+  page: pageSetupSchema,
+  header: pmDocSchema.optional(),
+  footer: pmDocSchema.optional(),
+  headerFirstPage: pmDocSchema.optional(),
+  footerFirstPage: pmDocSchema.optional()
+})
+export type Section = z.infer<typeof sectionSchema>
+
+/**
  * The on-disk envelope for a `.pubdoc`.
  *
  * `docId` lives inside the file rather than being derived from its path, so
@@ -48,7 +91,9 @@ export const pubDocumentSchema = z.object({
   created: z.string(),
   modified: z.string(),
   wordCount: z.number().int().default(0),
-  content: pmDocSchema
+  content: pmDocSchema,
+  /** Absent means the project's default page setup (`manifest.settings`) and no headers or footers. */
+  sections: z.array(sectionSchema).optional()
 })
 export type PubDocument = z.infer<typeof pubDocumentSchema>
 

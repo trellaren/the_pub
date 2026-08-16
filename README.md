@@ -7,7 +7,9 @@ formatting, and the notes a long story needs, in one desktop app.
 
 Phase 1 built the editing shell, Phase 2 added story records, Phase 3 the two planning views,
 Phase 4 maps, Phase 5 AI assistance, Phase 6 remote projects, Phase 7 Word import and export, and
-Phase 8 OneDrive — which completes the original brief.
+Phase 8 OneDrive — which completes the original brief. `docs/ROADMAP.md` covers what's grown out
+of it since: notes attached to a document, cross-references and a table of contents, and
+footnotes are shipped; templates, citations, and non-fiction project types are still ahead.
 
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
@@ -22,6 +24,14 @@ Phase 8 OneDrive — which completes the original brief.
 - **Named styles**, Word-style. Documents store a style id, not a copy of its formatting, so
   editing "Chapter Title" restyles the whole manuscript at once. Styles inherit through a
   `based on` chain and set the style of the following paragraph.
+- **Cross-references and a table of contents**, built on one computed-text node so a reference
+  reads as an ordinary part of the sentence: click one and it jumps to the heading it names, and
+  a refresh replaces a table of contents in place rather than duplicating it. A style can opt into
+  the contents independently of whether it renders as a heading.
+- **Footnotes**, edited in a popover right where the marker sits — no separate window, and cutting
+  or pasting the marker carries its note with it. Numbering is never stored, only computed from
+  where the markers fall, and a read-only endnotes region below the manuscript lists every note in
+  order. They export as real Word footnotes and import back the same way.
 - **Autosave** that waits for a pause in typing but never longer than five seconds, writes
   atomically so a crash cannot leave a half-written file, refuses to clobber a file that changed
   underneath it, and flushes before the window closes.
@@ -44,6 +54,11 @@ Phase 8 OneDrive — which completes the original brief.
   search, word count and export treat like any other.
 - **Backlinks.** Every record lists each paragraph it appears in, and clicking one opens the
   document there.
+- **Notes** attached to a span of text, in their own dock panel rather than inline in the prose.
+  A note is anchored to the exact text it was written against; editing around it keeps the anchor,
+  and rewriting the anchored text itself orphans the note without deleting it — the panel offers
+  the nearest matching text as a candidate to re-attach it to, the same way a mention suggestion
+  is offered rather than applied.
 - **A storyboard and a timeline over the same beats.** The board holds cards in the order the
   story is *told*, dragged between columns you name; the timeline holds them in the order they
   *happen*. Those orders differ exactly when there is a flashback — which is why both views
@@ -87,9 +102,9 @@ slips through — because a noisy suggestion list is how a feature like this get
   lists, tables, links and images come with it — and its named styles are matched against the
   project's own rather than duplicated, so an imported "Heading 1" *is* your Heading 1. Export one
   chapter or the whole manuscript into a single file, page-broken between chapters, with the
-  styles written into the file so it stays as editable in Word as it was here. Anything that
-  cannot come across — footnotes, comments, tracked changes — is named in the import summary
-  rather than dropped in silence.
+  styles written into the file so it stays as editable in Word as it was here. Footnotes round-trip
+  as real Word footnotes; anything that still cannot come across — comments, tracked changes,
+  endnotes — is named in the import summary rather than dropped in silence.
 
 - **A Manuscript panel** for the book as one ordered thing — front matter, parts and chapters,
   separate from the file tree because order here is something you set, not whatever the

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 /**
  * Dockview's serialized layout. Treated as an opaque blob — dockview owns the
@@ -18,7 +18,7 @@ export const layoutPresetSchema = z.object({
 export type LayoutPreset = z.infer<typeof layoutPresetSchema>
 
 export const layoutFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.layouts),
   /** Restored automatically when the project is reopened. */
   lastLayout: dockLayoutSchema.nullable().default(null),
   presets: z.array(layoutPresetSchema).default([])

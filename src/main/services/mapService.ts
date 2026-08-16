@@ -7,10 +7,10 @@ import {
   type MapFile,
   type StoryMap
 } from '../../shared/model/map.js'
-import { MAPS_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.js'
+import { MAPS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 function emptyFile(): MapFile {
-  return { formatVersion: FORMAT_VERSION, maps: [] }
+  return { formatVersion: FORMAT_VERSIONS.maps, maps: [] }
 }
 
 /**
@@ -111,7 +111,7 @@ export class MapService {
   }
 
   private async flush(): Promise<void> {
-    const file: MapFile = { ...this.cache, formatVersion: FORMAT_VERSION }
+    const file: MapFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.maps }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
       await this.adapter.writeFileAtomic(

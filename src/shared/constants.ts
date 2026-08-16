@@ -4,7 +4,7 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 1,
+  document: 2,
   manifest: 1,
   manuscript: 1,
   entities: 1,

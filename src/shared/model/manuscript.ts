@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 import { keyForIndex } from './ordering.js'
 
 /**
@@ -67,12 +67,12 @@ export const manuscriptNodeSchema = z.object({
 export type ManuscriptNode = z.infer<typeof manuscriptNodeSchema>
 
 export const manuscriptFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.manuscript),
   nodes: z.array(manuscriptNodeSchema).default(() => [])
 })
 export type ManuscriptFile = z.infer<typeof manuscriptFileSchema>
 
-export const EMPTY_MANUSCRIPT: ManuscriptFile = { formatVersion: FORMAT_VERSION, nodes: [] }
+export const EMPTY_MANUSCRIPT: ManuscriptFile = { formatVersion: FORMAT_VERSIONS.manuscript, nodes: [] }
 
 /** A node as a view needs it: resolved against the index, and counted. */
 export const resolvedNodeSchema = manuscriptNodeSchema.extend({

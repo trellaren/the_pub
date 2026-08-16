@@ -23,7 +23,7 @@ import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
 import { MentionService } from './mentionService.js'
 import { DocxService } from './docxService.js'
-import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSION } from '../../shared/constants.js'
+import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 export interface SessionHooks {
   onFileChange: (events: FileChangeEvent[]) => void
@@ -218,7 +218,7 @@ async function loadOrCreateManifest(
 export function createManifest(name: string): ProjectManifest {
   const now = new Date().toISOString()
   return projectManifestSchema.parse({
-    formatVersion: FORMAT_VERSION,
+    formatVersion: FORMAT_VERSIONS.manifest,
     id: ulid(),
     name,
     created: now,

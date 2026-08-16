@@ -15,10 +15,10 @@ import {
   type ResolvedNode
 } from '../../shared/model/manuscript.js'
 import { keyBetween } from '../../shared/model/ordering.js'
-import { MANUSCRIPT_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.js'
+import { MANUSCRIPT_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 function emptyFile(): ManuscriptFile {
-  return { formatVersion: FORMAT_VERSION, nodes: [] }
+  return { formatVersion: FORMAT_VERSIONS.manuscript, nodes: [] }
 }
 
 /**
@@ -275,7 +275,7 @@ export class ManuscriptService {
 
   private async flush(): Promise<void> {
     this.cache.nodes = reconcile(this.refreshHints(this.cache.nodes))
-    const file: ManuscriptFile = { ...this.cache, formatVersion: FORMAT_VERSION }
+    const file: ManuscriptFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.manuscript }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
       await this.adapter.writeFileAtomic(

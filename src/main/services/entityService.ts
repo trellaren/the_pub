@@ -8,7 +8,7 @@ import {
   type EntityKind,
   type StoryEntity
 } from '../../shared/model/entity.js'
-import { ENTITIES_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.js'
+import { ENTITIES_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 /**
  * Characters and locations, persisted to `.thepub/entities.json`.
@@ -25,7 +25,7 @@ import { ENTITIES_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.j
  * trade for a file the app rewrites on every keystroke-debounce.
  */
 export class EntityService {
-  private cache: EntityFile = { formatVersion: FORMAT_VERSION, entities: [], dismissed: [] }
+  private cache: EntityFile = { formatVersion: FORMAT_VERSIONS.entities, entities: [], dismissed: [] }
   /** Serialises writes, so two quick saves cannot land out of order. */
   private queue: Promise<void> = Promise.resolve()
 
@@ -34,7 +34,7 @@ export class EntityService {
   async load(): Promise<EntityFile> {
     const existing = await this.adapter.stat(ENTITIES_FILE)
     if (!existing) {
-      this.cache = { formatVersion: FORMAT_VERSION, entities: [], dismissed: [] }
+      this.cache = { formatVersion: FORMAT_VERSIONS.entities, entities: [], dismissed: [] }
       return this.snapshot()
     }
     try {
@@ -46,7 +46,7 @@ export class EntityService {
       await this.adapter
         .rename(ENTITIES_FILE, `${ENTITIES_FILE}.corrupt-${Date.now()}`)
         .catch(() => {})
-      this.cache = { formatVersion: FORMAT_VERSION, entities: [], dismissed: [] }
+      this.cache = { formatVersion: FORMAT_VERSIONS.entities, entities: [], dismissed: [] }
     }
     return this.snapshot()
   }
@@ -111,7 +111,7 @@ export class EntityService {
   }
 
   private async flush(): Promise<void> {
-    const file: EntityFile = { ...this.cache, formatVersion: FORMAT_VERSION }
+    const file: EntityFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.entities }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
       await this.adapter.writeFileAtomic(

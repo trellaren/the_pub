@@ -1,9 +1,9 @@
 import { ulid } from 'ulid'
 import type { VfsAdapter } from '../vfs/types.js'
 import { layoutFileSchema, type LayoutFile, type LayoutPreset, type DockLayout } from '../../shared/model/layout.js'
-import { LAYOUTS_FILE, FORMAT_VERSION } from '../../shared/constants.js'
+import { LAYOUTS_FILE, FORMAT_VERSIONS } from '../../shared/constants.js'
 
-const EMPTY: LayoutFile = { formatVersion: FORMAT_VERSION, lastLayout: null, presets: [] }
+const EMPTY: LayoutFile = { formatVersion: FORMAT_VERSIONS.layouts, lastLayout: null, presets: [] }
 
 /** Persists the dock arrangement — including popout windows, which dockview serializes inline. */
 export class LayoutService {

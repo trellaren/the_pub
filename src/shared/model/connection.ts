@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 /**
  * A saved server a project can live on.
@@ -72,7 +72,7 @@ export const untrustedHostKeySchema = z.object({
 export type UntrustedHostKey = z.infer<typeof untrustedHostKeySchema>
 
 export const connectionFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.connections),
   connections: z.array(connectionProfileSchema).default(() => [])
 })
 export type ConnectionFile = z.infer<typeof connectionFileSchema>

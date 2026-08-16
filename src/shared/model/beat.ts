@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 import { keyBetween } from './ordering.js'
 
 /**
@@ -61,7 +61,7 @@ export const boardColumnSchema = z.object({
 export type BoardColumn = z.infer<typeof boardColumnSchema>
 
 export const beatFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.beats),
   columns: z.array(boardColumnSchema).default(() => defaultColumns()),
   beats: z.array(beatSchema).default(() => [])
 })
@@ -77,7 +77,7 @@ export function defaultColumns(): BoardColumn[] {
 }
 
 export const EMPTY_BEAT_FILE: BeatFile = {
-  formatVersion: FORMAT_VERSION,
+  formatVersion: FORMAT_VERSIONS.beats,
   columns: defaultColumns(),
   beats: []
 }

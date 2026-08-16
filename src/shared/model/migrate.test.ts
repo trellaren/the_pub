@@ -24,12 +24,20 @@ describe('migrate', () => {
     expect(result.migrated).toBe(false)
   })
 
-  it('every registered kind currently has zero migration steps', () => {
-    // The point of this phase is the machinery, not a format change. A step
-    // showing up here without a matching test for it is a signal, not a typo.
-    for (const steps of Object.values(MIGRATIONS)) {
+  it('every kind but document currently has zero migration steps', () => {
+    // Phase 3 is the first format change since this machinery shipped —
+    // `document` earning a step here is expected. Any other kind showing up
+    // with one is a signal, not a typo.
+    for (const [kind, steps] of Object.entries(MIGRATIONS)) {
+      if (kind === 'document') continue
       expect(steps).toEqual([])
     }
+  })
+
+  it('carries a v1 document forward to v2 unchanged, since the step is a no-op', () => {
+    const raw = { formatVersion: 1, title: 'x' }
+    const result = migrate('document', raw)
+    expect(result).toEqual({ value: raw, migrated: true, tooNew: false })
   })
 
   it('is unfazed by a non-object payload', () => {

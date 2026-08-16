@@ -50,6 +50,33 @@ describe('exportDocx', () => {
     )
   })
 
+  it('writes a field’s cached text as plain prose, with no field code at all', async () => {
+    // No consumer of the export has to understand what a `field` is — its text
+    // child is exported exactly like any other run, by the same fallback that
+    // already carries an unrecognised node's prose through undamaged.
+    const withField = doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'See ' },
+        {
+          type: 'field',
+          attrs: { kind: 'ref', targetBlockId: 'b1' },
+          content: [{ type: 'text', text: 'Chapter Two' }]
+        },
+        { type: 'text', text: ' for more.' }
+      ]
+    })
+    const xml = await documentXml(withField)
+    // Each text node is still its own run — no field code, no bookmark, no
+    // wrapper element of any kind — exactly what an unrecognised node with
+    // real text content already gets by falling through to the same recursion.
+    expect(xml).toContain('See ')
+    expect(xml).toContain('Chapter Two')
+    expect(xml).toContain(' for more.')
+    expect(xml).not.toContain('fldChar')
+    expect(xml).not.toContain('targetBlockId')
+  })
+
   it('names the style rather than copying its formatting', async () => {
     // This is what makes an exported manuscript editable in Word the way it was
     // here: changing Chapter Title there restyles every chapter.

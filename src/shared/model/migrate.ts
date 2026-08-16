@@ -16,7 +16,14 @@ export interface MigrationStep {
  * three at once.
  */
 export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
-  document: [],
+  document: [
+    // Phase 3 adds the `field` node type; nothing about a v1 document's own
+    // shape changes, so this exists only to carry the version forward. An
+    // older build would otherwise treat any v1 document as already current
+    // and silently drop `field` nodes it re-saves, which is the exact loss
+    // Phase 0's version check exists to prevent.
+    { from: 1, to: 2, up: (raw) => raw }
+  ],
   manifest: [],
   manuscript: [],
   entities: [],

@@ -160,7 +160,11 @@ function applyContentSecurityPolicy(): void {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: pub-asset:",
     "font-src 'self' data:",
-    isDev ? 'connect-src *' : "connect-src 'self'",
+    // `data:` is a same-bundle constant, never a remote host: `citeproc-plus`
+    // ships part of its CSL style/locale catalog as `data:` URIs the browser
+    // build resolves with `fetch()` rather than inlining, and blocking it
+    // would not narrow what this policy actually defends against.
+    isDev ? 'connect-src * data:' : "connect-src 'self' data:",
     "object-src 'none'",
     "frame-src 'none'"
   ].join('; ')

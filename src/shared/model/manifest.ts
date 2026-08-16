@@ -16,7 +16,15 @@ export const projectSettingsSchema = z.object({
    */
   pageHeight: z.number().default(792),
   pageMargin: z.number().default(72),
-  defaultStyleId: z.string().default('body')
+  defaultStyleId: z.string().default('body'),
+  /**
+   * A `citeproc-plus` style id — `chicago-author-date`, `chicago-notes-
+   * bibliography`, `apa`, `modern-language-association`, or any of the
+   * ~2000 others the engine bundles. A plain string rather than an enum for
+   * the same reason `cslItemSchema.type` is: the four this build's picker
+   * offers by name are not the only ones a project may want.
+   */
+  citationStyleId: z.string().default('chicago-author-date')
 })
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>
 

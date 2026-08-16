@@ -50,6 +50,7 @@ export type PanelComponent =
   | 'history'
   | 'settings'
   | 'notes'
+  | 'sources'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -173,7 +174,8 @@ const SIDEBAR_PANELS = new Set<PanelComponent>([
   'styles',
   'characters',
   'locations',
-  'notes'
+  'notes',
+  'sources'
 ])
 
 /**

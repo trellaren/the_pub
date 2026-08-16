@@ -22,6 +22,7 @@
   "dependencies": {
     "basic-ftp": "^6.2.0",
     "chokidar": "^4.0.3",
+    "citeproc-plus": "^2.0.4",
     "docx": "^9.7.1",
     "fast-xml-parser": "^5.10.1",
     "fflate": "^0.8.3",

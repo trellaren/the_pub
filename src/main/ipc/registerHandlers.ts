@@ -582,6 +582,14 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  handle('sources:list', (_payload, event) => requireSession(event).sources.snapshot())
+  handle('sources:create', ({ type }, event) => requireSession(event).sources.create(type))
+  handle('sources:save', ({ source }, event) => requireSession(event).sources.save(source))
+  handle('sources:delete', async ({ id }, event) => {
+    await requireSession(event).sources.remove(id)
+    return { ok: true as const }
+  })
+
   handle('ai:list', (_payload, event) => requireSession(event).chats.snapshot())
   handle('ai:createChat', ({ title }, event) => requireSession(event).chats.create(title))
   handle('ai:saveChat', ({ chat }, event) => requireSession(event).chats.save(chat))

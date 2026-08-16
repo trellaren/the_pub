@@ -4,8 +4,8 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 3,
-  manifest: 2,
+  document: 4,
+  manifest: 3,
   manuscript: 1,
   entities: 1,
   beats: 1,
@@ -13,7 +13,8 @@ export const FORMAT_VERSIONS = {
   layouts: 1,
   chats: 1,
   connections: 1,
-  notes: 1
+  notes: 1,
+  sources: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 
@@ -47,6 +48,8 @@ export const CHATS_FILE = `${PUB_DIR}/chats.json`
  * on any other, and a remote VFS write stays small either way.
  */
 export const NOTES_DIR = `${PUB_DIR}/notes`
+/** A CSL-JSON bibliography: every source the project can cite. */
+export const SOURCES_FILE = `${PUB_DIR}/sources.json`
 
 /**
  * A template's own metadata, at the root of a template directory.

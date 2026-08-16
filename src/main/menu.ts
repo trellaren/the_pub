@@ -68,6 +68,7 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { label: 'Maps', click: send('panel.maps') },
         { label: 'AI', click: send('panel.ai') },
         { label: 'Notes', click: send('panel.notes') },
+        { label: 'Sources', click: send('panel.sources') },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: send('panel.settings') },
         { type: 'separator' },

@@ -7,7 +7,8 @@ import {
   type MapFile,
   type StoryMap
 } from '../../shared/model/map.js'
-import { MAPS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { FORMAT_VERSIONS, MAPS_FILE } from '../../shared/constants.js'
+import { JsonCollectionService } from './jsonCollectionService.js'
 
 function emptyFile(): MapFile {
   return { formatVersion: FORMAT_VERSIONS.maps, maps: [] }
@@ -16,39 +17,20 @@ function emptyFile(): MapFile {
 /**
  * Maps, persisted to `.thepub/maps.json`.
  *
- * Third file-backed service in the same shape as EntityService and BeatService:
- * sole writer, in-memory cache, corrupt file set aside rather than overwritten.
  * Shapes are vectors, so even a heavily drawn project is a few hundred
  * kilobytes — small enough that one file and no partial loading stays honest.
  */
-export class MapService {
-  private cache: MapFile = emptyFile()
-  private queue: Promise<void> = Promise.resolve()
-
-  constructor(private readonly adapter: VfsAdapter) {}
-
-  async load(): Promise<MapFile> {
-    const existing = await this.adapter.stat(MAPS_FILE)
-    if (!existing) {
-      this.cache = emptyFile()
-      return this.snapshot()
-    }
-    try {
-      const raw = await this.adapter.readFile(MAPS_FILE)
-      this.cache = mapFileSchema.parse(JSON.parse(raw.toString('utf8')))
-    } catch {
-      await this.adapter.rename(MAPS_FILE, `${MAPS_FILE}.corrupt-${Date.now()}`).catch(() => {})
-      this.cache = emptyFile()
-    }
-    return this.snapshot()
-  }
-
-  snapshot(): MapFile {
-    return structuredClone(this.cache)
-  }
-
-  get(id: string): StoryMap | null {
-    return this.cache.maps.find((map) => map.id === id) ?? null
+export class MapService extends JsonCollectionService<StoryMap, MapFile> {
+  constructor(adapter: VfsAdapter) {
+    super(adapter, {
+      file: MAPS_FILE,
+      kind: 'maps',
+      schema: mapFileSchema,
+      empty: emptyFile,
+      items: (file) => file.maps,
+      withItems: (file, maps) => ({ ...file, maps }),
+      idOf: (map) => map.id
+    })
   }
 
   async create(input: {
@@ -69,7 +51,7 @@ export class MapService {
       created: now,
       modified: now
     })
-    this.cache.maps = [...this.cache.maps, map]
+    this.upsert(map)
     await this.flush()
     return structuredClone(map)
   }
@@ -82,43 +64,29 @@ export class MapService {
       // meaningless, so it is dropped here rather than trusted and guarded at
       // every read.
       shapes: incoming.shapes.map((shape) =>
-        shape.childMapId && wouldCycle(this.cache.maps, incoming.id, shape.childMapId)
+        shape.childMapId && wouldCycle(this.items(), incoming.id, shape.childMapId)
           ? { ...shape, childMapId: null }
           : shape
       ),
       created: existing?.created ?? incoming.created,
       modified: new Date().toISOString()
     })
-    this.cache.maps = existing
-      ? this.cache.maps.map((candidate) => (candidate.id === map.id ? map : candidate))
-      : [...this.cache.maps, map]
+    this.upsert(map)
     await this.flush()
     return structuredClone(map)
   }
 
   async remove(id: string): Promise<void> {
-    this.cache.maps = this.cache.maps
-      .filter((map) => map.id !== id)
-      // Shapes pointing at the deleted map become ordinary shapes rather than
-      // dead links the UI has to keep testing for.
-      .map((map) => ({
-        ...map,
-        shapes: map.shapes.map((shape) =>
-          shape.childMapId === id ? { ...shape, childMapId: null } : shape
-        )
-      }))
+    this.setItems(
+      this.items()
+        .filter((map) => map.id !== id)
+        // Shapes pointing at the deleted map become ordinary shapes rather than
+        // dead links the UI has to keep testing for.
+        .map((map) => ({
+          ...map,
+          shapes: map.shapes.map((shape) => (shape.childMapId === id ? { ...shape, childMapId: null } : shape))
+        }))
+    )
     await this.flush()
-  }
-
-  private async flush(): Promise<void> {
-    const file: MapFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.maps }
-    this.queue = this.queue.then(async () => {
-      await this.adapter.mkdir(PUB_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(
-        MAPS_FILE,
-        Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-      )
-    })
-    await this.queue
   }
 }

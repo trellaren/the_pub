@@ -4,6 +4,7 @@ import type { Editor } from '@tiptap/core'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
+import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { useHistoryStore } from '@renderer/stores/historyStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, cx } from '@renderer/ui/primitives.js'
@@ -176,6 +177,9 @@ function VersionPreview({ content }: { content: Parameters<typeof createEditor>[
       content,
       getStyles: () => useProjectStore.getState().project?.manifest.styles ?? [],
       getEntities: () => useEntityStore.getState().entities,
+      getSources: () => useSourceStore.getState().sources,
+      getCitationStyleId: () =>
+        useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
       onUpdate: () => {}
     })
     instance.setEditable(false)

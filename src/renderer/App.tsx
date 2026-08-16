@@ -7,6 +7,7 @@ import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
+import { useSourceStore } from './stores/sourceStore.js'
 import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
@@ -49,6 +50,7 @@ export function App() {
     void useBeatStore.getState().load()
     void useMapStore.getState().load()
     void useChatStore.getState().load()
+    void useSourceStore.getState().load()
   }, [project?.root])
 
   useEffect(() => {
@@ -166,7 +168,8 @@ export function App() {
         // easy to lose on the way out.
         useEntityStore.getState().flush(),
         useBeatStore.getState().flush(),
-        useMapStore.getState().flush()
+        useMapStore.getState().flush(),
+        useSourceStore.getState().flush()
       ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])

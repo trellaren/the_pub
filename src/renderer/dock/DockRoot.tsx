@@ -158,6 +158,11 @@ export function DockRoot() {
         run: () => useLayoutStore.getState().showPanel('notes', 'Notes')
       }),
       registerCommand({
+        id: 'panel.sources',
+        title: 'Show Sources',
+        run: () => useLayoutStore.getState().showPanel('sources', 'Sources')
+      }),
+      registerCommand({
         id: 'search.focus',
         title: 'Search Project',
         run: () => useLayoutStore.getState().showPanel('search', 'Search')

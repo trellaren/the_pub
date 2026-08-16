@@ -1,8 +1,9 @@
 import type { Editor } from '@tiptap/core'
 import { ulid } from 'ulid'
-import type { PmDoc, PmNode } from '@shared/model/document.js'
+import type { PmDoc } from '@shared/model/document.js'
 import type { NamedStyle } from '@shared/model/style.js'
 import { buildToc, type TocEntry } from '@shared/pm/toc.js'
+import { findFieldRunRange } from '@shared/pm/fieldRuns.js'
 import { FIELD_NODE } from '@shared/model/field.js'
 
 /**
@@ -43,25 +44,6 @@ export function insertCrossReference(editor: Editor, entry: TocEntry): void {
     .run()
 }
 
-function isTocParagraph(node: PmNode): boolean {
-  const content = node.content
-  return (
-    node.type === 'paragraph' &&
-    content?.length === 1 &&
-    content[0]?.type === FIELD_NODE &&
-    content[0]?.attrs?.kind === 'toc'
-  )
-}
-
-/** [start, end) child indexes of an existing table of contents, or null if there isn't one. */
-function findTocRange(doc: PmDoc): { start: number; end: number } | null {
-  const content = doc.content ?? []
-  const start = content.findIndex((node) => isTocParagraph(node))
-  if (start === -1) return null
-  let end = start + 1
-  while (end < content.length && isTocParagraph(content[end]!)) end++
-  return { start, end }
-}
 
 /**
  * The PM position range covering top-level child indexes `[start, end)`.
@@ -70,7 +52,7 @@ function findTocRange(doc: PmDoc): { start: number; end: number } | null {
  * to `childCount - 1`, so a range that runs to the last block never gets an
  * explicit match for `index === end` and needs the fallback.
  */
-function positionsOf(editor: Editor, start: number, end: number): { from: number; to: number } {
+export function positionsOf(editor: Editor, start: number, end: number): { from: number; to: number } {
   let from = 0
   let to = editor.state.doc.content.size
   editor.state.doc.forEach((_node, offset, index) => {
@@ -107,7 +89,7 @@ export function insertOrRefreshTableOfContents(editor: Editor, styles: NamedStyl
   // fail to create the block a person just asked for.
   const body = content.length > 0 ? content : [{ type: 'paragraph', content: [] }]
 
-  const existing = findTocRange(editor.getJSON() as PmDoc)
+  const existing = findFieldRunRange(editor.getJSON() as PmDoc, 'toc')
   if (existing) {
     const { from, to } = positionsOf(editor, existing.start, existing.end)
     editor.chain().focus().insertContentAt({ from, to }, body).run()

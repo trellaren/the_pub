@@ -11,6 +11,7 @@ import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/
 import { noteSchema } from '../model/note.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
+import { sourceFileSchema, cslItemSchema } from '../model/source.js'
 import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
@@ -271,6 +272,11 @@ export const ipcContract = defineContract({
     },
     'maps:save': { req: z.object({ map: storyMapSchema }), res: storyMapSchema },
     'maps:delete': { req: z.object({ id: z.string() }), res: ok },
+
+    'sources:list': { req: empty, res: sourceFileSchema },
+    'sources:create': { req: z.object({ type: z.string() }), res: cslItemSchema },
+    'sources:save': { req: z.object({ source: cslItemSchema }), res: cslItemSchema },
+    'sources:delete': { req: z.object({ id: z.string() }), res: ok },
 
     /** Chats and the project's AI settings in one round trip. */
     'ai:list': { req: empty, res: chatFileSchema },

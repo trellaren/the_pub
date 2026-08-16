@@ -121,6 +121,28 @@ export const SETTING_DEFS = [
     }
   },
   {
+    key: 'app.ai.enabled',
+    storageKey: 'aiEnabled',
+    scope: 'app',
+    group: 'AI',
+    title: 'Enable AI features',
+    description:
+      'Off removes the AI panel and its commands entirely, rather than greying them out. Conversations and stored keys are kept, so turning it back on restores them.',
+    schema: z.boolean().default(true),
+    control: { kind: 'boolean' }
+  },
+  {
+    key: 'app.ai.embeddedIdleMinutes',
+    storageKey: 'embeddedIdleMinutes',
+    scope: 'app',
+    group: 'AI',
+    title: 'Unload the embedded model after (minutes)',
+    description:
+      'An embedded model holds gigabytes of memory while it is loaded. Zero keeps it loaded until the app quits.',
+    schema: z.number().int().min(0).max(240).default(10),
+    control: { kind: 'number', step: 5 }
+  },
+  {
     key: 'project.autosave.debounceMs',
     storageKey: 'autosaveDebounceMs',
     scope: 'project',

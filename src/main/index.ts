@@ -14,6 +14,8 @@ import { AppStateService } from './services/appState.js'
 import { TemplateService } from './services/templateService.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
 import { buildMenu } from './menu.js'
+import { ModelStore } from './llm/modelStore.js'
+import { LlmEngine } from './llm/engine.js'
 
 // Must run before `app.whenReady()`.
 registerAssetSchemePrivileges()
@@ -35,6 +37,8 @@ if (!app.requestSingleInstanceLock()) {
 const windows = new WindowManager()
 const sessions = new SessionRegistry()
 let rendererServer: RendererServer | null = null
+let models: ModelStore | null = null
+let engine: LlmEngine | null = null
 
 app.whenReady().then(async () => {
   const appState = new AppStateService()
@@ -75,7 +79,21 @@ app.whenReady().then(async () => {
     hostKeys: new KnownHostsPolicy(new KnownHostsStore())
   })
 
-  registerHandlers({ windows, sessions, appState, oneDrive, templates: new TemplateService(templateDirs()) })
+  models = new ModelStore(path.join(app.getPath('userData'), 'models'))
+  engine = new LlmEngine({
+    binaryDir: llmRuntimeDir(),
+    idleMs: appState.get().embeddedIdleMinutes * 60_000
+  })
+
+  registerHandlers({
+    windows,
+    sessions,
+    appState,
+    oneDrive,
+    templates: new TemplateService(templateDirs()),
+    models,
+    engine
+  })
 
   const createWindow = (): BrowserWindow => windows.createProjectWindow()
   windows.setProjectWindowHandler((window) => {
@@ -138,6 +156,9 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   void Promise.all(sessions.all().map((projectSession) => projectSession.close()))
   void rendererServer?.close()
+  // Unconditional: the model is a child process holding gigabytes, and an app
+  // that has quit must not leave one running.
+  void engine?.stop()
 })
 
 /**
@@ -149,6 +170,19 @@ app.on('before-quit', () => {
  * across. Getting this wrong shows up only in a packaged run, which is why the
  * packaged smoke test covers it.
  */
+/**
+ * Where `llama-server` lives, which differs between a dev run and a packaged
+ * one for the same reason the template directories do — see `templateDirs`.
+ * Absent in a dev checkout unless someone has put a binary there, which is why
+ * `LlmEngine.available()` is a question the UI asks rather than an assumption.
+ */
+function llmRuntimeDir(): string {
+  const platform = `${process.platform}-${process.arch}`
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'llm', platform)
+    : path.join(app.getAppPath(), 'resources', 'llm', platform)
+}
+
 function templateDirs(): { builtin: string; user: string } {
   return {
     builtin: app.isPackaged

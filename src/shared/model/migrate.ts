@@ -61,7 +61,19 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   beats: [],
   maps: [],
   layouts: [],
-  chats: [],
+  chats: [
+    // Phase 8 adds the `embedded` provider id. No v1 chat's own shape changes,
+    // but a build that predates it fails `aiProviderIdSchema`'s enum on a file
+    // naming it — and `ChatService.load` renames an unparseable file to
+    // `.corrupt-*`, which would lose every conversation in the project. The
+    // version moving is what routes that build through the too-new guard
+    // instead.
+    { from: 1, to: 2, up: (raw) => raw },
+    // Phase 10b adds `toolCalls` to a message and `agent` to settings. Both
+    // default to empty, so again nothing about an existing value changes —
+    // only the version, for the same reason as the step above.
+    { from: 2, to: 3, up: (raw) => raw }
+  ],
   connections: [],
   notes: [],
   sources: []

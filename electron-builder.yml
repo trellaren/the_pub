@@ -34,6 +34,18 @@ asarUnpack:
 extraResources:
   - from: resources/templates
     to: templates
+  # `llama-server` for this platform, when a build has fetched one. Optional on
+  # purpose: the directory is absent in a plain checkout, and the app asks
+  # `LlmEngine.available()` rather than assuming a runtime is there — so a
+  # build without it produces a working app whose embedded models are simply
+  # not offered.
+  - from: resources/llm
+    to: llm
+    filter:
+      - '**/*'
+    # Weights are never packaged. They are gigabytes, they are downloaded on
+    # first use into userData, and an installer carrying one would be
+    # unshippable — which is also what makes "AI off" cost zero bytes.
 # Do not rebuild native modules against Electron's ABI.
 #
 # The only runtime dependency with native code is ssh2, and both of its bindings

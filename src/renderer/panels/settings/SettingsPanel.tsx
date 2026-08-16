@@ -46,12 +46,14 @@ export function SettingsPanel() {
   }
 
   const patchApp = (storageKey: string, value: unknown): void => {
-    // The two app settings have a channel each rather than a generic setter:
+    // Each app setting has a channel of its own rather than a generic setter:
     // main validates them by name, and a `set(key, value)` channel would be a
     // way to write anything at all into app state from the renderer.
     const store = useAppStore.getState()
     if (storageKey === 'theme') void store.setTheme(value as never)
     else if (storageKey === 'timelineOrientation') void store.setTimelineOrientation(value as never)
+    else if (storageKey === 'aiEnabled') void store.setAiEnabled(value as boolean)
+    else if (storageKey === 'embeddedIdleMinutes') void store.setEmbeddedIdleMinutes(value as number)
   }
 
   const readOnly = project?.readOnly ?? false

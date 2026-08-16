@@ -1,5 +1,13 @@
 import { create } from 'zustand'
-import type { Chat, ChatMessage, AiSettings, AiProviderId } from '@shared/model/ai.js'
+import type {
+  Chat,
+  ChatMessage,
+  AiSettings,
+  AiProviderId,
+  ToolCall,
+  EditProposal
+} from '@shared/model/ai.js'
+import type { LlmStatus } from '@shared/model/llm.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
 interface ChatStore {
@@ -7,7 +15,15 @@ interface ChatStore {
   settings: AiSettings | null
   activeChatId: string | null
   /** The reply currently arriving, if any. */
-  streaming: { requestId: string; chatId: string; text: string } | null
+  streaming: { requestId: string; chatId: string; text: string; toolCalls: ToolCall[] } | null
+  /**
+   * Edits the agent has proposed and the author has not yet acted on.
+   *
+   * Held here rather than applied: the agent has no write path to a document,
+   * and this list is the whole of what it can do to prose.
+   */
+  proposals: EditProposal[]
+  dismissProposal: (id: string) => void
   keyStatus: { configured: AiProviderId[]; secureStorage: boolean }
   loaded: boolean
   load: () => Promise<void>
@@ -20,6 +36,14 @@ interface ChatStore {
   cancel: () => Promise<void>
   refreshKeys: () => Promise<void>
   setKey: (provider: AiProviderId, key: string) => Promise<string | null>
+  /** Embedded models: what is downloaded, what this machine can run, engine state. */
+  llm: LlmStatus | null
+  /** Bytes so far per variant, for a download in flight. */
+  downloads: Record<string, { received: number; total: number }>
+  refreshLlm: () => Promise<void>
+  downloadModel: (variantId: string) => Promise<string | null>
+  cancelDownload: (variantId: string) => Promise<void>
+  removeModel: (variantId: string) => Promise<void>
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -27,6 +51,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   settings: null,
   activeChatId: null,
   streaming: null,
+  proposals: [],
+  dismissProposal: (id) =>
+    set({ proposals: get().proposals.filter((proposal) => proposal.id !== id) }),
   keyStatus: { configured: [], secureStorage: false },
   loaded: false,
 
@@ -79,7 +106,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       chats: get().chats.map((chat) =>
         chat.id === chatId ? { ...chat, messages: [...chat.messages, started.message] } : chat
       ),
-      streaming: { requestId: started.requestId, chatId, text: '' }
+      streaming: { requestId: started.requestId, chatId, text: '', toolCalls: [] }
     })
   },
 
@@ -98,8 +125,54 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const result = await invoke('ai:setKey', { provider, key }).catch(() => null)
     await get().refreshKeys()
     return result?.ok ? null : (result?.reason ?? 'Could not save the key')
+  },
+
+  llm: null,
+  downloads: {},
+
+  refreshLlm: async () => {
+    const status = await invoke('llm:status', {}).catch(() => null)
+    if (status) set({ llm: status })
+  },
+
+  downloadModel: async (variantId) => {
+    // The download belongs to main and outlives this panel; the promise here is
+    // only how the outcome comes back, so closing the panel mid-transfer is
+    // safe and reopening it picks the progress back up.
+    const result = await invoke('llm:download', { variantId }).catch(() => null)
+    await get().refreshLlm()
+    if (!result) return 'The download could not be started.'
+    return result.ok ? null : result.error || 'The download failed.'
+  },
+
+  cancelDownload: async (variantId) => {
+    await invoke('llm:cancelDownload', { variantId }).catch(() => {})
+    await get().refreshLlm()
+  },
+
+  removeModel: async (variantId) => {
+    await invoke('llm:remove', { variantId }).catch(() => {})
+    await get().refreshLlm()
   }
 }))
+
+/** Follow a download's progress, which main owns and pushes. */
+export function listenForModelProgress(): () => void {
+  return on('llm:progress', (progress) => {
+    const downloads = { ...useChatStore.getState().downloads }
+    if (progress.done) {
+      delete downloads[progress.variantId]
+      useChatStore.setState({ downloads })
+      void useChatStore.getState().refreshLlm()
+      return
+    }
+    downloads[progress.variantId] = {
+      received: progress.receivedBytes,
+      total: progress.totalBytes
+    }
+    useChatStore.setState({ downloads })
+  })
+}
 
 /**
  * Subscribe to reply events.
@@ -118,6 +191,24 @@ export function listenForReplies(): () => void {
       return
     }
 
+    // A tool call is shown as it happens rather than at the end: an agent that
+    // spends twenty seconds searching should say what it is doing while it
+    // does it. It is never appended to `text`, which is the reply itself.
+    if (event.type === 'tool') {
+      useChatStore.setState({
+        streaming: { ...streaming, toolCalls: [...streaming.toolCalls, event.call] }
+      })
+      return
+    }
+
+    // Proposals outlive the run that produced them — they sit until accepted or
+    // dismissed — so they are kept beside the chat rather than inside the
+    // streaming state that is cleared on `done`.
+    if (event.type === 'proposal') {
+      useChatStore.setState({ proposals: [...useChatStore.getState().proposals, event.proposal] })
+      return
+    }
+
     if (event.type === 'done') {
       appendMessage(streaming.chatId, event.message)
       useChatStore.setState({ streaming: null })
@@ -129,6 +220,7 @@ export function listenForReplies(): () => void {
       role: 'assistant',
       text: `⚠ ${event.message}`,
       model: '',
+      toolCalls: [],
       created: new Date().toISOString()
     })
     useChatStore.setState({ streaming: null })

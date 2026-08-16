@@ -16,6 +16,7 @@ import {
 } from '@renderer/stores/layoutStore.js'
 import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
+import { useAppStore } from '@renderer/stores/appStore.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import { registerDocument, unregisterDocument, allDocuments } from '@renderer/lib/documents.js'
 import { registerCommand } from '@renderer/commands/registry.js'
@@ -90,6 +91,20 @@ export function DockRoot() {
   const entityKinds = project?.manifest.entityKinds ?? DEFAULT_ENTITY_KINDS
   const entityKindsKey = useMemo(() => entityKinds.map((def) => def.id).join(','), [entityKinds])
 
+  // Defaults to on while app state is still loading, matching the setting's own
+  // default — the alternative flashes the AI command out of existence and back
+  // on every launch.
+  const aiEnabled = useAppStore((store) => store.state?.aiEnabled ?? true)
+
+  // Turning AI off closes the panel rather than leaving it sitting there, and
+  // this also catches the panel arriving from a saved layout — a project whose
+  // arrangement was stored while AI was on must not reintroduce it.
+  useEffect(() => {
+    if (aiEnabled) return
+    const api = useLayoutStore.getState().api
+    api?.getPanel('ai')?.api.close()
+  }, [aiEnabled, project?.uri])
+
   useEffect(() => {
     const unregister = [
       registerCommand({
@@ -152,11 +167,19 @@ export function DockRoot() {
         title: 'Show Maps',
         run: () => useLayoutStore.getState().showPanel('maps', 'Maps')
       }),
-      registerCommand({
-        id: 'panel.ai',
-        title: 'Show AI',
-        run: () => useLayoutStore.getState().showPanel('ai', 'AI')
-      }),
+      // Registered only when AI is on, so it is absent from the command
+      // palette and the menu built from it rather than present and refusing.
+      // A greyed-out "Ask AI" is still an AI product, and this setting exists
+      // for people who want a word processor.
+      ...(aiEnabled
+        ? [
+            registerCommand({
+              id: 'panel.ai',
+              title: 'Show AI',
+              run: () => useLayoutStore.getState().showPanel('ai', 'AI')
+            })
+          ]
+        : []),
       registerCommand({
         id: 'panel.settings',
         title: 'Show Settings',
@@ -179,7 +202,7 @@ export function DockRoot() {
       })
     ]
     return () => unregister.forEach((dispose) => dispose())
-  }, [entityKindsKey])
+  }, [entityKindsKey, aiEnabled])
 
   return (
     <DockviewReact

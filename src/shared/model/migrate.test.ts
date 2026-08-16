@@ -24,14 +24,33 @@ describe('migrate', () => {
     expect(result.migrated).toBe(false)
   })
 
-  it('every kind but document and manifest currently has zero migration steps', () => {
-    // Phase 3 (`document`) and Phase 4 (`manifest`) are the only format changes
-    // since this machinery shipped. Any other kind showing up with a step here
-    // is a signal, not a typo.
+  it('only the kinds whose formats have actually changed carry steps', () => {
+    // `document`, `manifest` and `chats` are the only formats to have changed
+    // since this machinery shipped. Any *other* kind showing up with a step
+    // here is a signal, not a typo.
+    const changed = new Set(['document', 'manifest', 'chats'])
     for (const [kind, steps] of Object.entries(MIGRATIONS)) {
-      if (kind === 'document' || kind === 'manifest') continue
+      if (changed.has(kind)) continue
       expect(steps).toEqual([])
     }
+  })
+
+  it('carries a v1 chats file forward, since both its steps are no-ops', () => {
+    // Phase 8 (the `embedded` provider) and Phase 10b (`toolCalls`) each add
+    // only defaulted fields. The version moving is the entire point: a build
+    // that predates them renames an unparseable chats file to `.corrupt-*`,
+    // which would lose every conversation in the project.
+    const raw = { formatVersion: 1, chats: [{ id: 'c1', title: 'Hello' }] }
+    const result = migrate('chats', raw)
+    expect(result.tooNew).toBe(false)
+    expect(result.migrated).toBe(true)
+    expect(result.value).toEqual(raw)
+  })
+
+  it('refuses a chats file from a newer build rather than migrating it', () => {
+    const result = migrate('chats', { formatVersion: FORMAT_VERSIONS.chats + 1 })
+    expect(result.tooNew).toBe(true)
+    expect(result.migrated).toBe(false)
   })
 
   it('carries a v1 manifest forward to current unchanged, since its one step is a no-op', () => {

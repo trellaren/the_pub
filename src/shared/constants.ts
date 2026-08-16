@@ -11,7 +11,7 @@ export const FORMAT_VERSIONS = {
   beats: 1,
   maps: 1,
   layouts: 1,
-  chats: 1,
+  chats: 3,
   connections: 1,
   notes: 1,
   sources: 1

@@ -14,7 +14,7 @@ import { useNoteStore } from './stores/noteStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { openLocation } from './lib/openLocation.js'
-import { runCommand } from './commands/registry.js'
+import { runCommand, listCommands } from './commands/registry.js'
 import './styles.css'
 
 const container = document.getElementById('root')
@@ -43,7 +43,8 @@ Object.assign(window, {
     sources: useSourceStore,
     confirmMention: confirmMentionHere,
     openLocation,
-    runCommand
+    runCommand,
+    listCommands
   }
 })
 

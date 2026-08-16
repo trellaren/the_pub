@@ -14,6 +14,8 @@ interface AppStore {
   setState: (state: AppState) => void
   setTheme: (theme: AppState['theme']) => Promise<void>
   setTimelineOrientation: (orientation: AppState['timelineOrientation']) => Promise<void>
+  setAiEnabled: (enabled: boolean) => Promise<void>
+  setEmbeddedIdleMinutes: (minutes: number) => Promise<void>
   setKeybinding: (commandId: string, accelerator: string | null) => Promise<KeybindingResult>
   resetKeybindings: () => Promise<void>
   load: () => Promise<void>
@@ -36,6 +38,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setTimelineOrientation: async (orientation) => {
     const next = await invoke('app:setTimelineOrientation', { orientation })
     get().setState(next)
+  },
+  setAiEnabled: async (enabled) => {
+    get().setState(await invoke('app:setAiEnabled', { enabled }))
+  },
+  setEmbeddedIdleMinutes: async (minutes) => {
+    get().setState(await invoke('app:setEmbeddedIdleMinutes', { minutes }))
   },
   setKeybinding: async (commandId, accelerator) => {
     const result = await invoke('app:setKeybinding', { commandId, accelerator })

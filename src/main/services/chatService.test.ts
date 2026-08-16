@@ -17,7 +17,14 @@ let adapter: LocalAdapter
 let chats: ChatService
 
 function message(role: 'user' | 'assistant', text: string): ChatMessage {
-  return { id: `${role}-${text.slice(0, 4)}`, role, text, model: '', created: '2026-01-01T00:00:00.000Z' }
+  return {
+    id: `${role}-${text.slice(0, 4)}`,
+    role,
+    text,
+    model: '',
+    toolCalls: [],
+    created: '2026-01-01T00:00:00.000Z'
+  }
 }
 
 beforeEach(async () => {

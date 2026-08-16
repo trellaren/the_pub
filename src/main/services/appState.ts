@@ -65,6 +65,26 @@ export class AppStateService {
   }
 
   /**
+   * Turn AI on or off for this person.
+   *
+   * App-scoped, never project-scoped: a project is a folder people share, and
+   * a collaborator who has turned AI off must not have that reversed by opening
+   * someone else's manuscript. Nothing is deleted — conversations and stored
+   * keys survive, so turning it back on restores them.
+   */
+  setAiEnabled(aiEnabled: boolean): AppState {
+    this.state = { ...this.state, aiEnabled }
+    this.persist()
+    return this.state
+  }
+
+  setEmbeddedIdleMinutes(embeddedIdleMinutes: number): AppState {
+    this.state = { ...this.state, embeddedIdleMinutes }
+    this.persist()
+    return this.state
+  }
+
+  /**
    * Rebind a command, or (with `null`) put it back to its default.
    *
    * Refuses rather than stores on a clash: Electron gives a duplicated

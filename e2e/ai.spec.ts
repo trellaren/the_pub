@@ -56,7 +56,8 @@ async function useLocalServer(): Promise<void> {
       baseUrl: url,
       temperature: 0.7,
       maxTokens: 512,
-      systemPrompt: 'Be brief.'
+      systemPrompt: 'Be brief.',
+      agent: false
     })
   }, baseUrl)
 }

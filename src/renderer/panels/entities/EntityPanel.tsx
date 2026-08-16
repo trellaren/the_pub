@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import type { EntityKind, StoryEntity } from '@shared/model/entity.js'
-import { SUGGESTED_FIELDS } from '@shared/model/entity.js'
+import type { IDockviewPanelProps } from 'dockview-react'
+import type { StoryEntity } from '@shared/model/entity.js'
+import { DEFAULT_ENTITY_KINDS, type EntityKindDef } from '@shared/model/entity.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useEntityStore } from '@renderer/stores/entityStore.js'
 import {
@@ -20,19 +21,16 @@ import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { MentionList } from './MentionList.js'
 import { EntityNotes } from './EntityNotes.js'
 
-const LABELS: Record<EntityKind, { title: string; singular: string }> = {
-  character: { title: 'Characters', singular: 'character' },
-  location: { title: 'Locations', singular: 'location' }
-}
-
 /**
  * Master/detail editor for story records, in StylesPanel's shape.
  *
- * One component for both kinds: characters and locations differ only in the
- * field labels offered, so a second implementation would be the same code with
- * a different noun in it, drifting from this one within a release.
+ * One component for every kind a project offers: they differ only in the
+ * label and field suggestions, both of which are project data
+ * (`manifest.entityKinds`, or `DEFAULT_ENTITY_KINDS` when a project doesn't
+ * configure any) — a second implementation per kind would be the same code
+ * with a different noun in it, drifting from this one within a release.
  */
-export function EntityPanel({ kind }: { kind: EntityKind }) {
+export function EntityPanel({ kind }: { kind: string }) {
   const project = useProjectStore((store) => store.project)
   // Select the stable array and narrow it in a memo. Selecting
   // `entities.filter(...)` would return a fresh array on every render, which is
@@ -43,13 +41,19 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
   const create = useEntityStore((store) => store.create)
   const remove = useEntityStore((store) => store.remove)
 
+  const kinds = project?.manifest.entityKinds ?? DEFAULT_ENTITY_KINDS
+  const labels: EntityKindDef = kinds.find((def) => def.id === kind) ?? {
+    id: kind,
+    label: kind,
+    labelPlural: kind
+  }
+
   const mine = useMemo(() => entities.filter((entity) => entity.kind === kind), [entities, kind])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = mine.find((entity) => entity.id === selectedId) ?? mine[0] ?? null
-  const labels = LABELS[kind]
 
   const addRecord = async (owner?: Document): Promise<void> => {
-    const name = await promptForName({ title: `New ${labels.singular}`, ownerDocument: owner })
+    const name = await promptForName({ title: `New ${labels.label}`, ownerDocument: owner })
     if (!name) return
     const entity = await create(kind, name)
     if (entity) setSelectedId(entity.id)
@@ -65,7 +69,7 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
   if (!project) {
     return (
       <PanelShell>
-        <PanelHeader>{labels.title}</PanelHeader>
+        <PanelHeader>{labels.labelPlural}</PanelHeader>
         <EmptyState title="No project open" />
       </PanelShell>
     )
@@ -74,9 +78,9 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
   return (
     <PanelShell>
       <PanelHeader>
-        <span className="flex-1">{labels.title}</span>
+        <span className="flex-1">{labels.labelPlural}</span>
         <ToolbarButton
-          label={`New ${labels.singular}`}
+          label={`New ${labels.label}`}
           onClick={(event) => void addRecord(event.currentTarget.ownerDocument)}
         >
           ＋
@@ -118,10 +122,14 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
         </ul>
 
         {selected ? (
-          <EntityDetail entity={selected} onPatch={(changes) => patch(selected.id, changes)} />
+          <EntityDetail
+            entity={selected}
+            suggestedFields={labels.suggestedFields ?? []}
+            onPatch={(changes) => patch(selected.id, changes)}
+          />
         ) : (
           <EmptyState
-            title={`No ${labels.title.toLowerCase()} yet`}
+            title={`No ${labels.labelPlural.toLowerCase()} yet`}
             hint={`Add one, then type its name — or @-mention it — in a document.`}
           />
         )}
@@ -132,14 +140,15 @@ export function EntityPanel({ kind }: { kind: EntityKind }) {
 
 function EntityDetail({
   entity,
+  suggestedFields,
   onPatch
 }: {
   entity: StoryEntity
+  suggestedFields: string[]
   onPatch: (changes: Partial<StoryEntity>) => void
 }) {
-  const suggestions = SUGGESTED_FIELDS[entity.kind]
   const used = new Set(entity.fields.map((field) => field.label))
-  const unused = suggestions.filter((label) => !used.has(label))
+  const unused = suggestedFields.filter((label) => !used.has(label))
 
   return (
     <div className="min-w-0 flex-1 overflow-y-auto p-3" data-testid="entity-detail">
@@ -276,6 +285,22 @@ function EntityDetail({
   )
 }
 
+/**
+ * The one panel a project's whole record vocabulary shares — dockview resolves
+ * `kind` from the panel's own params, set at the moment it's opened
+ * (`DockRoot.tsx`'s per-kind commands).
+ */
+export function RecordsPanel(props: IDockviewPanelProps<{ kind: string }>) {
+  return <EntityPanel kind={props.params.kind} />
+}
+
+/**
+ * `characters`/`locations` were the panel's own component ids before a
+ * project's record kinds became configurable. Kept only so a layout saved by
+ * an older build — which stores this string, not a kind param — still
+ * resolves without a `layouts.json` migration; nothing in this build opens a
+ * panel through these ids going forward.
+ */
 export function CharactersPanel() {
   return <EntityPanel kind="character" />
 }

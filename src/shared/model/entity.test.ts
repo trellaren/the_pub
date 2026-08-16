@@ -45,8 +45,14 @@ describe('storyEntitySchema', () => {
     expect(entity.aliases[0]!.scan).toBe(true)
   })
 
-  it('rejects an unknown kind', () => {
-    expect(storyEntitySchema.safeParse({ ...MINIMAL, kind: 'vehicle' }).success).toBe(false)
+  it('accepts a kind a project defines for itself, not just the fiction defaults', () => {
+    // `kind` is project data (`manifest.entityKinds`), not a fixed enum — a
+    // thesis project's "interviewee" is exactly as valid as "character".
+    expect(storyEntitySchema.safeParse({ ...MINIMAL, kind: 'interviewee' }).success).toBe(true)
+  })
+
+  it('rejects a non-string kind', () => {
+    expect(storyEntitySchema.safeParse({ ...MINIMAL, kind: 42 }).success).toBe(false)
   })
 })
 

@@ -1,0 +1,6 @@
+{
+  "id": "builtin-essay",
+  "name": "Essay",
+  "description": "A single-document layout with MLA citations, tighter paragraph spacing, and concept/source records — no chapter numbering to configure.",
+  "projectType": "essay"
+}

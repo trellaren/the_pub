@@ -25,7 +25,7 @@ interface LayoutStore {
   presets: LayoutPreset[]
   setApi: (api: DockviewApi) => void
   openEditor: (docId: string, path: string, title: string) => void
-  showPanel: (component: PanelComponent, title: string) => void
+  showPanel: (component: PanelComponent, title: string, options?: ShowPanelOptions) => void
   popoutActiveGroup: () => void
   savePreset: (name: string) => Promise<void>
   applyPreset: (id: string) => void
@@ -40,6 +40,9 @@ export type PanelComponent =
   | 'editor'
   | 'welcome'
   | 'styles'
+  /** Every record kind, parameterised — see `EntityPanel.tsx`'s `RecordsPanel`. */
+  | 'records'
+  /** Pre-Phase-6 ids, kept only so an old saved layout still resolves. */
   | 'characters'
   | 'locations'
   | 'timeline'
@@ -51,6 +54,12 @@ export type PanelComponent =
   | 'settings'
   | 'notes'
   | 'sources'
+
+interface ShowPanelOptions {
+  /** Defaults to `component` — set for a component multiple singletons share, like `records`, so each kind gets its own panel id. */
+  panelId?: string
+  params?: Record<string, unknown>
+}
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -84,19 +93,21 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
   },
 
   /** Focus a singleton panel, creating it if the layout doesn't have one. */
-  showPanel: (component, title) => {
+  showPanel: (component, title, options) => {
     const api = get().api
     if (!api) return
-    const existing = api.getPanel(component)
+    const id = options?.panelId ?? component
+    const existing = api.getPanel(id)
     if (existing) {
       existing.api.setActive()
       return
     }
     const placement = placementFor(api, component)
     api.addPanel({
-      id: component,
+      id,
       component,
       title,
+      ...(options?.params ? { params: options.params } : {}),
       // Always positioned against a panel that already exists. A bare
       // `{ direction }` is an absolute position, which dockview resolves against
       // the grid root: it mints a fresh top-level column every time, so each
@@ -104,7 +115,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       // from the edge it is supposed to occupy.
       ...(placement ? { position: placement } : {})
     })
-    api.getPanel(component)?.api.setActive()
+    api.getPanel(id)?.api.setActive()
   },
 
   popoutActiveGroup: () => {
@@ -172,6 +183,7 @@ const SIDEBAR_PANELS = new Set<PanelComponent>([
   'explorer',
   'search',
   'styles',
+  'records',
   'characters',
   'locations',
   'notes',
@@ -211,8 +223,14 @@ function placementFor(
   api: DockviewApi,
   component: PanelComponent
 ): { referencePanel: string; direction: 'within' } | undefined {
-  const sidebar = api.panels.find((panel) => SIDEBAR_PANELS.has(panel.id as PanelComponent))
-  const workspace = api.panels.find((panel) => WORKSPACE_PANELS.has(panel.id as PanelComponent))
+  // A panel's own id, not its component, once a component like `records` is
+  // shared by several singletons (one per kind) with different ids — falling
+  // back to `id` keeps this working for every other component, where the two
+  // still match.
+  const componentOf = (panel: (typeof api.panels)[number]): PanelComponent =>
+    (panel.toJSON().contentComponent ?? panel.id) as PanelComponent
+  const sidebar = api.panels.find((panel) => SIDEBAR_PANELS.has(componentOf(panel)))
+  const workspace = api.panels.find((panel) => WORKSPACE_PANELS.has(componentOf(panel)))
   const editor = editorGroupPanel(api)
 
   const target = SIDEBAR_PANELS.has(component)

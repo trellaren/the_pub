@@ -5,7 +5,7 @@
  */
 export const FORMAT_VERSIONS = {
   document: 4,
-  manifest: 3,
+  manifest: 5,
   manuscript: 1,
   entities: 1,
   beats: 1,

@@ -3,13 +3,27 @@ import { FORMAT_VERSIONS } from '../constants.js'
 import { pmDocSchema, EMPTY_DOC } from './document.js'
 
 /**
- * Characters and locations are the same shape of record and differ only in
- * which field labels the UI suggests, so they share one schema, one service
- * and one panel rather than two implementations that drift apart.
+ * Every kind of record shares one schema, one service and one panel —
+ * parameterised by `kind` — rather than a implementation per kind that would
+ * drift apart. `kind` is a plain string, not a compile-time enum: which kinds
+ * a project offers (a thesis wants interviewees and concepts; fiction wants
+ * characters and locations) is project data, on the manifest's `entityKinds`
+ * (`model/manifest.ts`), not something this build's schema can enumerate.
  */
 export const entityKinds = ['character', 'location'] as const
-export const entityKindSchema = z.enum(entityKinds)
+export const entityKindSchema = z.string()
 export type EntityKind = z.infer<typeof entityKindSchema>
+
+/** One kind of record a project offers, and how the UI should talk about it. */
+export const entityKindDefSchema = z.object({
+  id: z.string(),
+  /** "character" — used in "New character". */
+  label: z.string(),
+  /** "Characters" — the panel title and empty-state heading. */
+  labelPlural: z.string(),
+  suggestedFields: z.array(z.string()).optional()
+})
+export type EntityKindDef = z.infer<typeof entityKindDefSchema>
 
 /**
  * An alternative name the record answers to.
@@ -103,11 +117,22 @@ export const EMPTY_ENTITY_FILE: EntityFile = {
   dismissed: []
 }
 
-/** Field labels offered when adding a detail, by kind. Suggestions, not schema. */
-export const SUGGESTED_FIELDS: Record<EntityKind, string[]> = {
+/**
+ * Field labels offered when adding a detail, by kind. Suggestions, not
+ * schema. Looked up leniently elsewhere (an unknown kind suggests no fields
+ * rather than throwing), since a project's configured kinds are no longer
+ * limited to the two below.
+ */
+export const SUGGESTED_FIELDS: Record<string, string[]> = {
   character: ['Age', 'Role', 'Occupation', 'Appearance', 'Voice', 'Wants', 'Fears', 'Arc'],
   location: ['Region', 'Type', 'Population', 'Climate', 'Atmosphere', 'History', 'Ruled by']
 }
+
+/** The record kinds a project offers when its manifest doesn't say otherwise — every project made before Phase 6. */
+export const DEFAULT_ENTITY_KINDS: EntityKindDef[] = [
+  { id: 'character', label: 'character', labelPlural: 'Characters', suggestedFields: SUGGESTED_FIELDS.character },
+  { id: 'location', label: 'location', labelPlural: 'Locations', suggestedFields: SUGGESTED_FIELDS.location }
+]
 
 /**
  * Mention highlight palette. Assigned round-robin to new records so a project

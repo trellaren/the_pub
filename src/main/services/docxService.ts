@@ -123,7 +123,10 @@ export class DocxService {
     const documents = []
     for (const item of items) {
       if (item.kind === 'heading') {
-        documents.push({ title: item.title, content: headingDocument(item.title, item.level, manifest.styles) })
+        documents.push({
+          title: item.title,
+          content: headingDocument(item.title, item.level, manifest.styles, item.numbered)
+        })
         continue
       }
       const loaded = await this.documents.read(item.path)
@@ -243,14 +246,18 @@ export class DocxService {
  * style at the requested level exports the title unstyled rather than
  * failing the whole compile over it.
  */
-function headingDocument(title: string, level: number, styles: NamedStyle[]): PmDoc {
+function headingDocument(title: string, level: number, styles: NamedStyle[], numbered: boolean): PmDoc {
   const style = styles.find((candidate) => candidate.headingLevel === level)
   return {
     type: 'doc',
     content: [
       {
         type: 'paragraph',
-        attrs: style ? { styleId: style.id } : {},
+        // `unnumbered` isn't a real editor attr — this synthetic document
+        // never round-trips through the app's own schema, only straight into
+        // `exportDocx`, so it's a private signal to `toDocx.ts` alone: don't
+        // draw a number from the style even if the style itself is numbered.
+        attrs: { ...(style ? { styleId: style.id } : {}), ...(numbered ? {} : { unnumbered: true }) },
         content: [{ type: 'text', text: title }]
       }
     ]

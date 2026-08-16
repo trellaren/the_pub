@@ -24,6 +24,7 @@ import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
 import { MentionService } from './mentionService.js'
 import { DocxService } from './docxService.js'
+import { FountainService } from './fountainService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 export interface SessionHooks {
@@ -52,6 +53,7 @@ export class ProjectSession {
   readonly ai = new AiRunner()
   readonly mentions: MentionService
   readonly docx: DocxService
+  readonly fountain: FountainService
   /**
    * The opaque name asset URLs know this project by.
    *
@@ -111,6 +113,7 @@ export class ProjectSession {
     this.history = new HistoryService(this.documents, this.snapshots, this.search)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.docx = new DocxService(adapter, this.documents)
+    this.fountain = new FountainService(adapter, this.documents)
   }
 
   static async open(uri: string, hooks: SessionHooks): Promise<ProjectSession> {

@@ -5,7 +5,7 @@ import { SearchPanel } from '@renderer/panels/search/SearchPanel.js'
 import { EditorPanel } from '@renderer/panels/editor/EditorPanel.js'
 import { WelcomePanel } from '@renderer/panels/welcome/WelcomePanel.js'
 import { StylesPanel } from '@renderer/panels/styles/StylesPanel.js'
-import { CharactersPanel, LocationsPanel } from '@renderer/panels/entities/EntityPanel.js'
+import { RecordsPanel, CharactersPanel, LocationsPanel } from '@renderer/panels/entities/EntityPanel.js'
 import { TimelinePanel } from '@renderer/panels/beats/TimelinePanel.js'
 import { StoryboardPanel } from '@renderer/panels/beats/StoryboardPanel.js'
 import { MapPanel } from '@renderer/panels/maps/MapPanel.js'
@@ -26,8 +26,13 @@ export const panelComponents: Record<string, FunctionComponent<IDockviewPanelPro
   editor: EditorPanel as FunctionComponent<IDockviewPanelProps>,
   welcome: WelcomePanel as FunctionComponent<IDockviewPanelProps>,
   styles: StylesPanel as FunctionComponent<IDockviewPanelProps>,
-  // Two keys, one component: `showPanel` takes no parameters, so a pair of
-  // one-line wrappers is the honest way to give each kind its own panel.
+  // One component for every kind a project offers, parameterised by the
+  // `kind` param a panel is opened with (see `DockRoot.tsx`'s per-kind
+  // commands) — a project with five record kinds needs no extra entries here.
+  records: RecordsPanel as FunctionComponent<IDockviewPanelProps>,
+  // `characters`/`locations` are the pre-Phase-6 ids: kept only so a layout
+  // saved by an older build still resolves. See `EntityPanel.tsx`'s comment
+  // on these two exports.
   characters: CharactersPanel as FunctionComponent<IDockviewPanelProps>,
   locations: LocationsPanel as FunctionComponent<IDockviewPanelProps>,
   // Two views of one set of beats: chronology and manuscript order.

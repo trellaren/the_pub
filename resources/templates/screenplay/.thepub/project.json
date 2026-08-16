@@ -1,0 +1,67 @@
+{
+  "formatVersion": 5,
+  "id": "builtin-screenplay",
+  "name": "Screenplay",
+  "created": "2026-01-01T00:00:00.000Z",
+  "modified": "2026-01-01T00:00:00.000Z",
+  "projectType": "screenplay",
+  "settings": {
+    "defaultStyleId": "scene-heading"
+  },
+  "styles": [
+    {
+      "id": "scene-heading",
+      "name": "Scene Heading",
+      "builtin": true,
+      "nextStyle": "action",
+      "cycleStyle": "action",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12, "bold": true, "textTransform": "uppercase" },
+      "paragraph": { "align": "left", "lineHeight": 1.2, "spaceBefore": 24, "spaceAfter": 12, "firstLineIndent": 0 }
+    },
+    {
+      "id": "action",
+      "name": "Action",
+      "builtin": true,
+      "nextStyle": "action",
+      "cycleStyle": "character-cue",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12 },
+      "paragraph": { "align": "left", "lineHeight": 1.2, "spaceAfter": 12, "firstLineIndent": 0 }
+    },
+    {
+      "id": "character-cue",
+      "name": "Character",
+      "builtin": true,
+      "nextStyle": "dialogue",
+      "cycleStyle": "parenthetical",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12, "textTransform": "uppercase" },
+      "paragraph": { "align": "left", "lineHeight": 1.2, "spaceBefore": 12, "spaceAfter": 0, "indentLeft": 158, "firstLineIndent": 0 }
+    },
+    {
+      "id": "parenthetical",
+      "name": "Parenthetical",
+      "builtin": true,
+      "nextStyle": "dialogue",
+      "cycleStyle": "dialogue",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12, "italic": true },
+      "paragraph": { "align": "left", "lineHeight": 1.2, "spaceAfter": 0, "indentLeft": 122, "indentRight": 144, "firstLineIndent": 0 }
+    },
+    {
+      "id": "dialogue",
+      "name": "Dialogue",
+      "builtin": true,
+      "nextStyle": "character-cue",
+      "cycleStyle": "transition",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12 },
+      "paragraph": { "align": "left", "lineHeight": 1.2, "spaceAfter": 12, "indentLeft": 72, "indentRight": 144, "firstLineIndent": 0 }
+    },
+    {
+      "id": "transition",
+      "name": "Transition",
+      "builtin": true,
+      "nextStyle": "scene-heading",
+      "cycleStyle": "scene-heading",
+      "text": { "fontFamily": "Courier New, monospace", "fontSize": 12, "textTransform": "uppercase" },
+      "paragraph": { "align": "right", "lineHeight": 1.2, "spaceBefore": 12, "spaceAfter": 12, "firstLineIndent": 0 }
+    }
+  ]
+}

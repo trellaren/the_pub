@@ -39,7 +39,16 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 5 adds `settings.citationStyleId`. Same reasoning: an older build
     // would otherwise re-save a v3 manifest as v2 and silently drop the
     // project's chosen citation style.
-    { from: 2, to: 3, up: (raw) => raw }
+    { from: 2, to: 3, up: (raw) => raw },
+    // Phase 6 adds `numbering` and `cycleStyle` to entries in `styles`. Same
+    // reasoning again: no existing style's own shape changes, so this exists
+    // only to carry the version forward.
+    { from: 3, to: 4, up: (raw) => raw },
+    // Phase 6 also adds `entityKinds`. The schema's own `undefined` default
+    // (read as "the fiction defaults") fills in regardless, so again nothing
+    // about the value changes — only the version, so an older build doesn't
+    // silently re-save a v5 manifest as v4 and drop a project's custom kinds.
+    { from: 4, to: 5, up: (raw) => raw }
   ],
   manuscript: [],
   entities: [],

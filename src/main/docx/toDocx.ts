@@ -17,14 +17,14 @@ import {
   WidthType,
   type IParagraphOptions,
   type IRunStylePropertiesOptions,
-  type ILevelParagraphStylePropertiesOptions,
+  type IParagraphStylePropertiesOptions,
   type IParagraphStyleOptions,
   type ILevelsOptions,
   type ParagraphChild,
   type FileChild
 } from 'docx'
 import type { PmDoc, PmNode, PmMark } from '../../shared/model/document.js'
-import type { NamedStyle, ParagraphStyleAttrs, TextStyleAttrs } from '../../shared/model/style.js'
+import type { NamedStyle, Numbering, TextStyleAttrs } from '../../shared/model/style.js'
 import {
   pointsToTwips,
   pointsToHalfPoints,
@@ -63,6 +63,7 @@ export interface ExportOptions {
 
 const BULLET_REFERENCE = 'pub-bullet'
 const NUMBER_REFERENCE = 'pub-number'
+const HEADING_NUMBERING_REFERENCE = 'pub-heading-number'
 
 /**
  * Footnote ids and bodies collected while walking the manuscript, threaded
@@ -90,10 +91,16 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
     children.push(...blocksToDocx(document.content.content ?? [], options, footnotes))
   })
 
+  const headingLevels = headingNumberingLevels(options.styles)
   const file = new Document({
     title: options.documents[0]?.title,
     styles: { paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles)) },
-    numbering: { config: numberingConfig() },
+    numbering: {
+      config: [
+        ...numberingConfig(),
+        ...(headingLevels ? [{ reference: HEADING_NUMBERING_REFERENCE, levels: headingLevels }] : [])
+      ]
+    },
     footnotes: footnotes.entries,
     sections: [
       {
@@ -134,7 +141,7 @@ function styleToDocx(style: NamedStyle, all: NamedStyle[]): IParagraphStyleOptio
     next: next ? wordStyleFor(next.id, next.name).id : undefined,
     quickFormat: true,
     run: runProperties(style.text),
-    paragraph: paragraphProperties(style.paragraph, style.headingLevel)
+    paragraph: paragraphProperties(style)
   }
 }
 
@@ -158,10 +165,8 @@ function runProperties(text: TextStyleAttrs): IRunStylePropertiesOptions {
   return properties as IRunStylePropertiesOptions
 }
 
-function paragraphProperties(
-  paragraph: ParagraphStyleAttrs,
-  headingLevel?: number
-): ILevelParagraphStylePropertiesOptions {
+function paragraphProperties(style: NamedStyle): IParagraphStylePropertiesOptions {
+  const paragraph = style.paragraph
   const properties: Record<string, unknown> = {}
   if (paragraph.align) properties.alignment = ALIGNMENTS[paragraph.align]
 
@@ -179,8 +184,16 @@ function paragraphProperties(
   if (paragraph.keepWithNext) properties.keepNext = true
   // A heading's outline level is what makes it appear in Word's navigation pane
   // and in a generated table of contents.
+  const headingLevel = style.headingLevel
   if (headingLevel !== undefined) properties.outlineLevel = headingLevel - 1
-  return properties as ILevelParagraphStylePropertiesOptions
+  // Word owns the actual numbers once a paragraph points at a numbering
+  // definition — this is what makes inserting a heading above renumber
+  // everything below it inside Word itself, not just on The Pub's screen.
+  const numberedLevel = style.outlineLevel ?? style.headingLevel
+  if (style.numbering && numberedLevel !== undefined) {
+    properties.numbering = { reference: HEADING_NUMBERING_REFERENCE, level: numberedLevel - 1 }
+  }
+  return properties as IParagraphStylePropertiesOptions
 }
 
 function indentProperties(paragraph: {
@@ -249,6 +262,40 @@ function numberingConfig(): { reference: string; levels: ILevelsOptions[] }[] {
     { reference: BULLET_REFERENCE, levels: levels(LevelFormat.BULLET, () => '•') },
     { reference: NUMBER_REFERENCE, levels: levels(LevelFormat.DECIMAL, (level) => `%${level + 1}.`) }
   ]
+}
+
+const NUMBERING_FORMATS: Record<Numbering['format'], (typeof LevelFormat)[keyof typeof LevelFormat]> = {
+  decimal: LevelFormat.DECIMAL,
+  'upper-roman': LevelFormat.UPPER_ROMAN,
+  'lower-roman': LevelFormat.LOWER_ROMAN,
+  'upper-alpha': LevelFormat.UPPER_LETTER,
+  'lower-alpha': LevelFormat.LOWER_LETTER
+}
+
+/**
+ * One numbering definition covering outline levels 1-6, built from whichever
+ * style declares each level's `numbering` — a level with nothing configured
+ * still gets a default entry, so the definition stays valid even though no
+ * paragraph ever points at that level. `null` when no style numbers
+ * anything, so an ordinary project's export carries no unused numbering part.
+ */
+function headingNumberingLevels(styles: NamedStyle[]): ILevelsOptions[] | null {
+  const byLevel = new Map<number, Numbering>()
+  for (const style of styles) {
+    const level = style.outlineLevel ?? style.headingLevel
+    if (level !== undefined && style.numbering) byLevel.set(level, style.numbering)
+  }
+  if (byLevel.size === 0) return null
+  return Array.from({ length: 6 }, (_unused, index) => {
+    const level = index + 1
+    const numbering = byLevel.get(level)
+    return {
+      level: index,
+      format: NUMBERING_FORMATS[numbering?.format ?? 'decimal'],
+      text: numbering?.levelText ?? `%${level}.`,
+      start: numbering?.startAt ?? 1
+    }
+  })
 }
 
 /* ----------------------------------------------------------------- blocks */
@@ -331,6 +378,12 @@ function paragraphToDocx(
     firstLineIndent: numberAttr(attrs.firstLineIndent) ?? undefined
   })
   if (indent) direct.indent = indent
+
+  // Set only by `docxService.ts`'s synthetic part-heading documents (never by
+  // real prose): suppresses a numbered style's own Word numbering for this one
+  // paragraph, so a binder heading for front/back matter never reads "Chapter
+  // N" even when the body's chapter style numbers itself.
+  if (attrs.unnumbered === true) direct.numbering = false
 
   return new Paragraph({
     ...(style ? { style: wordStyleFor(style.id, style.name).id } : {}),

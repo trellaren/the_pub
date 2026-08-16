@@ -1,0 +1,9 @@
+{
+  "formatVersion": 1,
+  "nodes": [
+    { "id": "front-title-page", "kind": "part", "parentId": null, "order": 0, "title": "Title Page", "role": "front", "docId": null, "path": "" },
+    { "id": "front-abstract", "kind": "part", "parentId": null, "order": 1, "title": "Abstract", "role": "front", "docId": null, "path": "" },
+    { "id": "front-acknowledgements", "kind": "part", "parentId": null, "order": 2, "title": "Acknowledgements", "role": "front", "docId": null, "path": "" },
+    { "id": "back-bibliography", "kind": "part", "parentId": null, "order": 3, "title": "Bibliography", "role": "back", "docId": null, "path": "" }
+  ]
+}

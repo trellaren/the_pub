@@ -32,6 +32,8 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { type: 'separator' },
         { label: 'Import from Word…', click: send('document.import') },
         { label: 'Export to Word…', click: send('document.export') },
+        { label: 'Import from Fountain…', click: send('document.importFountain') },
+        { label: 'Export to Fountain…', click: send('document.exportFountain') },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
       ]
@@ -60,8 +62,10 @@ export function buildMenu(windows: WindowManager, createWindow: () => BrowserWin
         { type: 'separator' },
         { label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: send('panel.explorer') },
         { label: 'Search', click: send('panel.search') },
-        { label: 'Characters', click: send('panel.characters') },
-        { label: 'Locations', click: send('panel.locations') },
+        // No fixed entries for record panels: which kinds a project offers is
+        // project data (`manifest.entityKinds`), and this menu is built once,
+        // with no access to whichever project is open — see `panel.records.*`
+        // in `DockRoot.tsx`. The Command Palette lists them by name instead.
         { label: 'Timeline', click: send('panel.timeline') },
         { label: 'Storyboard', click: send('panel.storyboard') },
         { label: 'Manuscript', click: send('panel.manuscript') },

@@ -29,6 +29,20 @@ export const paragraphStyleAttrsSchema = z.object({
 export type ParagraphStyleAttrs = z.infer<typeof paragraphStyleAttrsSchema>
 
 /**
+ * How a heading level numbers itself: "1.2.3". `levelText` is Word's own
+ * `w:lvlText` syntax (`%1.%2.%3 ` — `%n` is the counter at outline level n),
+ * deliberately, because that is what the DOCX export has to emit anyway —
+ * inventing a friendlier syntax would just mean writing a translator to this
+ * one.
+ */
+export const numberingSchema = z.object({
+  format: z.enum(['decimal', 'upper-roman', 'lower-roman', 'upper-alpha', 'lower-alpha']),
+  startAt: z.number().int().min(0).default(1),
+  levelText: z.string()
+})
+export type Numbering = z.infer<typeof numberingSchema>
+
+/**
  * A named style, Word-style: a reusable bundle of paragraph + character defaults.
  * Documents reference styles by id, so editing a style restyles every document
  * without rewriting any content.
@@ -52,12 +66,40 @@ export const namedStyleSchema = z.object({
    * styled as its own paragraph style) can still opt in.
    */
   outlineLevel: z.number().int().min(1).max(6).optional(),
+  /**
+   * "1.2.3"-style numbering for this style's outline level. Absent means the
+   * level renders unnumbered, exactly as it does today.
+   */
+  numbering: numberingSchema.optional(),
+  /**
+   * A ring of style ids this style cycles through on Tab — screenplay
+   * elements ("this line could *instead* be a Character line"), not the
+   * "what comes *next*" relationship `nextStyle` already covers. Absent means
+   * Tab does nothing style-related. Walking the ring is bounded by the style
+   * count, since a chain that never returns to its start is malformed data,
+   * not a bug to crash on.
+   */
+  cycleStyle: z.string().optional(),
   text: textStyleAttrsSchema.default({}),
   paragraph: paragraphStyleAttrsSchema.default({})
 })
 export type NamedStyle = z.infer<typeof namedStyleSchema>
 
 export const STYLE_BODY = 'body'
+
+/**
+ * Conventional ids a screenplay template's six styles carry. Neither the
+ * editor nor the model has a "this style is a screenplay element" flag —
+ * the scene-heading autocomplete and the Fountain import/export both key off
+ * these ids directly, the same way `STYLE_BODY` is already a convention
+ * rather than a schema field.
+ */
+export const STYLE_SCENE_HEADING = 'scene-heading'
+export const STYLE_ACTION = 'action'
+export const STYLE_CHARACTER = 'character-cue'
+export const STYLE_PARENTHETICAL = 'parenthetical'
+export const STYLE_DIALOGUE = 'dialogue'
+export const STYLE_TRANSITION = 'transition'
 
 /** Seeded into every new project; users may edit these but not remove them. */
 export const BUILTIN_STYLES: NamedStyle[] = [
@@ -168,6 +210,25 @@ export const BUILTIN_STYLES: NamedStyle[] = [
     paragraph: { indentLeft: 36, indentRight: 36, spaceBefore: 12, spaceAfter: 12 }
   }
 ]
+
+/**
+ * The styles a `cycleStyle` ring visits after `startId`, in order, stopping
+ * once it returns to `startId` — or, for a ring some hand-edit left without a
+ * way back to its start, once it has taken as many hops as there are styles.
+ * That bound is what makes this safe to call on data this build did not
+ * write itself: a chain that never closes still terminates instead of
+ * walking forever.
+ */
+export function cycleRing(startId: string, styles: NamedStyle[]): string[] {
+  const byId = new Map(styles.map((style) => [style.id, style]))
+  const visited: string[] = []
+  let cursor = byId.get(startId)?.cycleStyle
+  while (cursor && cursor !== startId && visited.length < styles.length) {
+    visited.push(cursor)
+    cursor = byId.get(cursor)?.cycleStyle
+  }
+  return visited
+}
 
 /** Resolve a style against its `basedOn` chain. Cycles are broken by a depth cap. */
 export function resolveStyle(

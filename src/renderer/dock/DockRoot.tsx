@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   DockviewReact,
   type DockviewApi,
@@ -19,6 +19,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import { registerDocument, unregisterDocument, allDocuments } from '@renderer/lib/documents.js'
 import { registerCommand } from '@renderer/commands/registry.js'
+import { DEFAULT_ENTITY_KINDS } from '@shared/model/entity.js'
 
 /**
  * The dock. Everything the user sees lives in a panel here, including panels
@@ -80,6 +81,15 @@ export function DockRoot() {
     }
   }, [project?.uri])
 
+  // The kinds this project offers, driven by its manifest (a thesis template
+  // ships `interviewee`/`concept`; absent means the fiction defaults). Keyed
+  // to a plain string so the effect below only re-runs when the actual list
+  // of kinds changes — `project` itself gets a new reference on every
+  // manifest write (see the effect above), which would otherwise tear down
+  // and rebuild every command in this file on each keystroke in Settings.
+  const entityKinds = project?.manifest.entityKinds ?? DEFAULT_ENTITY_KINDS
+  const entityKindsKey = useMemo(() => entityKinds.map((def) => def.id).join(','), [entityKinds])
+
   useEffect(() => {
     const unregister = [
       registerCommand({
@@ -107,16 +117,16 @@ export function DockRoot() {
         title: 'Show Styles',
         run: () => useLayoutStore.getState().showPanel('styles', 'Styles')
       }),
-      registerCommand({
-        id: 'panel.characters',
-        title: 'Show Characters',
-        run: () => useLayoutStore.getState().showPanel('characters', 'Characters')
-      }),
-      registerCommand({
-        id: 'panel.locations',
-        title: 'Show Locations',
-        run: () => useLayoutStore.getState().showPanel('locations', 'Locations')
-      }),
+      ...entityKinds.map((def) =>
+        registerCommand({
+          id: `panel.records.${def.id}`,
+          title: `Show ${def.labelPlural}`,
+          run: () =>
+            useLayoutStore
+              .getState()
+              .showPanel('records', def.labelPlural, { panelId: def.id, params: { kind: def.id } })
+        })
+      ),
       registerCommand({
         id: 'panel.timeline',
         title: 'Show Timeline',
@@ -169,7 +179,7 @@ export function DockRoot() {
       })
     ]
     return () => unregister.forEach((dispose) => dispose())
-  }, [])
+  }, [entityKindsKey])
 
   return (
     <DockviewReact

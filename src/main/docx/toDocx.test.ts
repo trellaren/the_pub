@@ -184,6 +184,66 @@ describe('exportDocx', () => {
     const zip = unzipSync(new Uint8Array(await write({ type: 'doc', content: [] })))
     expect(strFromU8(zip['word/document.xml']!)).toContain('<w:body>')
   })
+
+  it('emits real Word numbering for a style with numbering configured, not literal text', async () => {
+    const styles = BUILTIN_STYLES.map((style) =>
+      style.id === 'heading-1'
+        ? { ...style, numbering: { format: 'decimal' as const, startAt: 1, levelText: '%1.' } }
+        : style
+    )
+    const zip = unzipSync(
+      new Uint8Array(
+        await exportDocx({
+          documents: [{ title: 'One', content: doc({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Chapter One' }] }) }],
+          styles,
+          page: PAGE
+        })
+      )
+    )
+    const numbering = strFromU8(zip['word/numbering.xml']!)
+    expect(numbering).toContain('%1.')
+    expect(numbering).toContain('decimal')
+
+    const stylesXml = strFromU8(zip['word/styles.xml']!)
+    // The heading-1 style itself points at the numbering definition — Word,
+    // not The Pub, computes the number an instance of it displays.
+    expect(stylesXml).toMatch(/w:numId/)
+  })
+
+  it('lets one paragraph opt out of its style’s numbering — a binder heading for front/back matter', async () => {
+    const styles = BUILTIN_STYLES.map((style) =>
+      style.id === 'heading-1'
+        ? { ...style, numbering: { format: 'decimal' as const, startAt: 1, levelText: '%1.' } }
+        : style
+    )
+    const zip = unzipSync(
+      new Uint8Array(
+        await exportDocx({
+          documents: [
+            {
+              title: 'One',
+              content: doc(
+                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Chapter One' }] },
+                {
+                  type: 'paragraph',
+                  attrs: { styleId: 'heading-1', unnumbered: true },
+                  content: [{ type: 'text', text: 'Appendix' }]
+                }
+              )
+            }
+          ],
+          styles,
+          page: PAGE
+        })
+      )
+    )
+    const body = strFromU8(zip['word/document.xml']!)
+    const [chapterPara, appendixPara] = body.split('<w:p>').slice(1)
+    // The numbered heading carries no numbering override of its own — Word
+    // resolves it from the style. The unnumbered one explicitly cancels it.
+    expect(chapterPara).not.toContain('w:numPr')
+    expect(appendixPara).toContain('<w:numId w:val="0"/>')
+  })
 })
 
 describe('round trip', () => {

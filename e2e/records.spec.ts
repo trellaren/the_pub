@@ -247,7 +247,7 @@ function plainText(doc: PubDocument): string {
 test('the New character button creates a record through its dialog', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await harness.page.evaluate(() => window.__pub.runCommand('panel.characters'))
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.records.character'))
 
   await harness.page.getByRole('button', { name: 'New character' }).click()
   await expect(harness.page.getByTestId('prompt-dialog')).toBeVisible()

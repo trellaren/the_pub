@@ -1,0 +1,61 @@
+{
+  "formatVersion": 5,
+  "id": "builtin-essay",
+  "name": "Essay",
+  "created": "2026-01-01T00:00:00.000Z",
+  "modified": "2026-01-01T00:00:00.000Z",
+  "projectType": "essay",
+  "settings": {
+    "citationStyleId": "modern-language-association"
+  },
+  "entityKinds": [
+    { "id": "concept", "label": "concept", "labelPlural": "Concepts", "suggestedFields": ["Definition", "Source"] },
+    { "id": "source", "label": "source", "labelPlural": "Sources", "suggestedFields": ["Key argument", "Relevance"] }
+  ],
+  "styles": [
+    {
+      "id": "body",
+      "name": "Body",
+      "builtin": true,
+      "nextStyle": "body",
+      "text": { "fontFamily": "Georgia, serif", "fontSize": 12 },
+      "paragraph": { "align": "left", "lineHeight": 1.3, "spaceAfter": 0, "firstLineIndent": 24 }
+    },
+    {
+      "id": "first-paragraph",
+      "name": "First Paragraph",
+      "builtin": true,
+      "basedOn": "body",
+      "nextStyle": "body",
+      "text": {},
+      "paragraph": { "firstLineIndent": 0 }
+    },
+    {
+      "id": "heading-1",
+      "name": "Heading 1",
+      "builtin": true,
+      "headingLevel": 1,
+      "nextStyle": "first-paragraph",
+      "text": { "fontFamily": "Georgia, serif", "fontSize": 16, "bold": true },
+      "paragraph": { "align": "left", "lineHeight": 1.25, "spaceBefore": 20, "spaceAfter": 8 }
+    },
+    {
+      "id": "heading-2",
+      "name": "Heading 2",
+      "builtin": true,
+      "headingLevel": 2,
+      "nextStyle": "first-paragraph",
+      "text": { "fontFamily": "Georgia, serif", "fontSize": 13, "bold": true },
+      "paragraph": { "align": "left", "lineHeight": 1.3, "spaceBefore": 14, "spaceAfter": 6 }
+    },
+    {
+      "id": "block-quote",
+      "name": "Block Quote",
+      "builtin": true,
+      "basedOn": "body",
+      "nextStyle": "body",
+      "text": { "fontSize": 11 },
+      "paragraph": { "indentLeft": 36, "indentRight": 0, "lineHeight": 1.3, "spaceBefore": 8, "spaceAfter": 8 }
+    }
+  ]
+}

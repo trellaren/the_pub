@@ -30,7 +30,11 @@ interface PubTestHook {
   layout: {
     getState: () => {
       openEditor: (docId: string, path: string, title: string) => void
-      showPanel: (component: string, title: string) => void
+      showPanel: (
+        component: string,
+        title: string,
+        options?: { panelId?: string; params?: Record<string, unknown> }
+      ) => void
       popoutActiveGroup: () => void
       api: {
         panels: { id: string }[]
@@ -52,7 +56,7 @@ interface PubTestHook {
   entities: {
     getState: () => {
       entities: StoryEntity[]
-      create: (kind: 'character' | 'location', name: string) => Promise<StoryEntity | null>
+      create: (kind: string, name: string) => Promise<StoryEntity | null>
       patch: (id: string, changes: Partial<StoryEntity>) => void
       flush: () => Promise<void>
     }

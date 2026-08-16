@@ -462,6 +462,12 @@ body {
   margin-bottom: 0;
 }
 
+/* A computed "1.2.3" before a numbered heading's text — a decoration, not
+ * content, so it inherits the heading's own styling for free. */
+.pub-heading-number {
+  user-select: none;
+}
+
 /* The endnotes region: a read-only reflection of every footnote, in order. */
 .pub-endnotes {
   margin: 0 auto 96px;

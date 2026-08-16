@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { FORMAT_VERSIONS, AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
 import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
+import { entityKindDefSchema } from './entity.js'
 
 export const projectSettingsSchema = z.object({
   autosaveDebounceMs: z.number().int().min(100).max(30_000).default(AUTOSAVE_DEBOUNCE_MS),
@@ -35,7 +36,7 @@ export type ProjectSettings = z.infer<typeof projectSettingsSchema>
  * on it, and nothing should start to — a project type that reached into
  * document behaviour would be a second, weaker styles system.
  */
-export const projectTypes = ['novel', 'thesis', 'essay', 'screenplay'] as const
+export const projectTypes = ['novel', 'thesis', 'essay', 'research-paper', 'screenplay'] as const
 export const projectTypeSchema = z.enum(projectTypes)
 export type ProjectType = z.infer<typeof projectTypeSchema>
 
@@ -51,7 +52,14 @@ export const projectManifestSchema = z.object({
   // each field's own default filled in rather than requiring the whole object.
   settings: projectSettingsSchema.prefault({}),
   /** Project-wide named styles shared by every document. */
-  styles: z.array(namedStyleSchema).default(BUILTIN_STYLES)
+  styles: z.array(namedStyleSchema).default(BUILTIN_STYLES),
+  /**
+   * The record kinds this project offers — a thesis wants interviewees and
+   * concepts, fiction wants characters and locations. Absent means the
+   * fiction defaults (`DEFAULT_ENTITY_KINDS`), so every project made before
+   * this field existed is unaffected.
+   */
+  entityKinds: z.array(entityKindDefSchema).optional()
 })
 export type ProjectManifest = z.infer<typeof projectManifestSchema>
 

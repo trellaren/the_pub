@@ -1,0 +1,6 @@
+{
+  "id": "builtin-research-paper",
+  "name": "Research paper",
+  "description": "Numbered section headings, APA author-date citations, and hypothesis/dataset/source records.",
+  "projectType": "research-paper"
+}

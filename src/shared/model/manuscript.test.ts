@@ -3,6 +3,7 @@ import {
   childrenOf,
   flattenManuscript,
   misplacedFrontMatter,
+  nextMisplacedFrontMatterMove,
   placeInManuscript,
   reconcile,
   rollUpWords,
@@ -187,6 +188,37 @@ describe('misplacedFrontMatter', () => {
   })
 })
 
+describe('nextMisplacedFrontMatterMove', () => {
+  it('says nothing to fix when there is no front matter', () => {
+    expect(nextMisplacedFrontMatterMove([doc('a', null, 0), part('p1', 1)])).toBeNull()
+  })
+
+  it('moves a misplaced part to just after the front matter that already leads', () => {
+    const nodes = [
+      part('title', 0, { title: 'Title Page', role: 'front' }),
+      doc('chapter-one', null, 1),
+      part('dedication', 2, { title: 'Dedication', role: 'front' })
+    ]
+    expect(nextMisplacedFrontMatterMove(nodes)).toEqual({ id: 'dedication', index: 1 })
+  })
+
+  it('resolves one move at a time, leaving the next for a fresh call', () => {
+    const nodes = [
+      doc('chapter-one', null, 0),
+      part('dedication', 1, { title: 'Dedication', role: 'front' }),
+      part('epigraph', 2, { title: 'Epigraph', role: 'front' })
+    ]
+    expect(nextMisplacedFrontMatterMove(nodes)).toEqual({ id: 'dedication', index: 0 })
+    // Simulate the first move having landed: `dedication` is now in front.
+    const after = [
+      part('dedication', -1, { title: 'Dedication', role: 'front' }),
+      doc('chapter-one', null, 0),
+      part('epigraph', 2, { title: 'Epigraph', role: 'front' })
+    ]
+    expect(nextMisplacedFrontMatterMove(after)).toEqual({ id: 'epigraph', index: 1 })
+  })
+})
+
 describe('toExportItems', () => {
   function resolved(node: ManuscriptNode, extra: Partial<ResolvedNode> = {}): ResolvedNode {
     return { ...node, resolvedPath: node.kind === 'document' ? node.path : null, words: 0, missing: false, ...extra }
@@ -197,7 +229,7 @@ describe('toExportItems', () => {
       resolved(node)
     )
     expect(toExportItems(nodes).items).toEqual([
-      { kind: 'heading', title: 'Part One', level: 1 },
+      { kind: 'heading', title: 'Part One', level: 1, numbered: true },
       { kind: 'document', path: 'a.pubdoc' },
       { kind: 'document', path: 'b.pubdoc' }
     ])
@@ -237,7 +269,7 @@ describe('toExportItems', () => {
     ].map((node) => resolved(node))
     expect(toExportItems(nodes).items).toEqual([
       { kind: 'document', path: 'prologue.pubdoc' },
-      { kind: 'heading', title: 'Part One', level: 1 },
+      { kind: 'heading', title: 'Part One', level: 1, numbered: true },
       { kind: 'document', path: 'one.pubdoc' },
       { kind: 'document', path: 'epilogue.pubdoc' }
     ])
@@ -246,6 +278,21 @@ describe('toExportItems', () => {
   it('skips an empty part rather than titling nothing', () => {
     const nodes = [part('p1', 0, { title: 'Part One' })].map((node) => resolved(node))
     expect(toExportItems(nodes).items).toEqual([])
+  })
+
+  /*
+   * Back matter gets a heading (unlike front matter), but never a numbered
+   * one — an appendix should never read "Chapter 4" just because the body's
+   * chapter style numbers itself.
+   */
+  it('emits an unnumbered heading for a back-matter part', () => {
+    const nodes = [part('appendix', 0, { title: 'Appendix', role: 'back' }), doc('a1', 'appendix', 0)].map((node) =>
+      resolved(node)
+    )
+    expect(toExportItems(nodes).items).toEqual([
+      { kind: 'heading', title: 'Appendix', level: 1, numbered: false },
+      { kind: 'document', path: 'a1.pubdoc' }
+    ])
   })
 
   /*

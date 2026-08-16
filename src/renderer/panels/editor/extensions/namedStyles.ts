@@ -82,6 +82,24 @@ export const NamedStyles = Extension.create<NamedStylesOptions>({
         const next = style?.nextStyle
         if (!next || next === styleId) return false
         return this.editor.chain().splitBlock().setNamedStyle(next).run()
+      },
+      /**
+       * A screenplay's "this line could *instead* be a Character line" — a
+       * different relationship from Enter's "what comes next", so it walks a
+       * separate ring (`cycleStyle`) rather than reusing `nextStyle`. One hop
+       * per press, same as Enter: `cycleRing`'s bounded multi-hop walk exists
+       * for validating a ring, not for what a single keypress does.
+       */
+      Tab: () => {
+        const { state } = this.editor
+        const { $from, empty } = state.selection
+        if (!empty) return false
+        const styleId = $from.parent.attrs.styleId as string | undefined
+        if (!styleId) return false
+        const style = this.options.getStyles().find((candidate) => candidate.id === styleId)
+        const next = style?.cycleStyle
+        if (!next || next === styleId) return false
+        return this.editor.chain().setNamedStyle(next).run()
       }
     }
   }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react
 import {
   isPart,
   misplacedFrontMatter,
+  nextMisplacedFrontMatterMove,
   toExportItems,
   type ManuscriptNode,
   type PartRole,
@@ -156,6 +157,21 @@ export function ManuscriptPanel() {
   )
 
   /**
+   * The warning banner's action: fixes what it warns about, one part at a
+   * time. `nextMisplacedFrontMatterMove` is re-derived from the live store
+   * after each move rather than planned up front against `view.nodes`, since
+   * a move's own `index` is only valid against the tree as it stands the
+   * instant it runs.
+   */
+  const moveFrontMatterToStart = useCallback(async () => {
+    for (;;) {
+      const next = nextMisplacedFrontMatterMove(useManuscriptStore.getState().view.nodes)
+      if (!next) break
+      await move(next.id, null, next.index)
+    }
+  }, [move])
+
+  /**
    * Compile the book to a `.docx`.
    *
    * `toExportItems` is the same function the plan built `docx:export`'s
@@ -227,14 +243,24 @@ export function ManuscriptPanel() {
       </PanelHeader>
 
       {misplaced.length > 0 ? (
-        <p
+        <div
           data-testid="manuscript-front-matter-warning"
-          className="border-b border-border bg-surface-2 px-2 py-1 text-[11px] text-danger"
+          className="flex items-center gap-2 border-b border-danger/40 bg-danger/10 px-2 py-1 text-[11px]"
         >
-          {misplaced.length === 1
-            ? `"${misplaced[0]}" is front matter but isn't first — it will export where it's dragged, not at the start.`
-            : `${misplaced.length} front-matter parts aren't first — they will export where they're dragged, not at the start.`}
-        </p>
+          <span className="flex-1 text-danger">
+            {misplaced.length === 1
+              ? `"${misplaced[0]}" is front matter but isn't first — it will export where it's dragged, not at the start.`
+              : `${misplaced.length} front-matter parts aren't first — they will export where they're dragged, not at the start.`}
+          </span>
+          <button
+            type="button"
+            data-testid="manuscript-move-front-matter"
+            className="shrink-0 rounded border border-danger/40 px-2 py-0.5 text-danger hover:bg-danger/10"
+            onClick={() => void moveFrontMatterToStart()}
+          >
+            Move to front
+          </button>
+        </div>
       ) : null}
 
       {loaded && rows.length === 0 ? (

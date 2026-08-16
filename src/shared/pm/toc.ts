@@ -1,7 +1,7 @@
-import type { PmDoc, PmNode } from '../model/document.js'
+import type { PmDoc } from '../model/document.js'
 import type { NamedStyle } from '../model/style.js'
-import { resolveStyle } from '../model/style.js'
 import { rawBlockText, normalizeBlockText } from './extractText.js'
+import { computeHeadingNumbers, outlineLevelOf } from './headingNumbers.js'
 
 /** One heading-level block, in document order. */
 export interface TocEntry {
@@ -10,6 +10,8 @@ export interface TocEntry {
   blockId: string | null
   text: string
   level: number
+  /** "1.2.3", when the block's outline level has numbering configured. */
+  number?: string
 }
 
 /**
@@ -26,6 +28,7 @@ export interface TocEntry {
  */
 export function buildToc(doc: PmDoc, styles: NamedStyle[]): TocEntry[] {
   const content = doc.content ?? []
+  const numbers = computeHeadingNumbers(doc, styles)
   const entries: TocEntry[] = []
   for (let blockIndex = 0; blockIndex < content.length; blockIndex++) {
     const node = content[blockIndex]!
@@ -34,28 +37,8 @@ export function buildToc(doc: PmDoc, styles: NamedStyle[]): TocEntry[] {
     const text = normalizeBlockText(rawBlockText(node)).text
     if (!text) continue
     const blockId = typeof node.attrs?.blockId === 'string' ? node.attrs.blockId : null
-    entries.push({ blockIndex, blockId, text, level })
+    const number = numbers.get(blockIndex)
+    entries.push(number ? { blockIndex, blockId, text, level, number } : { blockIndex, blockId, text, level })
   }
   return entries
-}
-
-/**
- * Deliberately not `defaultStyleFor` from `namedStyles.ts`: that lives in a
- * renderer TipTap extension, and this module has to stay usable from plain
- * JSON with no TipTap or DOM in reach. The fallback it needs is much narrower
- * anyway — only "no style, but it's a heading node" — the rest is a direct
- * `resolveStyle` lookup.
- */
-function outlineLevelOf(node: PmNode, styles: NamedStyle[]): number | null {
-  const styleId = typeof node.attrs?.styleId === 'string' ? node.attrs.styleId : null
-  if (styleId) {
-    const resolved = resolveStyle(styleId, styles)
-    const level = resolved?.outlineLevel ?? resolved?.headingLevel
-    if (level !== undefined) return level
-  }
-  if (node.type === 'heading') {
-    const level = node.attrs?.level
-    if (typeof level === 'number') return level
-  }
-  return null
 }

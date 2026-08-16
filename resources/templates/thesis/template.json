@@ -1,0 +1,6 @@
+{
+  "id": "builtin-thesis",
+  "name": "Thesis",
+  "description": "Numbered chapter and section headings, front and back matter parts ready to fill in, Chicago notes-bibliography citations, and interviewee/concept/source records.",
+  "projectType": "thesis"
+}

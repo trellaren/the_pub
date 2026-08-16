@@ -102,6 +102,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       getSources: currentSources,
       getCitationStyleId: () =>
         useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
+      getLocations: () => currentEntities().filter((entity) => entity.kind === 'location'),
       onUpdate: () => {
         const state = get().docs[doc.docId]
         if (!state) return

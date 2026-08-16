@@ -25,6 +25,8 @@ import { Anchors } from './extensions/anchors.js'
 import { Field } from './extensions/field.js'
 import { Footnote } from './extensions/footnote.js'
 import { Citation } from './extensions/citation.js'
+import { HeadingNumbers } from './extensions/headingNumbers.js'
+import { SceneHeading } from './extensions/sceneHeading.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -35,6 +37,8 @@ export interface CreateEditorOptions {
   /** Live getter for the citation picker, same reasoning as `getEntities`. */
   getSources: () => CslItem[]
   getCitationStyleId: () => string
+  /** Live getter for the scene-heading picker, pre-filtered to location records. */
+  getLocations: () => StoryEntity[]
   onUpdate: () => void
 }
 
@@ -78,6 +82,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       Typography,
       Placeholder.configure({ placeholder: 'Begin writing…' }),
       NamedStyles.configure({ getStyles: options.getStyles }),
+      HeadingNumbers.configure({ getStyles: options.getStyles }),
+      SceneHeading.configure({ getLocations: options.getLocations }),
       Mention.configure({ getEntities: options.getEntities }),
       ParagraphFormat,
       FindHighlight,

@@ -203,7 +203,18 @@ export function totalWords(nodes: readonly ManuscriptNode[], words: ReadonlyMap<
  */
 export const exportItemSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('document'), path: z.string() }),
-  z.object({ kind: z.literal('heading'), title: z.string(), level: z.number().int().min(1).max(3).default(1) })
+  z.object({
+    kind: z.literal('heading'),
+    title: z.string(),
+    level: z.number().int().min(1).max(3).default(1),
+    /**
+     * Whether this heading may draw from a numbered-heading counter (Phase 6's
+     * `computeHeadingNumbers`/DOCX numbering). `false` for front and back
+     * matter — a thesis's abstract and its appendix should never read
+     * "Chapter 1", even in a project whose body-chapter style numbers itself.
+     */
+    numbered: z.boolean().default(true)
+  })
 ])
 export type ExportItem = z.infer<typeof exportItemSchema>
 
@@ -241,6 +252,22 @@ export function misplacedFrontMatter(nodes: readonly ManuscriptNode[]): string[]
     .map((node) => node.title || 'Untitled part')
 }
 
+/**
+ * The one move — if any — that fixes the *next* misplaced front-matter part,
+ * for the panel's "move to front" action. One move at a time, not the whole
+ * list at once: `move`'s `index` is only valid against the tree as it stands
+ * right now (see `placeInManuscript`'s doc comment), so a caller re-derives
+ * this after each move rather than planning every move against a tree that
+ * is about to change underneath it.
+ */
+export function nextMisplacedFrontMatterMove(nodes: readonly ManuscriptNode[]): { id: string; index: number } | null {
+  const root = childrenOf(nodes, null)
+  const firstNonFront = root.findIndex((node) => !(isPart(node) && node.role === 'front'))
+  if (firstNonFront === -1) return null
+  const misplaced = root.slice(firstNonFront).find((node) => isPart(node) && node.role === 'front')
+  return misplaced ? { id: misplaced.id, index: firstNonFront } : null
+}
+
 export function toExportItems(nodes: readonly ResolvedNode[]): { items: ExportItem[]; skipped: string[] } {
   const items: ExportItem[] = []
   const skipped: string[] = []
@@ -261,7 +288,7 @@ export function toExportItems(nodes: readonly ResolvedNode[]): { items: ExportIt
     const children = childrenOf(nodes, node.id)
     // An empty body part would otherwise contribute a title page to nothing.
     if (node.role !== 'front' && children.length > 0) {
-      items.push({ kind: 'heading', title: node.title, level: 1 })
+      items.push({ kind: 'heading', title: node.title, level: 1, numbered: node.role === 'body' })
     }
     for (const child of children) if (isDocument(child)) emitDocument(child)
   }

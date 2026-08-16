@@ -1,0 +1,6 @@
+{
+  "id": "builtin-screenplay",
+  "name": "Screenplay",
+  "description": "Courier scene heading, action, character, parenthetical, dialogue and transition styles, Tab to cycle between them, and Fountain export.",
+  "projectType": "screenplay"
+}

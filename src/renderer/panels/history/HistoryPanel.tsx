@@ -180,6 +180,7 @@ function VersionPreview({ content }: { content: Parameters<typeof createEditor>[
       getSources: () => useSourceStore.getState().sources,
       getCitationStyleId: () =>
         useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
+      getLocations: () => useEntityStore.getState().entities.filter((entity) => entity.kind === 'location'),
       onUpdate: () => {}
     })
     instance.setEditable(false)

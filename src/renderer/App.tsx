@@ -134,6 +134,16 @@ export function App() {
         run: () => void exportToWord()
       }),
       registerCommand({
+        id: 'document.importFountain',
+        title: 'Import from Fountain…',
+        run: () => void importFromFountain()
+      }),
+      registerCommand({
+        id: 'document.exportFountain',
+        title: 'Export to Fountain…',
+        run: () => void exportToFountain()
+      }),
+      registerCommand({
         id: 'layout.savePreset',
         title: 'Save Layout As…',
         run: () => {
@@ -291,6 +301,36 @@ async function exportToWord(): Promise<void> {
     invoke('docx:exportDialog', { paths: [path], items: [] }),
     'Could not export'
   )
+  if (result) reportNotice(`Exported to ${result.file}`)
+}
+
+/** Bring a `.fountain` screenplay in — see `importFromWord`'s reasoning. */
+async function importFromFountain(): Promise<void> {
+  const result = await attempt(invoke('fountain:importDialog', { targetDir: '' }), 'Could not import')
+  if (!result) return
+  const opened = result.imported[0]
+  if (opened) {
+    const docId = await useDocumentStore.getState().openPath(opened.path)
+    if (docId) {
+      const state = useDocumentStore.getState().docs[docId]
+      if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+    }
+  }
+  const count = result.imported.length
+  const summary = [`Imported ${count} document${count === 1 ? '' : 's'}.`, ...result.warnings].filter(Boolean)
+  reportNotice(summary.join(' '))
+}
+
+/** Write the open document out as `.fountain`. Nothing open means nothing to export. */
+async function exportToFountain(): Promise<void> {
+  const documents = useDocumentStore.getState()
+  const active = documents.activeDocId
+  const path = active ? documents.docs[active]?.path : undefined
+  if (!path) {
+    reportError('Open a document to export it.')
+    return
+  }
+  const result = await attempt(invoke('fountain:exportDialog', { path }), 'Could not export')
   if (result) reportNotice(`Exported to ${result.file}`)
 }
 

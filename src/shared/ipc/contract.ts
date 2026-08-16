@@ -43,6 +43,12 @@ const docxImportResultSchema = z.object({
   stylesAdded: z.number().int()
 })
 
+/** Fountain carries no styles of its own to reconcile — see `docxImportResultSchema`. */
+const fountainImportResultSchema = z.object({
+  imported: z.array(z.object({ path: z.string(), title: z.string(), docId: z.string() })),
+  warnings: z.array(z.string())
+})
+
 /**
  * The complete renderer↔main surface. Every channel is validated against these
  * schemas in the main process, and the preload bridge is generated from the keys,
@@ -154,6 +160,28 @@ export const ipcContract = defineContract({
           suggestedName: z.string().optional()
         })
         .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+
+    /**
+     * One document at a time, unlike `docx:export`'s `paths`/`items` stream —
+     * a screenplay is conventionally a single continuous script, so there is
+     * no binder to compile here.
+     */
+    'fountain:import': {
+      req: z.object({ files: z.array(z.string()), targetDir: z.string().default('') }),
+      res: fountainImportResultSchema
+    },
+    'fountain:importDialog': {
+      req: z.object({ targetDir: z.string().default('') }),
+      res: fountainImportResultSchema.nullable()
+    },
+    'fountain:export': {
+      req: z.object({ path: z.string(), file: z.string() }),
+      res: z.object({ ok: z.literal(true), file: z.string() })
+    },
+    'fountain:exportDialog': {
+      req: z.object({ path: z.string(), suggestedName: z.string().optional() }),
       res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
     },
 

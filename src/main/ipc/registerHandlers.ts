@@ -411,6 +411,54 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const, file: picked.filePath }
   })
 
+  /** Mirrors `importDocxFiles` — see its own comment. */
+  const importFountainFiles = async (
+    session: ProjectSession,
+    files: string[],
+    targetDir: string
+  ): Promise<IpcRes<'fountain:import'>> => {
+    const result = await session.fountain.import(files, targetDir)
+    for (const document of result.imported) {
+      await session.search.indexDocument(document.path).catch(() => {})
+    }
+    return result
+  }
+
+  handle('fountain:import', ({ files, targetDir }, event) =>
+    importFountainFiles(requireSession(event), files, targetDir)
+  )
+
+  handle('fountain:importDialog', async ({ targetDir }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const picked = await dialog.showOpenDialog(window!, {
+      title: 'Import Fountain screenplays',
+      filters: [{ name: 'Fountain', extensions: ['fountain'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return null
+    return importFountainFiles(session, picked.filePaths, targetDir)
+  })
+
+  handle('fountain:export', async ({ path: sourcePath, file }, event) => {
+    await requireSession(event).fountain.export(sourcePath, file)
+    return { ok: true as const, file }
+  })
+
+  handle('fountain:exportDialog', async ({ path: sourcePath, suggestedName }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const suggested = `${suggestedName ?? defaultExportName([sourcePath])}.fountain`
+    const picked = await dialog.showSaveDialog(window!, {
+      title: 'Export to Fountain',
+      defaultPath: suggested,
+      filters: [{ name: 'Fountain', extensions: ['fountain'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await session.fountain.export(sourcePath, picked.filePath)
+    return { ok: true as const, file: picked.filePath }
+  })
+
   handle('search:query', (query, event) => requireSession(event).search.query(query))
   handle('search:status', (_payload, event) => requireSession(event).search.getProgress())
   handle('search:reindex', async (_payload, event) => {

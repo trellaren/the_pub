@@ -402,6 +402,20 @@ body {
   cursor: default;
 }
 
+/*
+ * Fields: computed text (a cross-reference or a table-of-contents entry).
+ * Muted and click-to-jump, the same visual language as a mention, so the two
+ * families of "text that points somewhere else" read consistently.
+ */
+.pub-field {
+  border-bottom: 1px dotted var(--color-faint, #8a8378);
+  cursor: pointer;
+}
+.pub-field[data-field='toc'] {
+  display: inline-block;
+}
+
+
 /* Record notes: a compact editor, not a manuscript sheet. */
 .pub-notes {
   min-height: 80px;

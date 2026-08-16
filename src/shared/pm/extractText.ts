@@ -16,7 +16,7 @@ export interface TextBlock {
  * word counts, search snippets and mention positions are all measured in those
  * offsets.
  */
-export const INLINE_TYPES = new Set(['text', 'hardBreak', 'image', 'characterMention', 'mention'])
+export const INLINE_TYPES = new Set(['text', 'hardBreak', 'image', 'characterMention', 'mention', 'field'])
 
 function isInline(node: PmNode): boolean {
   return INLINE_TYPES.has(node.type)

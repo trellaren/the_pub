@@ -4,11 +4,13 @@ import { ulid } from 'ulid'
 import { STYLE_BODY, type NamedStyle } from '@shared/model/style.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { findAnchor } from '@shared/pm/anchors.js'
+import { buildToc } from '@shared/pm/toc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useNoteStore } from '@renderer/stores/noteStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
 import { previewStyle, defaultStyleFor } from './extensions/namedStyles.js'
+import { headingEntries, insertCrossReference, insertOrRefreshTableOfContents } from './fieldActions.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 
@@ -90,6 +92,15 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
     if (!location) return
     const note = await useNoteStore.getState().create(docId, anchorId, location.text, location.blockIndex)
     if (note) useLayoutStore.getState().showPanel('notes', 'Notes')
+  }
+
+  // Read-only preview for the picker below — minting the `blockId`s a chosen
+  // heading needs happens on selection, not on every render.
+  const headingOptions = buildToc(editor.getJSON() as PmDoc, styles)
+
+  const insertReference = (blockIndex: number): void => {
+    const entry = headingEntries(editor, styles).find((candidate) => candidate.blockIndex === blockIndex)
+    if (entry) insertCrossReference(editor, entry)
   }
 
   return (
@@ -275,6 +286,32 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
       </ToolbarButton>
       <ToolbarButton label="Add note" disabled={editor.state.selection.empty} onClick={() => void addNote()}>
         🗨
+      </ToolbarButton>
+      <Select
+        value=""
+        title="Insert cross-reference"
+        className="w-36"
+        disabled={headingOptions.length === 0}
+        onChange={(event) => {
+          const blockIndex = Number(event.target.value)
+          if (!Number.isNaN(blockIndex)) insertReference(blockIndex)
+          event.target.value = ''
+        }}
+      >
+        <option value="" disabled>
+          Reference…
+        </option>
+        {headingOptions.map((entry) => (
+          <option key={entry.blockIndex} value={entry.blockIndex}>
+            {'—'.repeat(entry.level - 1)} {entry.text}
+          </option>
+        ))}
+      </Select>
+      <ToolbarButton
+        label="Insert / update table of contents"
+        onClick={() => insertOrRefreshTableOfContents(editor, styles)}
+      >
+        ☰
       </ToolbarButton>
 
       <Divider />

@@ -44,6 +44,14 @@ export const namedStyleSchema = z.object({
   nextStyle: z.string().optional(),
   /** Renders as an <h1>-<h6> instead of a <p> when set. */
   headingLevel: z.number().int().min(1).max(6).optional(),
+  /**
+   * A paragraph in this style is a table-of-contents / cross-reference target
+   * at this level. Defaults to `headingLevel` when unset, so every existing
+   * heading style is already "in the contents" without editing a project's
+   * styles — but a style that isn't a heading at all (a numbered "Part" title,
+   * styled as its own paragraph style) can still opt in.
+   */
+  outlineLevel: z.number().int().min(1).max(6).optional(),
   text: textStyleAttrsSchema.default({}),
   paragraph: paragraphStyleAttrsSchema.default({})
 })
@@ -165,7 +173,7 @@ export const BUILTIN_STYLES: NamedStyle[] = [
 export function resolveStyle(
   styleId: string,
   styles: NamedStyle[]
-): { text: TextStyleAttrs; paragraph: ParagraphStyleAttrs; headingLevel?: number } | null {
+): { text: TextStyleAttrs; paragraph: ParagraphStyleAttrs; headingLevel?: number; outlineLevel?: number } | null {
   const byId = new Map(styles.map((s) => [s.id, s]))
   const chain: NamedStyle[] = []
   let cursor = byId.get(styleId)
@@ -179,10 +187,12 @@ export function resolveStyle(
   const text: TextStyleAttrs = {}
   const paragraph: ParagraphStyleAttrs = {}
   let headingLevel: number | undefined
+  let outlineLevel: number | undefined
   for (const style of chain) {
     Object.assign(text, style.text)
     Object.assign(paragraph, style.paragraph)
     if (style.headingLevel !== undefined) headingLevel = style.headingLevel
+    if (style.outlineLevel !== undefined) outlineLevel = style.outlineLevel
   }
-  return { text, paragraph, headingLevel }
+  return { text, paragraph, headingLevel, outlineLevel }
 }

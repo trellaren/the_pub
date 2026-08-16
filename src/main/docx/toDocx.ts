@@ -512,7 +512,8 @@ export const EDITOR_NODE_TYPES = new Set([
   'table',
   'tableRow',
   'tableCell',
-  'tableHeader'
+  'tableHeader',
+  'field'
 ])
 
 export const EDITOR_MARK_TYPES = new Set([

@@ -78,6 +78,7 @@ export const MENU_MODEL: MenuTopLevel[] = [
     label: 'File',
     items: [
       { kind: 'command', commandId: 'project.newFromTemplate', label: 'New Project from Template…' },
+      { kind: 'command', commandId: 'project.saveAsTemplate', label: 'Save Project as Template…' },
       { kind: 'command', commandId: 'project.open', label: 'Open Folder…', accelerator: 'CmdOrCtrl+O' },
       {
         kind: 'command',

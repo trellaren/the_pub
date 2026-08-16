@@ -1,10 +1,17 @@
 import type { DocumentService } from './documentService.js'
 import type { SnapshotService } from './snapshotService.js'
 import type { SearchIndexService } from './searchIndexService.js'
+import type { NoteService } from './noteService.js'
 import type { LoadedDocument } from '../../shared/model/document.js'
 
 export type RestoreResult =
-  | { ok: true; path: string; mtime: number }
+  | {
+      ok: true
+      path: string
+      mtime: number
+      /** Notes were re-anchored by the restore; the renderer should refetch. */
+      notesChanged: boolean
+    }
   | { ok: false; reason: 'conflict'; diskMtime: number }
   | { ok: false; reason: 'format-too-new'; diskVersion: number }
   | { ok: false; reason: 'missing-document' }
@@ -21,7 +28,8 @@ export class HistoryService {
   constructor(
     private readonly documents: DocumentService,
     private readonly snapshots: SnapshotService,
-    private readonly search: SearchIndexService
+    private readonly search: SearchIndexService,
+    private readonly notes: NoteService
   ) {}
 
   /**
@@ -60,7 +68,21 @@ export class HistoryService {
     if (!written.ok) return written
 
     await this.search.indexDocument(path, written.mtime).catch(() => {})
-    return { ok: true, path, mtime: written.mtime }
+    /*
+     * Re-anchor the notes, exactly as `doc:write` does.
+     *
+     * A restore is the one write that does not go through that handler, and it
+     * is also the write most likely to move anchors: putting an old version
+     * back resurrects the anchor ids it was saved with. Without this, a note
+     * orphaned by the edit being undone stays marked orphaned even though its
+     * anchor is now demonstrably back in the document, until some unrelated
+     * later keystroke happens to trigger an autosave.
+     */
+    const reconciled = await this.notes
+      .reconcile(current.doc.docId, restored.content)
+      .catch(() => null)
+
+    return { ok: true, path, mtime: written.mtime, notesChanged: reconciled !== null }
   }
 
   /**

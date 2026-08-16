@@ -868,7 +868,10 @@ export function registerHandlers(context: HandlerContext): void {
     const session = requireSession(event)
     if (request.mode === 'inPlace') {
       const result = await session.history.restoreInPlace(request.docId, request.timestamp)
-      if (result.ok) return { ok: true as const, docId: request.docId, path: result.path, mtime: result.mtime }
+      if (result.ok) {
+        if (result.notesChanged) noteChanged(event, request.docId)
+        return { ok: true as const, docId: request.docId, path: result.path, mtime: result.mtime }
+      }
       if (result.reason === 'conflict') {
         return { ok: false as const, reason: 'conflict' as const, diskMtime: result.diskMtime }
       }

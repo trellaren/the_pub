@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildToc } from './toc.js'
+import { buildToc, tocEntryLabel } from './toc.js'
 import { BUILTIN_STYLES, type NamedStyle } from '../model/style.js'
 import type { PmDoc } from '../model/document.js'
 
@@ -69,5 +69,53 @@ describe('buildToc', () => {
   it('falls back to a bare heading node’s own level when it carries no styleId', () => {
     const doc: PmDoc = { type: 'doc', content: [heading('Untitled heading', 4)] }
     expect(buildToc(doc, BUILTIN_STYLES)[0]?.level).toBe(4)
+  })
+})
+
+/*
+ * Heading numbering arrived with Phase 6, after the TOC and cross-reference
+ * consumers were written. `buildToc` populated `number` from the start and
+ * both consumers dropped it, so a numbered thesis got an unnumbered contents
+ * list and cross-references that named a section without saying which one.
+ */
+describe('tocEntryLabel', () => {
+  const numbered: NamedStyle[] = BUILTIN_STYLES.map((style) =>
+    style.id === 'heading-1'
+      ? { ...style, numbering: { format: 'decimal' as const, startAt: 1, levelText: '%1. ' } }
+      : style
+  )
+
+  it('puts the number in front of the text', () => {
+    const doc: PmDoc = { type: 'doc', content: [heading('Introduction', 1)] }
+    expect(tocEntryLabel(buildToc(doc, numbered)[0]!)).toBe('1. Introduction')
+  })
+
+  /*
+   * No separator of its own: `levelText` already ends with the one it wants,
+   * and it is the same string the on-screen widget and DOCX numbering render.
+   * Inserting a space here would make a contents line disagree with the
+   * heading it points at.
+   */
+  it('adds no spacing the numbering format did not ask for', () => {
+    const tight: NamedStyle[] = BUILTIN_STYLES.map((style) =>
+      style.id === 'heading-1'
+        ? { ...style, numbering: { format: 'decimal' as const, startAt: 1, levelText: '%1' } }
+        : style
+    )
+    const doc: PmDoc = { type: 'doc', content: [heading('Introduction', 1)] }
+    expect(tocEntryLabel(buildToc(doc, tight)[0]!)).toBe('1Introduction')
+  })
+
+  it('numbers each heading in sequence', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [heading('First', 1), paragraph('Prose.'), heading('Second', 1)]
+    }
+    expect(buildToc(doc, numbered).map(tocEntryLabel)).toEqual(['1. First', '2. Second'])
+  })
+
+  it('is just the text when the style has no numbering', () => {
+    const doc: PmDoc = { type: 'doc', content: [heading('Chapter One', 1)] }
+    expect(tocEntryLabel(buildToc(doc, BUILTIN_STYLES)[0]!)).toBe('Chapter One')
   })
 })

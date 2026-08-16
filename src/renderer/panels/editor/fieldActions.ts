@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core'
 import { ulid } from 'ulid'
 import type { PmDoc } from '@shared/model/document.js'
 import type { NamedStyle } from '@shared/model/style.js'
-import { buildToc, type TocEntry } from '@shared/pm/toc.js'
+import { buildToc, tocEntryLabel, type TocEntry } from '@shared/pm/toc.js'
 import { findFieldRunRange } from '@shared/pm/fieldRuns.js'
 import { FIELD_NODE } from '@shared/model/field.js'
 
@@ -40,7 +40,7 @@ export function insertCrossReference(editor: Editor, entry: TocEntry): void {
   editor
     .chain()
     .focus()
-    .insertField({ kind: 'ref', targetBlockId: entry.blockId, level: entry.level }, entry.text)
+    .insertField({ kind: 'ref', targetBlockId: entry.blockId, level: entry.level }, tocEntryLabel(entry))
     .run()
 }
 
@@ -74,16 +74,19 @@ export function positionsOf(editor: Editor, start: number, end: number): { from:
  */
 export function insertOrRefreshTableOfContents(editor: Editor, styles: NamedStyle[]): void {
   const entries = headingEntries(editor, styles)
-  const content = entries.map((entry) => ({
-    type: 'paragraph',
-    content: [
-      {
-        type: FIELD_NODE,
-        attrs: { kind: 'toc', targetBlockId: entry.blockId, level: entry.level },
-        content: entry.text ? [{ type: 'text', text: entry.text }] : []
-      }
-    ]
-  }))
+  const content = entries.map((entry) => {
+    const label = tocEntryLabel(entry)
+    return {
+      type: 'paragraph',
+      content: [
+        {
+          type: FIELD_NODE,
+          attrs: { kind: 'toc', targetBlockId: entry.blockId, level: entry.level },
+          content: label ? [{ type: 'text', text: label }] : []
+        }
+      ]
+    }
+  })
   // A table of contents with nothing to list yet still needs a placeholder
   // paragraph — inserting an empty array is a no-op, which would silently
   // fail to create the block a person just asked for.

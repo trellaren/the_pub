@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ulid } from 'ulid'
 import type { ProjectSession } from '../services/projectSession.js'
 import type { EditProposal } from '../../shared/model/ai.js'
+import type { SemanticHit } from '../services/searchIndexService.js'
 import { extractPlainText } from '../../shared/pm/extractText.js'
 import type { ToolSpec } from './providers.js'
 
@@ -23,10 +24,19 @@ import type { ToolSpec } from './providers.js'
 const MAX_SEARCH_HITS = 12
 const MAX_DOCUMENT_CHARS = 12_000
 
+/** What a semantic search came back with, and how much of the book it covered. */
+export interface RetrievalResult {
+  hits: SemanticHit[]
+  embedded: number
+  total: number
+}
+
 export interface ToolContext {
   session: ProjectSession
   /** Collects proposals as they are made, so the loop can stream them out. */
   onProposal: (proposal: EditProposal) => void
+  /** Search by meaning. Absent when this project has no retrieval index. */
+  findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
 }
 
 export interface ToolResult {
@@ -71,6 +81,51 @@ const searchManuscript = define({
       ok: true,
       content,
       summary: `Searched for "${query}" — ${hits.length} passage${hits.length === 1 ? '' : 's'}`
+    }
+  }
+})
+
+const findPassages = define({
+  name: 'find_passages',
+  description:
+    'Find passages by what they are about rather than by the words in them. Use this for questions like "where do I describe the harbour" or "which scenes are about grief", where the manuscript may never use the word you searched for. Use search_manuscript instead when you need an exact phrase.',
+  args: z.object({
+    query: z.string().describe('What you are looking for, in a phrase or a sentence.')
+  }),
+  run: async ({ query }, { findPassages: find }) => {
+    if (!find) {
+      return {
+        ok: false,
+        content: 'This project has no retrieval index. Use search_manuscript instead.',
+        summary: 'No retrieval index'
+      }
+    }
+
+    const { hits, embedded, total } = await find(query, MAX_SEARCH_HITS)
+    // A partial index is the normal state, and the model must be told: an
+    // answer of "you never mention it" drawn from a third of the book is
+    // confidently wrong in a way nobody downstream can catch.
+    const coverage =
+      embedded >= total
+        ? ''
+        : `\n\n(Only ${embedded} of ${total} passages are indexed for meaning, so this search did not cover the whole project.)`
+
+    if (hits.length === 0) {
+      return {
+        ok: true,
+        content: `Nothing reads as being about "${query}".${coverage}`,
+        summary: `Searched by meaning for "${query}" — nothing found`
+      }
+    }
+
+    const content =
+      hits
+        .map((hit) => `${hit.path} (block ${hit.blockIndex}): ${hit.text.slice(0, 400)}`)
+        .join('\n\n') + coverage
+    return {
+      ok: true,
+      content,
+      summary: `Searched by meaning for "${query}" — ${hits.length} passage${hits.length === 1 ? '' : 's'}`
     }
   }
 })
@@ -211,16 +266,28 @@ const proposeEdit = define({
   }
 })
 
-const TOOLS = [searchManuscript, readDocument, listDocuments, listRecords, readRecord, proposeEdit]
+const TOOLS = [
+  searchManuscript,
+  findPassages,
+  readDocument,
+  listDocuments,
+  listRecords,
+  readRecord,
+  proposeEdit
+]
 
 /**
  * The tools, described in the shape both dialects are serialised from.
  *
  * Generated from the same zod schemas the handlers validate with, so a tool
  * cannot be described to the model in a shape its handler would reject.
+ *
+ * A project with no retrieval index is not offered `find_passages` at all,
+ * rather than being offered one that always refuses: a described tool is one
+ * the model will spend a step calling.
  */
-export function toolSpecs(): ToolSpec[] {
-  return TOOLS.map((tool) => ({
+export function toolSpecs(options: { retrieval: boolean } = { retrieval: false }): ToolSpec[] {
+  return TOOLS.filter((tool) => options.retrieval || tool.name !== 'find_passages').map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: z.toJSONSchema(tool.args, { target: 'draft-7' }) as Record<string, unknown>

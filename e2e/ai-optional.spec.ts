@@ -120,7 +120,8 @@ test('an embedded model that is not downloaded says so rather than starting a do
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: false
+      agent: false,
+      embedModel: ''
     })
   )
   const chat = await harness.page.evaluate(() => window.__pub.chats.getState().createChat())

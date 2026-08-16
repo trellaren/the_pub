@@ -57,7 +57,8 @@ async function useLocalServer(): Promise<void> {
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: 'Be brief.',
-      agent: false
+      agent: false,
+      embedModel: ''
     })
   }, baseUrl)
 }

@@ -195,6 +195,15 @@ intended cost, and the index remains a pure cache that can be deleted at any tim
   rather than a surprise.
 - Embedding is incremental off the same mtime diff `syncAll` already uses, and disabled entirely
   when AI is off (Phase 8's `aiEnabled`) — no model, no embeddings, no background work.
+- **Which model embeds is its own setting**, not the chat model: on a hosted backend they are
+  different models entirely, and asking OpenAI to embed with `gpt-4o` is a 400 a writer would
+  have no way to fix. `embedModel` on `AiSettings`, empty meaning the provider's default — so
+  `FORMAT_VERSIONS.chats` goes 3 → 4 with another no-op step.
+- **Nothing embeds behind the writer's back.** Loading gigabytes of weights, or posting a
+  manuscript to a paid endpoint, happens because a person pressed a button. The index tops itself
+  up on its own only where that costs nothing surprising — a local model that is already running,
+  a local server that needs no key — and the panel reports coverage as a number, because a
+  partially-indexed project that answers "you never mention it" is confidently wrong.
 
 ## Deliberately out of scope
 

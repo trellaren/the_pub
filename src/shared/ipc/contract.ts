@@ -23,6 +23,7 @@ import {
   streamEventSchema
 } from '../model/ai.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
+import { retrievalStatusSchema } from '../model/retrieval.js'
 import {
   mentionHitSchema,
   mentionQuerySchema,
@@ -405,6 +406,20 @@ export const ipcContract = defineContract({
     'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },
 
     /**
+     * The retrieval index: how much of the manuscript can be searched by
+     * meaning, and whether it can be built at all right now.
+     */
+    'ai:retrievalStatus': { req: empty, res: retrievalStatusSchema },
+    /**
+     * Build it. Resolves when the build finishes, stops or fails; progress
+     * arrives as `ai:retrievalProgress` in the meantime. Asking directly is
+     * what permits loading a model or reaching a hosted provider — background
+     * top-ups do neither.
+     */
+    'ai:buildRetrieval': { req: empty, res: retrievalStatusSchema },
+    'ai:cancelRetrieval': { req: empty, res: ok },
+
+    /**
      * The embedded models: what is on disk, what this machine can run, and what
      * the engine is doing. One round trip rather than a channel per question,
      * because the manager shows all of it at once.
@@ -548,6 +563,8 @@ export const ipcContract = defineContract({
     'ai:stream': streamEventSchema,
     /** Download progress, which belongs to main and outlives the panel showing it. */
     'llm:progress': llmProgressSchema,
+    /** Index coverage as it fills, which outlives the panel showing it. */
+    'ai:retrievalProgress': retrievalStatusSchema,
     'app:stateChanged': appStateSchema,
     /** Native menu / accelerator dispatch into the renderer command registry. */
     'command:invoke': z.object({ commandId: z.string() }),

@@ -72,7 +72,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 10b adds `toolCalls` to a message and `agent` to settings. Both
     // default to empty, so again nothing about an existing value changes —
     // only the version, for the same reason as the step above.
-    { from: 2, to: 3, up: (raw) => raw }
+    { from: 2, to: 3, up: (raw) => raw },
+    // Phase 10b's retrieval index adds `embedModel` to settings, which defaults
+    // to empty and means "the provider's own default". Same reasoning again:
+    // the value is harmless to an older build, but the rename-on-unparseable
+    // path is not, so the version moves.
+    { from: 3, to: 4, up: (raw) => raw }
   ],
   connections: [],
   notes: [],

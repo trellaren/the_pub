@@ -8,6 +8,7 @@ import type {
   EditProposal
 } from '@shared/model/ai.js'
 import type { LlmStatus } from '@shared/model/llm.js'
+import type { RetrievalStatus } from '@shared/model/retrieval.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
 interface ChatStore {
@@ -44,6 +45,11 @@ interface ChatStore {
   downloadModel: (variantId: string) => Promise<string | null>
   cancelDownload: (variantId: string) => Promise<void>
   removeModel: (variantId: string) => Promise<void>
+  /** How much of the manuscript can be searched by meaning. */
+  retrieval: RetrievalStatus | null
+  refreshRetrieval: () => Promise<void>
+  buildRetrieval: () => Promise<void>
+  cancelRetrieval: () => Promise<void>
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -153,8 +159,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   removeModel: async (variantId) => {
     await invoke('llm:remove', { variantId }).catch(() => {})
     await get().refreshLlm()
+  },
+
+  retrieval: null,
+
+  refreshRetrieval: async () => {
+    const status = await invoke('ai:retrievalStatus', {}).catch(() => null)
+    if (status) set({ retrieval: status })
+  },
+
+  buildRetrieval: async () => {
+    // Like a download, the build belongs to main and outlives this panel: the
+    // promise is only how the final state comes back, and progress arrives on
+    // its own channel whether anything is watching or not.
+    const status = await invoke('ai:buildRetrieval', {}).catch(() => null)
+    if (status) set({ retrieval: status })
+  },
+
+  cancelRetrieval: async () => {
+    await invoke('ai:cancelRetrieval', {}).catch(() => {})
   }
 }))
+
+/** Follow the retrieval index filling, which main owns and pushes. */
+export function listenForRetrievalProgress(): () => void {
+  return on('ai:retrievalProgress', (status) => useChatStore.setState({ retrieval: status }))
+}
 
 /** Follow a download's progress, which main owns and pushes. */
 export function listenForModelProgress(): () => void {

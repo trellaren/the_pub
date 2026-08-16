@@ -9,6 +9,7 @@ import { migrate } from '../../shared/model/migrate.js'
 import { BUILTIN_STYLES } from '../../shared/model/style.js'
 import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import type { IndexProgress } from '../../shared/model/search.js'
+import type { RetrievalStatus } from '../../shared/model/retrieval.js'
 import { DocumentService } from './documentService.js'
 import { SnapshotService } from './snapshotService.js'
 import { HistoryService } from './historyService.js'
@@ -22,6 +23,7 @@ import { SourceService } from './sourceService.js'
 import { ManuscriptService } from './manuscriptService.js'
 import { ChatService } from './chatService.js'
 import { AiRunner } from '../ai/aiRunner.js'
+import { EmbeddingIndexer, type EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { MentionService } from './mentionService.js'
 import { DocxService } from './docxService.js'
 import { FountainService } from './fountainService.js'
@@ -30,6 +32,16 @@ import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '..
 export interface SessionHooks {
   onFileChange: (events: FileChangeEvent[]) => void
   onIndexProgress: (progress: IndexProgress) => void
+  /**
+   * Reach an embedder for this project's current AI settings.
+   *
+   * A hook rather than a service the session builds: choosing one needs the
+   * app's keys and the shared model engine, neither of which is scoped to a
+   * project, and a session that could reach them would be a session that could
+   * start a model on its own.
+   */
+  resolveEmbedder: (allowStart: boolean) => Promise<EmbedderResolution>
+  onRetrievalProgress: (status: RetrievalStatus) => void
 }
 
 /**
@@ -51,6 +63,7 @@ export class ProjectSession {
   readonly manuscript: ManuscriptService
   readonly chats: ChatService
   readonly ai = new AiRunner()
+  readonly retrieval: EmbeddingIndexer
   readonly mentions: MentionService
   readonly docx: DocxService
   readonly fountain: FountainService
@@ -110,6 +123,11 @@ export class ProjectSession {
       wordCountsFor: (docIds) => this.search.wordCountsFor(docIds),
       indexing: () => this.search.getProgress().indexing
     })
+    this.retrieval = new EmbeddingIndexer({
+      index: this.search,
+      resolve: (allowStart) => hooks.resolveEmbedder(allowStart),
+      onProgress: hooks.onRetrievalProgress
+    })
     this.history = new HistoryService(this.documents, this.snapshots, this.search, this.notes)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.docx = new DocxService(adapter, this.documents)
@@ -136,7 +154,12 @@ export class ProjectSession {
     await this.manuscript.load().catch(() => {})
     this.unwatch = await this.adapter.watch('', (events) => void this.handleFileChanges(events))
     // Index in the background: a large project must not delay the first paint.
-    void this.search.syncAll().catch(() => {})
+    void this.search
+      .syncAll()
+      // Top up the retrieval index too, if that costs nothing surprising — the
+      // hook refuses when embedding would load a model or reach a paid API.
+      .then(() => this.retrieval.build(false))
+      .catch(() => {})
   }
 
   private async handleFileChanges(events: FileChangeEvent[]): Promise<void> {
@@ -180,6 +203,7 @@ export class ProjectSession {
     this.unwatch = null
     // Stop paying for replies nobody will read.
     this.ai.cancelAll()
+    this.retrieval.cancel()
     this.search.close()
     await this.adapter.dispose()
   }

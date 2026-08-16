@@ -8,6 +8,9 @@ serves an essay, a thesis or a research paper, without losing what makes it good
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
 meant to be shippable on its own.
 
+**Status:** Phases 0–3 have shipped. Phases 4–7 each have a build plan linked from their section
+below.
+
 ## Two scoping decisions
 
 **Desktop only.** There is no mobile build on this roadmap. The shared-core extraction that a
@@ -113,6 +116,8 @@ The content half of what a word processor gives you, without the page geometry.
 
 ## Phase 4 — Project templates
 
+*Detailed build plan: [`phase-4-plan.md`](./phase-4-plan.md).*
+
 Projects are plain folders, so **a template is just a project, serialised.** No second concept.
 
 - Built-in templates as JSON under `resources/templates/`; user templates in `userData`; a
@@ -127,6 +132,8 @@ Projects are plain folders, so **a template is just a project, serialised.** No 
   into somebody's existing project.
 
 ## Phase 5 — Citations and bibliography
+
+*Detailed build plan: [`phase-5-plan.md`](./phase-5-plan.md).*
 
 Chicago, MLA and APA — built on CSL rather than hand-rolled. Chicago alone has two systems and
 hundreds of edge cases, and CSL styles are maintained by people who care about them more than we
@@ -148,6 +155,8 @@ Depends on Phase 3: Chicago notes-bibliography renders into footnotes.
 
 ## Phase 6 — Beyond fiction
 
+*Detailed build plan: [`phase-6-plan.md`](./phase-6-plan.md).*
+
 Once Phase 4 exists, most of this is configuration.
 
 - **Thesis, essay and research-paper templates**, each with a style preset and a citation style.
@@ -163,6 +172,8 @@ Once Phase 4 exists, most of this is configuration.
   location records, and `.fountain` import/export mirroring `src/main/docx/`.
 
 ## Phase 7 — Pagination and page view *(optional, deferred)*
+
+*Detailed build plan: [`phase-7-plan.md`](./phase-7-plan.md).*
 
 Only if page-accurate on-screen layout is later judged worth its cost. If it is taken:
 

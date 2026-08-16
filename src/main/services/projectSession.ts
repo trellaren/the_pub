@@ -143,7 +143,7 @@ export class ProjectSession {
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.reviews = new ReviewService(adapter, hooks.author)
     this.presence = new PresenceService(adapter, hooks.author)
-    this.docx = new DocxService(adapter, this.documents)
+    this.docx = new DocxService(adapter, this.documents, this.reviews)
     this.fountain = new FountainService(adapter, this.documents)
   }
 

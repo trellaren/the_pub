@@ -2,6 +2,7 @@ import { Mark, Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, type Transaction, type EditorState } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { INSERTION_MARK, DELETION_MARK } from '@shared/model/suggestion.js'
+import { colorForAuthor } from '@shared/model/author.js'
 
 /**
  * Suggested edits in the editor.
@@ -16,6 +17,20 @@ interface SuggestionOptions {
   /** Who is suggesting. Empty while suggesting mode is off. */
   authorId: string
   enabled: boolean
+}
+
+/**
+ * The author's tint, as a custom property the stylesheet reads.
+ *
+ * Derived from the id here rather than looked up in the project registry: this
+ * runs on every render of every suggestion, and a registry lookup would couple
+ * the editor schema to a store it has no other reason to know about. The
+ * derived colour is the same one `describeAuthor` falls back to, so a reviewer
+ * looks the same in the margin as they do in the text.
+ */
+function tint(attrs: Record<string, unknown>): Record<string, string> {
+  const authorId = String(attrs.authorId ?? '')
+  return authorId ? { style: `--pub-author-color: ${colorForAuthor(authorId)}` } : {}
 }
 
 function attributes() {
@@ -48,8 +63,8 @@ export const Insertion = Mark.create({
   parseHTML() {
     return [{ tag: 'ins[data-author]' }, { tag: 'span[data-suggestion="insertion"]' }]
   },
-  renderHTML({ HTMLAttributes }) {
-    return ['ins', mergeAttributes(HTMLAttributes, { class: 'pub-insertion' }), 0]
+  renderHTML({ HTMLAttributes, mark }) {
+    return ['ins', mergeAttributes(HTMLAttributes, { class: 'pub-insertion' }, tint(mark.attrs)), 0]
   }
 })
 
@@ -64,8 +79,8 @@ export const Deletion = Mark.create({
   parseHTML() {
     return [{ tag: 'del[data-author]' }, { tag: 'span[data-suggestion="deletion"]' }]
   },
-  renderHTML({ HTMLAttributes }) {
-    return ['del', mergeAttributes(HTMLAttributes, { class: 'pub-deletion' }), 0]
+  renderHTML({ HTMLAttributes, mark }) {
+    return ['del', mergeAttributes(HTMLAttributes, { class: 'pub-deletion' }, tint(mark.attrs)), 0]
   }
 })
 

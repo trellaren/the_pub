@@ -11,6 +11,7 @@ import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
 import { sanitizeFileName } from '../../shared/model/filename.js'
 import { importDocx, IMAGE_PLACEHOLDER_PREFIX, type ImportedImage } from '../docx/fromDocx.js'
 import { exportDocx } from '../docx/toDocx.js'
+import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
 import { reconcileStyles } from '../docx/styleMap.js'
 import { ASSET_PROTOCOL } from '../../shared/constants.js'
 import { parseAssetUrl } from '../../shared/model/asset.js'
@@ -45,7 +46,17 @@ export interface ImportResult {
 export class DocxService {
   constructor(
     private readonly adapter: VfsAdapter,
-    private readonly documents: DocumentService
+    private readonly documents: DocumentService,
+    /**
+     * The project's author registry. Word carries tracked-change authors as
+     * names, so export needs ids resolved to names, and import needs the
+     * reverse — names it has never seen registered so a comment shows a person
+     * rather than a hash.
+     */
+    private readonly reviews: {
+      listAuthors: () => Promise<AuthorProfile[]>
+      registerAuthor: (profile: AuthorProfile) => Promise<void>
+    }
   ) {}
 
   /**
@@ -69,6 +80,9 @@ export class DocxService {
     for (const file of files) {
       const bytes = await fs.readFile(file)
       const result = importDocx(new Uint8Array(bytes))
+      for (const author of result.authors) {
+        await this.reviews.registerAuthor({ ...author, color: colorForAuthor(author.id) })
+      }
 
       const reconciled = reconcileStyles(result.styles, styles)
       if (reconciled.added.length > 0) {
@@ -142,8 +156,12 @@ export class DocxService {
     // because the library's run constructor takes bytes rather than a promise.
     const images = await this.readImages(documents.map((entry) => entry.content))
 
+    const authors = Object.fromEntries(
+      (await this.reviews.listAuthors()).map((author) => [author.id, author.name])
+    )
     const buffer = await exportDocx({
       documents,
+      authors,
       styles: manifest.styles,
       page: firstSection
         ? firstSection.page

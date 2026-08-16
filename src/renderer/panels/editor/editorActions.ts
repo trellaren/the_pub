@@ -1,5 +1,8 @@
 import type { Editor } from '@tiptap/core'
 import { findPluginKey, getFindState, type FindOptions } from './extensions/findHighlight.js'
+import { suggestionModeKey } from './extensions/suggestions.js'
+import { resolveSuggestions } from '@shared/pm/suggestions.js'
+import type { PmDoc } from '@shared/model/document.js'
 
 /** Start (or clear) a find. Matches are recomputed by the plugin. */
 export function setFind(editor: Editor, options: FindOptions): void {
@@ -73,4 +76,41 @@ export function revealBlock(editor: Editor, blockIndex: number, term?: string): 
 export function wordCount(editor: Editor): number {
   const storage = editor.storage.characterCount as { words?: () => number } | undefined
   return storage?.words?.() ?? 0
+}
+
+/**
+ * Turn suggesting mode on or off for one editor.
+ *
+ * Through a transaction meta rather than by reconfiguring the extension: the
+ * plugin's state has to change in step with the document's history, and
+ * swapping the extension out would drop the undo stack under the writer.
+ */
+export function setSuggesting(editor: Editor, enabled: boolean, authorId: string): void {
+  editor.view.dispatch(
+    editor.state.tr.setMeta(suggestionModeKey, { enabled: enabled && Boolean(authorId), authorId })
+  )
+}
+
+/**
+ * Accept or reject one suggestion.
+ *
+ * Goes through the same pure resolver the Word importer and accept-all use,
+ * filtered down to this author and kind, then replaces the document — rather
+ * than a bespoke range operation, which is how the two paths drift apart.
+ */
+export function resolveSuggestion(
+  editor: Editor,
+  accept: boolean,
+  suggestion: { mark: 'insertion' | 'deletion'; authorId: string }
+): void {
+  const resolved = resolveSuggestions(editor.getJSON() as PmDoc, accept, {
+    authorId: suggestion.authorId,
+    mark: suggestion.mark
+  })
+  editor.commands.setContent(resolved)
+}
+
+/** Every pending suggestion in the document, judged at once. */
+export function resolveAllSuggestions(editor: Editor, accept: boolean): void {
+  editor.commands.setContent(resolveSuggestions(editor.getJSON() as PmDoc, accept))
 }

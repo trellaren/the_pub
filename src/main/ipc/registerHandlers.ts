@@ -394,6 +394,10 @@ export function registerHandlers(context: HandlerContext): void {
       await session.search.indexDocument(target, result.mtime).catch(() => {})
       const reconciled = await session.notes.reconcile(doc.docId, doc.content).catch(() => null)
       if (reconciled) noteChanged(event, doc.docId)
+      // Review threads anchor the same way notes do and go stale the same way,
+      // so they are re-checked on the same save rather than on a timer.
+      await session.reviews.reconcile(doc.docId, doc.content).catch(() => {})
+      reviewChanged(event, doc.docId)
     }
     return result
   })

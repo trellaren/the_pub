@@ -403,6 +403,25 @@ body {
 }
 
 /*
+ * Suggested edits.
+ *
+ * Underline for what is proposed, strike-through for what is proposed to go —
+ * the convention every word processor uses, so it needs no legend. The colour
+ * is the author's, injected per element from the mark's `data-author`, and
+ * kept as a *border* rather than a text colour so a suggestion inside a
+ * coloured or styled run stays legible as itself.
+ */
+.pub-insertion {
+  text-decoration: none;
+  border-bottom: 2px solid var(--pub-author-color, var(--color-accent));
+}
+.pub-deletion {
+  text-decoration: line-through;
+  text-decoration-color: var(--pub-author-color, var(--color-accent));
+  opacity: 0.65;
+}
+
+/*
  * Fields: computed text (a cross-reference or a table-of-contents entry).
  * Muted and click-to-jump, the same visual language as a mention, so the two
  * families of "text that points somewhere else" read consistently.

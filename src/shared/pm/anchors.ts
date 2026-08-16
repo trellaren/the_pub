@@ -1,6 +1,6 @@
-import type { PmDoc } from '../model/document.js'
+import type { PmDoc, PmMark, PmNode } from '../model/document.js'
 import { ANCHOR_MARK } from '../model/anchor.js'
-import { extractRawBlocks, forEachTextNode, normalizeBlockText } from './extractText.js'
+import { extractRawBlocks, forEachTextNode, normalizeBlockText, type RawTextNode } from './extractText.js'
 
 /**
  * One contiguous run of an `anchor` mark within a single block.
@@ -88,4 +88,107 @@ export function anchorSurfaceText(doc: PmDoc, anchorId: string): string | null {
   const locations = findAnchorLocations(doc, anchorId)
   if (locations.length === 0) return null
   return locations.map((location) => location.text).join(' ')
+}
+
+/** A candidate place `anchorText` might still be — not yet a mark, just a place one could go. */
+export interface TextOccurrence {
+  blockIndex: number
+  start: number
+  end: number
+}
+
+/**
+ * Every exact occurrence of `text` in the document, for offering a note whose
+ * anchor was lost somewhere to re-attach to.
+ *
+ * Deliberately the simplest thing that works: an exact, case-sensitive
+ * substring match against normalised block text, not a fuzzy one. A note is
+ * meant to point at *this* sentence, not at whichever one merely resembles
+ * it — and the surrounding UI shows every candidate for a person to pick
+ * from, rather than guessing on their behalf.
+ */
+export function findTextOccurrences(doc: PmDoc, text: string): TextOccurrence[] {
+  if (!text) return []
+  const occurrences: TextOccurrence[] = []
+  for (const block of extractRawBlocks(doc)) {
+    const { text: normalized } = normalizeBlockText(block.text)
+    let from = 0
+    for (;;) {
+      const at = normalized.indexOf(text, from)
+      if (at === -1) break
+      occurrences.push({ blockIndex: block.index, start: at, end: at + text.length })
+      from = at + text.length
+    }
+  }
+  return occurrences
+}
+
+/**
+ * Mark `[start, end)` of a block's normalised text with a fresh `anchorId`.
+ *
+ * Splices the block's JSON directly rather than computing a live ProseMirror
+ * position for the range — the same choice `applyMentionMark` already made,
+ * and for the same reason: a normalised text offset only maps cleanly back
+ * to a raw one and from there to a PM position when every node between them
+ * is plain text. An image or hard break has a PM position size that doesn't
+ * match how many characters it contributes to the walker, so anything doing
+ * that arithmetic against a document containing one would place the mark in
+ * the wrong spot without ever raising an error. Splicing the same JSON the
+ * walker already read sidesteps the mismatch instead of working around it.
+ *
+ * `null` if `blockIndex` doesn't name a real block, or `start`/`end` don't
+ * land on a normalised offset that survived the raw round-trip (e.g. inside
+ * collapsed whitespace).
+ */
+export function applyAnchorMark(
+  doc: PmDoc,
+  blockIndex: number,
+  start: number,
+  end: number,
+  anchorId: string
+): PmDoc | null {
+  const blocks = extractRawBlocks(doc)
+  const block = blocks[blockIndex]
+  if (!block || block.index !== blockIndex) return null
+
+  const { map } = normalizeBlockText(block.text)
+  const rawStart = map[start]
+  const rawEnd = map[end]
+  if (rawStart === undefined || rawEnd === undefined || rawStart >= rawEnd) return null
+
+  const content = [...(doc.content ?? [])]
+  const clone = structuredClone(content[blockIndex]!) as PmNode
+
+  const targets: RawTextNode[] = []
+  forEachTextNode(clone, (entry) => {
+    if (entry.node.type !== 'text') return
+    if (entry.start < rawEnd && rawStart < entry.end) targets.push(entry)
+  })
+  if (targets.length === 0) return null
+
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const entry = targets[i]!
+    const localStart = Math.max(rawStart, entry.start) - entry.start
+    const localEnd = Math.min(rawEnd, entry.end) - entry.start
+    const pieces = splitAndMarkTextNode(entry.node, localStart, localEnd, anchorId)
+    entry.parent.splice(entry.index, 1, ...pieces)
+  }
+
+  content[blockIndex] = clone
+  return { ...doc, content }
+}
+
+function splitAndMarkTextNode(node: PmNode, start: number, end: number, anchorId: string): PmNode[] {
+  const text = node.text ?? ''
+  const pieces: PmNode[] = []
+  const before = text.slice(0, start)
+  const inside = text.slice(start, end)
+  const after = text.slice(end)
+  if (before) pieces.push({ ...node, text: before })
+  if (inside) {
+    const marks: PmMark[] = [...(node.marks ?? []), { type: ANCHOR_MARK, attrs: { anchorId } }]
+    pieces.push({ ...node, text: inside, marks })
+  }
+  if (after) pieces.push({ ...node, text: after })
+  return pieces
 }

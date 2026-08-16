@@ -104,7 +104,7 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
 
   return (
     <PanelShell>
-      <RichToolbar editor={editor} />
+      <RichToolbar editor={editor} docId={docId} />
       {find !== 'hidden' ? (
         <FindReplaceBar
           editor={editor}

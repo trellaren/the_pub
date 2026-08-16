@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { findAnchor, findAnchorLocations, collectAnchorIds, anchorSurfaceText } from './anchors.js'
+import {
+  findAnchor,
+  findAnchorLocations,
+  collectAnchorIds,
+  anchorSurfaceText,
+  findTextOccurrences,
+  applyAnchorMark
+} from './anchors.js'
 import { ANCHOR_MARK } from '../model/anchor.js'
 import type { PmDoc } from '../model/document.js'
 
@@ -151,5 +158,118 @@ describe('anchorSurfaceText', () => {
       ]
     }
     expect(anchorSurfaceText(before, 'n1')).toBe(anchorSurfaceText(after, 'n1'))
+  })
+})
+
+describe('findTextOccurrences', () => {
+  it('finds a single occurrence', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('the quick fox')] }] }
+    expect(findTextOccurrences(doc, 'quick')).toEqual([{ blockIndex: 0, start: 4, end: 9 }])
+  })
+
+  it('finds every occurrence, including more than one in the same block', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [plainText('a cat sat on a cat')] }]
+    }
+    expect(findTextOccurrences(doc, 'cat')).toEqual([
+      { blockIndex: 0, start: 2, end: 5 },
+      { blockIndex: 0, start: 15, end: 18 }
+    ])
+  })
+
+  it('finds occurrences across several blocks', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [plainText('first the phrase here')] },
+        { type: 'paragraph', content: [plainText('and the phrase again')] }
+      ]
+    }
+    expect(findTextOccurrences(doc, 'the phrase')).toEqual([
+      { blockIndex: 0, start: 6, end: 16 },
+      { blockIndex: 1, start: 4, end: 14 }
+    ])
+  })
+
+  it('is case-sensitive and exact — no fuzzy matching', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('The Cat sat')] }] }
+    expect(findTextOccurrences(doc, 'the cat')).toEqual([])
+  })
+
+  it('returns nothing for empty text rather than matching everywhere', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('anything')] }] }
+    expect(findTextOccurrences(doc, '')).toEqual([])
+  })
+
+  it('finds nothing in a document that no longer contains the text', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('completely different')] }] }
+    expect(findTextOccurrences(doc, 'the important part')).toEqual([])
+  })
+})
+
+describe('applyAnchorMark', () => {
+  it('marks a range in the middle of a plain-text block', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('the quick brown fox')] }] }
+    const result = applyAnchorMark(doc, 0, 4, 15, 'n1')
+    expect(result).not.toBeNull()
+    expect(findAnchor(result!, 'n1')).toEqual({ blockIndex: 0, start: 4, end: 15, text: 'quick brown' })
+  })
+
+  it('marks a range at the very start of a block', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('Once upon a time')] }] }
+    const result = applyAnchorMark(doc, 0, 0, 4, 'n1')
+    expect(findAnchor(result!, 'n1')).toEqual({ blockIndex: 0, start: 0, end: 4, text: 'Once' })
+  })
+
+  it('marks a range at the very end of a block', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('it ended long ago')] }] }
+    const result = applyAnchorMark(doc, 0, 9, 17, 'n1')
+    expect(findAnchor(result!, 'n1')).toEqual({ blockIndex: 0, start: 9, end: 17, text: 'long ago' })
+  })
+
+  it('marks a range spanning a bold run split across several text nodes', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [plainText('a '), { type: 'text', text: 'bold', marks: [{ type: 'bold' }] }, plainText(' word')] }
+      ]
+    }
+    const result = applyAnchorMark(doc, 0, 2, 11, 'n1')
+    expect(anchorSurfaceText(result!, 'n1')).toBe('bold word')
+    // The bold mark on the middle run survives alongside the new anchor mark.
+    const middle = result!.content![0]!.content![1]!
+    expect(middle.marks?.some((m) => m.type === 'bold')).toBe(true)
+    expect(middle.marks?.some((m) => m.type === ANCHOR_MARK)).toBe(true)
+  })
+
+  it('does not mutate the input document', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('the quick brown fox')] }] }
+    const before = structuredClone(doc)
+    applyAnchorMark(doc, 0, 4, 15, 'n1')
+    expect(doc).toEqual(before)
+  })
+
+  it('returns null for a block index that does not exist', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('short')] }] }
+    expect(applyAnchorMark(doc, 5, 0, 3, 'n1')).toBeNull()
+  })
+
+  it('returns null when the offsets are out of range', () => {
+    const doc: PmDoc = { type: 'doc', content: [{ type: 'paragraph', content: [plainText('short')] }] }
+    expect(applyAnchorMark(doc, 0, 0, 999, 'n1')).toBeNull()
+  })
+
+  it('leaves other blocks untouched', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [plainText('first block')] },
+        { type: 'paragraph', content: [plainText('second block')] }
+      ]
+    }
+    const result = applyAnchorMark(doc, 1, 0, 6, 'n1')
+    expect(result!.content![0]).toEqual(doc.content![0])
+    expect(findAnchor(result!, 'n1')).toMatchObject({ blockIndex: 1, text: 'second' })
   })
 })

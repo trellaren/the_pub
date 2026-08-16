@@ -12,7 +12,8 @@ export const FORMAT_VERSIONS = {
   maps: 1,
   layouts: 1,
   chats: 1,
-  connections: 1
+  connections: 1,
+  notes: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 
@@ -40,6 +41,12 @@ export const MAPS_FILE = `${PUB_DIR}/maps.json`
 export const MANUSCRIPT_FILE = `${PUB_DIR}/manuscript.json`
 /** AI conversations about this manuscript. Never API keys — see AiKeyStore. */
 export const CHATS_FILE = `${PUB_DIR}/chats.json`
+/**
+ * Notes, one file per document: `notes/<docId>.json`. Never one big file —
+ * that would make a note on any document a write-conflict risk with a note
+ * on any other, and a remote VFS write stays small either way.
+ */
+export const NOTES_DIR = `${PUB_DIR}/notes`
 
 /** Directories never scanned, indexed, or shown in the file tree. */
 export const IGNORED_DIRS = [PUB_DIR, 'node_modules', '.git']
@@ -71,6 +78,8 @@ export const ENTITY_SAVE_DEBOUNCE_MS = 600
 export const BEAT_SAVE_DEBOUNCE_MS = 600
 /** Drawing emits changes far faster than typing, so maps wait a little longer. */
 export const MAP_SAVE_DEBOUNCE_MS = 800
+/** A note's body is edited the same write-through way; same reasoning. */
+export const NOTE_SAVE_DEBOUNCE_MS = 600
 
 /**
  * Shortest name or alias the scanner will look for. A character called "Al"

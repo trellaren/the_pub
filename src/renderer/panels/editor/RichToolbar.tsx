@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { Editor } from '@tiptap/core'
+import { ulid } from 'ulid'
 import { STYLE_BODY, type NamedStyle } from '@shared/model/style.js'
+import type { PmDoc } from '@shared/model/document.js'
+import { findAnchor } from '@shared/pm/anchors.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
+import { useNoteStore } from '@renderer/stores/noteStore.js'
+import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
 import { previewStyle, defaultStyleFor } from './extensions/namedStyles.js'
 import { invoke } from '@renderer/lib/ipc.js'
@@ -28,7 +33,7 @@ const NO_STYLES: NamedStyle[] = []
  * reflects the cursor — that feedback is what makes formatting feel direct
  * rather than guessed at.
  */
-export function RichToolbar({ editor }: { editor: Editor }) {
+export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }) {
   // The fallback is a shared constant, not a fresh `[]`: zustand compares
   // selector results by identity, and a new array every render is an infinite
   // re-render loop.
@@ -75,6 +80,16 @@ export function RichToolbar({ editor }: { editor: Editor }) {
       if (asset) editor.chain().focus().setImage({ src: asset.url }).run()
     }
     input.click()
+  }
+
+  /** Anchor a fresh note to the current selection, then hand it off to the Notes panel. */
+  const addNote = async (): Promise<void> => {
+    const anchorId = ulid()
+    editor.chain().focus().setAnchor({ anchorId }).run()
+    const location = findAnchor(editor.getJSON() as PmDoc, anchorId)
+    if (!location) return
+    const note = await useNoteStore.getState().create(docId, anchorId, location.text, location.blockIndex)
+    if (note) useLayoutStore.getState().showPanel('notes', 'Notes')
   }
 
   return (
@@ -257,6 +272,9 @@ export function RichToolbar({ editor }: { editor: Editor }) {
       ) : null}
       <ToolbarButton label="Insert image" onClick={() => void insertImage()}>
         ⛰
+      </ToolbarButton>
+      <ToolbarButton label="Add note" disabled={editor.state.selection.empty} onClick={() => void addNote()}>
+        🗨
       </ToolbarButton>
 
       <Divider />

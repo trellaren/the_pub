@@ -13,6 +13,7 @@ import { AiPanel } from '@renderer/panels/ai/AiPanel.js'
 import { ManuscriptPanel } from '@renderer/panels/manuscript/ManuscriptPanel.js'
 import { HistoryPanel } from '@renderer/panels/history/HistoryPanel.js'
 import { SettingsPanel } from '@renderer/panels/settings/SettingsPanel.js'
+import { NotesPanel } from '@renderer/panels/notes/NotesPanel.js'
 
 /**
  * Panel type → component. Dockview stores only the string in a saved layout, so
@@ -35,5 +36,6 @@ export const panelComponents: Record<string, FunctionComponent<IDockviewPanelPro
   ai: AiPanel as FunctionComponent<IDockviewPanelProps>,
   manuscript: ManuscriptPanel as FunctionComponent<IDockviewPanelProps>,
   history: HistoryPanel as FunctionComponent<IDockviewPanelProps>,
-  settings: SettingsPanel as FunctionComponent<IDockviewPanelProps>
+  settings: SettingsPanel as FunctionComponent<IDockviewPanelProps>,
+  notes: NotesPanel as FunctionComponent<IDockviewPanelProps>
 }

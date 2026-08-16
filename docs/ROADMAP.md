@@ -190,24 +190,34 @@ Only if page-accurate on-screen layout is later judged worth its cost. If it is 
 - This is what would unlock headers and footers, page numbers, columns, widow/orphan control and
   page cross-references.
 
-## Phase 8 — An embedded model
+## Phase 8 — An embedded model, a choice of them, or none
 
 *Detailed build plan: [`phase-8-plan.md`](./phase-8-plan.md).*
 
-`prism-ml/bonsai-27b` running inside the app: AI assistance that needs no key, no account and no
-network, and — the real point — never sends a word of the manuscript off the machine.
+Three postures, the writer's pick: **AI off** — no panel, no menu items, no processes, The Pub
+as a plain writing tool; **an embedded model** chosen from a small curated catalogue, running
+inside the app as the project's routine agent, with nothing leaving the machine; or **hosted
+providers** exactly as today.
 
-- **A fifth provider id, `embedded`**, in the existing list in `src/shared/model/ai.ts`. That
-  file's own comment — everything above the provider layer is identical for all of them — is the
-  design being cashed in: chats, streaming, cancellation and the panel need no changes.
-- **A managed llama.cpp `llama-server` child process** on a loopback port, speaking the
-  OpenAI-compatible dialect `buildRequest` already emits for LM Studio. Never in-process
-  bindings: inference that dies must take a subprocess with it, not the author's unsaved
-  manuscript.
-- **Weights download on first use into userData** — never bundled (16 GB installers are not a
-  thing), never in a project folder (the `AiKeyStore` reasoning: projects are synced and
-  shared). Resumable, checksummed, gated on RAM, license shown before the first byte.
-- Lazy start, idle shutdown, killed on quit — 16 GB of RAM is borrowed, not owned.
+- **An app-scoped `aiEnabled` switch** above the provider picker. The person's setting, never
+  the project's — a shared folder must not switch AI on for a collaborator who opted out. Off
+  removes every AI surface from the menu model rather than greying it out, and costs zero bytes
+  because nothing AI-shaped ships in the installer.
+- **A fifth provider id, `embedded`**, in the existing list in `src/shared/model/ai.ts` — that
+  file's own comment, everything above the provider layer is identical, is the design being
+  cashed in.
+- **One managed llama.cpp `llama-server` child process**, model-agnostic — GGUF in, tokens out —
+  so the catalogue is data, not engine code. Never in-process bindings: inference that dies must
+  take a subprocess with it, not unsaved manuscript.
+- **A curated catalogue**: `prism-ml/bonsai-27b` as the flagship recommendation, plus a mid-size
+  and a small model so modest hardware gets a private routine agent instead of a refusal — the
+  per-variant RAM gate refuses the 27B *and offers the 4B*. Which model answers rides the
+  existing `aiSettings.model` field, per-chat overrides included; sideloading a local `.gguf` is
+  an escape hatch, not the product.
+- **Weights download on first use into userData** — never bundled, never in a project folder
+  (the `AiKeyStore` reasoning). Resumable, checksummed, license accepted per model before its
+  first byte; several models may coexist, one loaded at a time.
+- Lazy start, idle shutdown, killed on quit — gigabytes of RAM are borrowed, not owned.
 - `FORMAT_VERSIONS.chats` bumps so an older build opens a chats file mentioning the new provider
   read-only instead of corrupt-renaming it.
 

@@ -62,6 +62,22 @@ export const ipcContract = defineContract({
       req: z.object({ orientation: appStateSchema.shape.timelineOrientation }),
       res: appStateSchema
     },
+    /**
+     * Rebind a command, or put it back to its default with a null accelerator.
+     *
+     * Answers with a reason rather than throwing on a rejected binding: a
+     * clash is an ordinary thing to do by accident, and the editor has to be
+     * able to say which command already holds the combination.
+     */
+    'app:setKeybinding': {
+      req: z.object({ commandId: z.string(), accelerator: z.string().nullable() }),
+      res: z.union([
+        z.object({ ok: z.literal(true), state: appStateSchema }),
+        z.object({ ok: z.literal(false), reason: z.enum(['unknown-command', 'invalid']) }),
+        z.object({ ok: z.literal(false), reason: z.literal('conflict'), conflictWith: z.string() })
+      ])
+    },
+    'app:resetKeybindings': { req: empty, res: appStateSchema },
 
     'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },

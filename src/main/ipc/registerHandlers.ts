@@ -191,6 +191,10 @@ export function registerHandlers(context: HandlerContext): void {
   handle('app:getState', () => appState.get())
   handle('app:setTheme', ({ theme }) => appState.setTheme(theme))
   handle('app:setTimelineOrientation', ({ orientation }) => appState.setTimelineOrientation(orientation))
+  handle('app:setKeybinding', ({ commandId, accelerator }) =>
+    appState.setKeybinding(commandId, accelerator)
+  )
+  handle('app:resetKeybindings', () => appState.resetKeybindings())
 
   handle('project:openDialog', async (_payload, event) => {
     const window = BrowserWindow.fromWebContents(event.sender)

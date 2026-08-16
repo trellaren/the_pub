@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { launch, openProject, cleanup, readJson, waitFor, type Harness } from './helpers.js'
@@ -18,6 +18,26 @@ function manifestFile(): string {
 async function openSettings(page: Page): Promise<void> {
   await page.evaluate(() => window.__pub.runCommand('panel.settings'))
   await expect(page.getByLabel('Autosave delay (ms)')).toBeVisible()
+}
+
+/**
+ * The accelerator the *native* menu is currently showing for an item.
+ *
+ * Read from the real `Menu` in the main process rather than from app state,
+ * because app state agreeing with itself proves nothing — the thing that can
+ * break is the menu not being rebuilt after a rebinding.
+ */
+async function menuAccelerator(
+  app: ElectronApplication,
+  menuLabel: string,
+  itemLabel: string
+): Promise<string | undefined> {
+  return app.evaluate(({ Menu }, labels) => {
+    const menu = Menu.getApplicationMenu()
+    const section = menu?.items.find((item) => item.label === labels.menuLabel)
+    const entry = section?.submenu?.items.find((item) => item.label === labels.itemLabel)
+    return entry?.accelerator
+  }, { menuLabel, itemLabel })
 }
 
 test('the Settings panel opens through its command and shows the project and app sections', async () => {
@@ -66,6 +86,81 @@ test('changing the theme in Settings updates app state and applies immediately',
 
   const state = await harness.page.evaluate(() => window.pub.invoke('app:getState', {}))
   expect(state.theme).toBe('ocean')
+})
+
+test('the Keyboard shortcuts section lists menu commands with their defaults', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await openSettings(harness.page)
+
+  await expect(harness.page.getByLabel('Shortcut for Save', { exact: true })).toHaveText('CmdOrCtrl+S')
+  // A command the menu ships with no shortcut is still offered for binding.
+  await expect(harness.page.getByLabel('Shortcut for New Folder', { exact: true })).toHaveText('Unassigned')
+})
+
+test('rebinding a command reaches the native menu and survives a restart', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await openSettings(harness.page)
+
+  expect(await menuAccelerator(harness.app, 'File', 'Save')).toBe('CmdOrCtrl+S')
+
+  const shortcut = harness.page.getByLabel('Shortcut for Save', { exact: true })
+  await shortcut.click()
+  await expect(shortcut).toHaveText('Press a combination…')
+  await shortcut.press('Control+Alt+J')
+
+  await expect(shortcut).toHaveText('CmdOrCtrl+Alt+J')
+  await waitFor(
+    async () => (await menuAccelerator(harness.app, 'File', 'Save')) === 'CmdOrCtrl+Alt+J',
+    'the native menu to pick up the new accelerator'
+  )
+
+  // Relaunched against the same user-data directory: the binding lives beside
+  // the theme, so it has to outlive the window that set it.
+  await harness.app.close()
+  const restarted = await launch({
+    projectDir: harness.projectDir,
+    userDataDir: harness.userDataDir
+  })
+  harness = restarted
+
+  expect(await menuAccelerator(restarted.app, 'File', 'Save')).toBe('CmdOrCtrl+Alt+J')
+  const state = await restarted.page.evaluate(() => window.pub.invoke('app:getState', {}))
+  expect(state.keybindings['document.save']).toBe('CmdOrCtrl+Alt+J')
+})
+
+test('a combination another command already uses is refused, naming it', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await openSettings(harness.page)
+
+  const shortcut = harness.page.getByLabel('Shortcut for Save', { exact: true })
+  await shortcut.click()
+  await shortcut.press('Control+o')
+
+  await expect(harness.page.locator('text=Already used by Open Folder…')).toBeVisible()
+  await expect(shortcut).toHaveText('CmdOrCtrl+S')
+  expect(await menuAccelerator(harness.app, 'File', 'Save')).toBe('CmdOrCtrl+S')
+})
+
+test('resetting a shortcut puts the default back', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await openSettings(harness.page)
+
+  const shortcut = harness.page.getByLabel('Shortcut for Save', { exact: true })
+  await shortcut.click()
+  await shortcut.press('Control+Alt+J')
+  await expect(shortcut).toHaveText('CmdOrCtrl+Alt+J')
+
+  await harness.page.getByLabel('Reset shortcut for Save', { exact: true }).click()
+
+  await expect(shortcut).toHaveText('CmdOrCtrl+S')
+  await waitFor(
+    async () => (await menuAccelerator(harness.app, 'File', 'Save')) === 'CmdOrCtrl+S',
+    'the native menu to go back to the default accelerator'
+  )
 })
 
 test('a read-only project refuses to change settings and says why', async () => {

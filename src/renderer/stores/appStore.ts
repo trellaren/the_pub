@@ -3,11 +3,19 @@ import type { AppState } from '@shared/model/app.js'
 import { invoke, on } from '@renderer/lib/ipc.js'
 import { applyToAllDocuments, registerDocumentEffect } from '@renderer/lib/documents.js'
 
+/** What a rejected rebinding was rejected for; null when it was accepted. */
+export type KeybindingResult =
+  | null
+  | { reason: 'invalid' | 'unknown-command' }
+  | { reason: 'conflict'; conflictWith: string }
+
 interface AppStore {
   state: AppState | null
   setState: (state: AppState) => void
   setTheme: (theme: AppState['theme']) => Promise<void>
   setTimelineOrientation: (orientation: AppState['timelineOrientation']) => Promise<void>
+  setKeybinding: (commandId: string, accelerator: string | null) => Promise<KeybindingResult>
+  resetKeybindings: () => Promise<void>
   load: () => Promise<void>
 }
 
@@ -28,6 +36,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setTimelineOrientation: async (orientation) => {
     const next = await invoke('app:setTimelineOrientation', { orientation })
     get().setState(next)
+  },
+  setKeybinding: async (commandId, accelerator) => {
+    const result = await invoke('app:setKeybinding', { commandId, accelerator })
+    if (!result.ok) {
+      return result.reason === 'conflict'
+        ? { reason: 'conflict', conflictWith: result.conflictWith }
+        : { reason: result.reason }
+    }
+    get().setState(result.state)
+    return null
+  },
+  resetKeybindings: async () => {
+    get().setState(await invoke('app:resetKeybindings', {}))
   }
 }))
 

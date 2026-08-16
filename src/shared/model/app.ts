@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { buildScopeSchema } from '../settings/registry.js'
+import { keybindingOverridesSchema } from '../menu/keybindings.js'
 
 export const recentProjectSchema = z.object({
   uri: z.string(),
@@ -7,40 +9,29 @@ export const recentProjectSchema = z.object({
 })
 export type RecentProject = z.infer<typeof recentProjectSchema>
 
+/**
+ * The preferences half of app state, derived from the settings registry.
+ *
+ * Kept beside the theme rather than in the dock layout, which is dockview's own
+ * opaque blob, because these are the same kind of thing — small preferences
+ * belonging to the person, shared across every window, outliving any one
+ * project. The stored property names are unchanged; see
+ * `shared/settings/registry.ts` for what each one is.
+ */
+const appSettingsSchema = buildScopeSchema('app')
+
 /** Cross-window state owned by the main process and pushed to every renderer. */
 export const appStateSchema = z.object({
   version: z.string(),
   platform: z.string(),
   recentProjects: z.array(recentProjectSchema).default([]),
-  theme: z
-    .enum([
-      'dark',
-      'light',
-      'blue',
-      'dark-purple',
-      'edinburgh-cafe',
-      'gloomy-castle',
-      'gritty-philadelphia',
-      'hokkaido',
-      'ocean',
-      'red',
-      'scottish-highlands',
-      'tokyo'
-    ])
-    .default('dark'),
   /**
-   * Which way the timeline runs.
-   *
-   * Horizontal by default: a chronology reads left to right, and laid that way
-   * it sits comfortably in a short, wide panel under the manuscript rather than
-   * demanding a tall column beside it.
-   *
-   * Kept here beside the theme rather than in the dock layout, which is
-   * dockview's own opaque blob, because this is the same kind of thing — one
-   * small preference belonging to the person, shared across every window,
-   * outliving any one project.
+   * Accelerators the person has changed, keyed by command id. Only overrides
+   * live here — a command left alone is absent, so a later change to a default
+   * shortcut reaches everyone who never rebound it.
    */
-  timelineOrientation: z.enum(['horizontal', 'vertical']).default('horizontal')
+  keybindings: keybindingOverridesSchema.default({}),
+  ...appSettingsSchema.shape
 })
 export type AppState = z.infer<typeof appStateSchema>
 export type TimelineOrientation = AppState['timelineOrientation']

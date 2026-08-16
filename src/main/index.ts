@@ -76,13 +76,25 @@ app.whenReady().then(async () => {
   })
 
   registerHandlers({ windows, sessions, appState, oneDrive, templates: new TemplateService(templateDirs()) })
-  appState.onChange((state) => windows.broadcast('app:stateChanged', state))
 
   const createWindow = (): BrowserWindow => windows.createProjectWindow()
   windows.setProjectWindowHandler((window) => {
     window.on('closed', () => void sessions.close(window.id))
   })
-  buildMenu(windows, createWindow)
+
+  let menuKeybindings = JSON.stringify(appState.get().keybindings)
+  appState.onChange((state) => {
+    windows.broadcast('app:stateChanged', state)
+    // Only on an actual shortcut change: `onChange` also fires for the theme
+    // and for every project opened, and rebuilding the native menu on each of
+    // those drops any open menu on Linux mid-click.
+    const next = JSON.stringify(state.keybindings)
+    if (next === menuKeybindings) return
+    menuKeybindings = next
+    buildMenu(windows, createWindow, state.keybindings)
+  })
+
+  buildMenu(windows, createWindow, appState.get().keybindings)
 
   createWindow()
 

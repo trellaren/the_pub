@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 /**
  * The four backends the app talks to.
@@ -116,7 +116,7 @@ export const chatSchema = z.object({
 export type Chat = z.infer<typeof chatSchema>
 
 export const chatFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.chats),
   chats: z.array(chatSchema).default(() => []),
   settings: aiSettingsSchema.prefault({})
 })

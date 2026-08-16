@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION, AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
+import { FORMAT_VERSIONS, AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
 import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
 
 export const projectSettingsSchema = z.object({
@@ -21,7 +21,7 @@ export const projectSettingsSchema = z.object({
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>
 
 export const projectManifestSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.manifest),
   id: z.string(),
   name: z.string(),
   created: z.string(),

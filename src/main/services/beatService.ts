@@ -11,10 +11,10 @@ import {
   type BeatFile,
   type BoardColumn
 } from '../../shared/model/beat.js'
-import { BEATS_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.js'
+import { BEATS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 function emptyFile(): BeatFile {
-  return { formatVersion: FORMAT_VERSION, columns: defaultColumns(), beats: [] }
+  return { formatVersion: FORMAT_VERSIONS.beats, columns: defaultColumns(), beats: [] }
 }
 
 /**
@@ -111,7 +111,7 @@ export class BeatService {
   }
 
   private async flush(): Promise<void> {
-    const file: BeatFile = { ...this.cache, formatVersion: FORMAT_VERSION }
+    const file: BeatFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.beats }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
       await this.adapter.writeFileAtomic(

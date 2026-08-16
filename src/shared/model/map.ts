@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 /**
  * Maps are vector drawings in their own coordinate space, stored as shapes
@@ -108,7 +108,7 @@ export const storyMapSchema = z.object({
 export type StoryMap = z.infer<typeof storyMapSchema>
 
 export const mapFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.maps),
   maps: z.array(storyMapSchema).default(() => [])
 })
 export type MapFile = z.infer<typeof mapFileSchema>

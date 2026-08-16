@@ -8,7 +8,7 @@ import {
   type ConnectionFile,
   type ConnectionProfile
 } from '../../shared/model/connection.js'
-import { FORMAT_VERSION } from '../../shared/constants.js'
+import { FORMAT_VERSIONS } from '../../shared/constants.js'
 
 interface StoredFile extends ConnectionFile {
   /** Encrypted secrets by profile id. Written here, never read by anything else. */
@@ -36,7 +36,7 @@ export class ConnectionStore {
       const parsed = connectionFileSchema.parse(raw)
       return { ...parsed, secrets: (raw as StoredFile).secrets ?? {} }
     } catch {
-      return { formatVersion: FORMAT_VERSION, connections: [], secrets: {} }
+      return { formatVersion: FORMAT_VERSIONS.connections, connections: [], secrets: {} }
     }
   }
 

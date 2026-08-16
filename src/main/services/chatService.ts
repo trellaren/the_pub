@@ -9,10 +9,10 @@ import {
   type ChatMessage,
   type AiSettings
 } from '../../shared/model/ai.js'
-import { CHATS_FILE, PUB_DIR, FORMAT_VERSION } from '../../shared/constants.js'
+import { CHATS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 function emptyFile(): ChatFile {
-  return { formatVersion: FORMAT_VERSION, chats: [], settings: aiSettingsSchema.parse({}) }
+  return { formatVersion: FORMAT_VERSIONS.chats, chats: [], settings: aiSettingsSchema.parse({}) }
 }
 
 /**
@@ -105,7 +105,7 @@ export class ChatService {
   }
 
   private async flush(): Promise<void> {
-    const file: ChatFile = { ...this.cache, formatVersion: FORMAT_VERSION }
+    const file: ChatFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.chats }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
       await this.adapter.writeFileAtomic(

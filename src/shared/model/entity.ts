@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 import { pmDocSchema, EMPTY_DOC } from './document.js'
 
 /**
@@ -91,14 +91,14 @@ export type DismissedMention = z.infer<typeof dismissedMentionSchema>
  * cross-file join.
  */
 export const entityFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.entities),
   entities: z.array(storyEntitySchema).default(() => []),
   dismissed: z.array(dismissedMentionSchema).default(() => [])
 })
 export type EntityFile = z.infer<typeof entityFileSchema>
 
 export const EMPTY_ENTITY_FILE: EntityFile = {
-  formatVersion: FORMAT_VERSION,
+  formatVersion: FORMAT_VERSIONS.entities,
   entities: [],
   dismissed: []
 }

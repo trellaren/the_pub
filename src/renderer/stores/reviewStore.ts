@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import type { AssembledThread } from '@shared/model/review.js'
 import type { AuthorProfile } from '@shared/model/author.js'
 import type { PresenceBeat } from '@shared/model/presence.js'
-import { describeAuthor } from '@shared/model/author.js'
 import { PRESENCE_BEAT_MS } from '@shared/constants.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
@@ -25,8 +24,6 @@ interface ReviewStore {
   setSuggesting: (suggesting: boolean) => void
   /** Start beating for a document and watch who else is in it. */
   watch: (docId: string) => () => void
-  /** Display name and colour for an id, whether or not the registry knows it. */
-  describe: (authorId: string) => AuthorProfile
 }
 
 export const useReviewStore = create<ReviewStore>((set, get) => ({
@@ -65,6 +62,17 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   },
 
   setStatus: async (docId, threadId, status) => {
+    // Optimistic, like `noteStore.patch`: a resolve checkbox that waits for a
+    // file write before it moves reads as a broken checkbox, and the write it
+    // is waiting for goes to a folder that may be on SFTP.
+    set({
+      threadsByDoc: {
+        ...get().threadsByDoc,
+        [docId]: (get().threadsByDoc[docId] ?? []).map((thread) =>
+          thread.id === threadId ? { ...thread, status } : thread
+        )
+      }
+    })
     await attempt(invoke('review:setStatus', { docId, threadId, status }), 'Could not update the comment')
     await get().loadForDoc(docId)
   },
@@ -101,9 +109,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       clearInterval(timer)
       set({ presence: [] })
     }
-  },
-
-  describe: (authorId) => describeAuthor(authorId, get().authors)
+  }
 }))
 
 // A collaborator's file arriving by sync reaches whichever panel is showing the

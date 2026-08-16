@@ -5,6 +5,7 @@ import { extractPlainText } from '@shared/pm/extractText.js'
 import { listSuggestions } from '@shared/pm/suggestions.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
+import { describeAuthor } from '@shared/model/author.js'
 import { revealBlock, setSuggesting, resolveSuggestion } from '../editor/editorActions.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, Checkbox } from '@renderer/ui/primitives.js'
 
@@ -15,12 +16,16 @@ import { PanelShell, PanelHeader, EmptyState, ToolbarButton, Checkbox } from '@r
  * Scoped to the last focused editor rather than the frontmost tab, the same way
  * `NotesPanel` is.
  */
+/** Shared, because a fresh `[]` from a selector re-renders forever — see `WelcomePanel`. */
+const NO_THREADS: AssembledThread[] = []
+
 export function ReviewPanel() {
   const docId = useDocumentStore((store) => store.activeDocId)
-  const threads = useReviewStore((store) => (docId ? (store.threadsByDoc[docId] ?? []) : []))
+  const threads = useReviewStore((store) => (docId ? (store.threadsByDoc[docId] ?? NO_THREADS) : NO_THREADS))
   const presence = useReviewStore((store) => store.presence)
   const suggesting = useReviewStore((store) => store.suggesting)
   const me = useReviewStore((store) => store.me)
+  const authors = useReviewStore((store) => store.authors)
 
   useEffect(() => {
     void useReviewStore.getState().loadMe()
@@ -75,7 +80,7 @@ export function ReviewPanel() {
                   type="button"
                   onClick={() => editor && revealBlock(editor, suggestion.blockIndex, suggestion.text)}
                   className="flex-1 truncate text-left hover:text-text"
-                  style={{ color: useReviewStore.getState().describe(suggestion.authorId).color }}
+                  style={{ color: describeAuthor(suggestion.authorId, authors).color }}
                   title={suggestion.text}
                 >
                   {suggestion.mark === 'insertion' ? '+ ' : '− '}
@@ -124,7 +129,11 @@ function ThreadCard({
 }) {
   const [draft, setDraft] = useState('')
   const me = useReviewStore((store) => store.me)
-  const author = useReviewStore((store) => store.describe(thread.authorId))
+  // Selecting the roster and describing here, not selecting the description:
+  // zustand compares by identity, and a selector that mints an object every call
+  // re-renders forever.
+  const authors = useReviewStore((store) => store.authors)
+  const author = describeAuthor(thread.authorId, authors)
   const store = useReviewStore.getState()
 
   return (
@@ -194,7 +203,8 @@ function ThreadCard({
 
 function ReplyRow({ docId, reply }: { docId: string; reply: ReviewReply }) {
   const me = useReviewStore((store) => store.me)
-  const author = useReviewStore((store) => store.describe(reply.authorId))
+  const authors = useReviewStore((store) => store.authors)
+  const author = describeAuthor(reply.authorId, authors)
   return (
     <div className="mt-1 flex items-start gap-1 border-l-2 pl-2" style={{ borderColor: author.color }}>
       <p className="flex-1 whitespace-pre-wrap text-[12px]">

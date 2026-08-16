@@ -8,7 +8,7 @@ serves an essay, a thesis or a research paper, without losing what makes it good
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
 meant to be shippable on its own.
 
-**Status:** Phases 0–3 have shipped. Phases 4–7 each have a build plan linked from their section
+**Status:** Phases 0–3 have shipped. Phases 4–9 each have a build plan linked from their section
 below.
 
 ## Two scoping decisions
@@ -190,6 +190,52 @@ Only if page-accurate on-screen layout is later judged worth its cost. If it is 
 - This is what would unlock headers and footers, page numbers, columns, widow/orphan control and
   page cross-references.
 
+## Phase 8 — An embedded model
+
+*Detailed build plan: [`phase-8-plan.md`](./phase-8-plan.md).*
+
+`prism-ml/bonsai-27b` running inside the app: AI assistance that needs no key, no account and no
+network, and — the real point — never sends a word of the manuscript off the machine.
+
+- **A fifth provider id, `embedded`**, in the existing list in `src/shared/model/ai.ts`. That
+  file's own comment — everything above the provider layer is identical for all of them — is the
+  design being cashed in: chats, streaming, cancellation and the panel need no changes.
+- **A managed llama.cpp `llama-server` child process** on a loopback port, speaking the
+  OpenAI-compatible dialect `buildRequest` already emits for LM Studio. Never in-process
+  bindings: inference that dies must take a subprocess with it, not the author's unsaved
+  manuscript.
+- **Weights download on first use into userData** — never bundled (16 GB installers are not a
+  thing), never in a project folder (the `AiKeyStore` reasoning: projects are synced and
+  shared). Resumable, checksummed, gated on RAM, license shown before the first byte.
+- Lazy start, idle shutdown, killed on quit — 16 GB of RAM is borrowed, not owned.
+- `FORMAT_VERSIONS.chats` bumps so an older build opens a chats file mentioning the new provider
+  read-only instead of corrupt-renaming it.
+
+## Phase 9 — Co-authoring and peer review
+
+*Detailed build plan: [`phase-9-plan.md`](./phase-9-plan.md).*
+
+Several people on one project folder, merging cleanly — **asynchronous over the existing VFS, not
+real-time.** No CRDT, no relay server: the cost, plainly, is that two people must not type in the
+same document at the same moment. Presence makes that visible; everything around the prose is
+built to merge with no conflict at all.
+
+- **Author identity** as an app-scoped profile (id, name, colour); everything stamped by id,
+  never by name — the same ids-over-copies rule records already follow. A per-project
+  `authors.json` renders collaborators offline.
+- **Review comments and threads**, anchored by Phase 0's `anchor` mark with the same orphan
+  recovery notes use, stored **one file per (document, author)** —
+  `.thepub/reviews/<docId>/<authorId>.json` — so every file is single-writer by construction and
+  replies to someone else's thread live in *your* file, assembled by id at load.
+- **Suggested edits** as two marks, `insertion` and `deletion`, written by a suggesting-mode
+  transaction filter; accept/reject are pure inverses. Word count and extraction count the
+  document as-if-accepted, implemented once in `extractText.ts`'s single text walker.
+- **The Word round-trip is the payoff**: suggestions export as real `w:ins`/`w:del`, threads as
+  real Word comments, and Word tracked changes import back as first-class suggestions — a
+  reviewer without The Pub reviews in Word.
+- **Presence is advisory, never a lock**; `DocumentService`'s mtime check stays the backstop,
+  and the `ConflictBar` gains a mine-vs-disk diff.
+
 ---
 
 ## Dependencies
@@ -203,6 +249,8 @@ Phase 0  Format governance + stable ids     ← blocks everything
    Phase 4  Templates   (needs 1)
           └→ Phase 6  Beyond fiction
    Phase 7  Pagination  (optional; independent, expensive)
+   Phase 8  Embedded model   (independent; builds on the shipped AI layer)
+Phase 0 → Phase 9  Co-authoring + peer review   (anchors; sits beside 2's notes)
 ```
 
 ## The decisions that matter most

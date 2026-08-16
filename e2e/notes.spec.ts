@@ -23,12 +23,20 @@ async function editor() {
   return locator
 }
 
-/** Replace the document's whole text, leaving the caret at the end. */
+/**
+ * Replace the document's whole text, leaving the caret at the end.
+ *
+ * Waits for the typed text to actually land in the DOM before returning —
+ * under load, `selectRange`'s first keystroke can otherwise race a still-in-
+ * flight keystroke from typing, landing the selection a character or two off
+ * from where the test expects it.
+ */
 async function setText(text: string): Promise<void> {
   const el = await editor()
   await el.click()
   await harness.page.keyboard.press('ControlOrMeta+a')
   await harness.page.keyboard.type(text)
+  await expect(el).toContainText(text)
 }
 
 /**

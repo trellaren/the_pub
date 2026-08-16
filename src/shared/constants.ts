@@ -1,5 +1,23 @@
-/** Format version stamped into every file The Pub writes. Bump on breaking changes. */
-export const FORMAT_VERSION = 1
+/**
+ * Format version stamped into every file The Pub writes, one counter per kind
+ * of file so a breaking change to the manifest doesn't force a bump — and a
+ * migration — on every `.pubdoc` that never touched the changed part.
+ */
+export const FORMAT_VERSIONS = {
+  document: 1,
+  manifest: 1,
+  manuscript: 1,
+  entities: 1,
+  beats: 1,
+  maps: 1,
+  layouts: 1,
+  chats: 1,
+  connections: 1
+} as const
+export type FileKind = keyof typeof FORMAT_VERSIONS
+
+/** @deprecated Use `FORMAT_VERSIONS.document`. Kept so existing call sites need no churn. */
+export const FORMAT_VERSION = FORMAT_VERSIONS.document
 
 /** Project-relative directory holding all app-managed data. */
 export const PUB_DIR = '.thepub'

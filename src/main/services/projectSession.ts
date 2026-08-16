@@ -5,6 +5,7 @@ import { ulid } from 'ulid'
 import type { VfsAdapter, Unwatch } from '../vfs/types.js'
 import { createAdapter, parseUri } from '../vfs/vfsRegistry.js'
 import { projectManifestSchema, type ProjectManifest, type OpenProject } from '../../shared/model/manifest.js'
+import { migrate } from '../../shared/model/migrate.js'
 import { BUILTIN_STYLES } from '../../shared/model/style.js'
 import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import type { IndexProgress } from '../../shared/model/search.js'
@@ -65,6 +66,14 @@ export class ProjectSession {
     readonly uri: string,
     readonly adapter: VfsAdapter,
     public manifest: ProjectManifest,
+    /**
+     * The manifest on disk was written by a newer version of The Pub. Reading
+     * it worked because the schema drops fields it doesn't know rather than
+     * rejecting them, but writing it back would make that drop permanent —
+     * so nothing in this session may save the manifest until the project is
+     * next opened by a build that understands it.
+     */
+    readonly readOnly: boolean,
     private readonly hooks: SessionHooks
   ) {
     this.assetToken = createHash('sha256').update(uri).digest('hex').slice(0, 32)
@@ -100,8 +109,8 @@ export class ProjectSession {
 
   static async open(uri: string, hooks: SessionHooks): Promise<ProjectSession> {
     const adapter = createAdapter(uri)
-    const manifest = await loadOrCreateManifest(adapter)
-    const session = new ProjectSession(uri, adapter, manifest, hooks)
+    const { manifest, readOnly } = await loadOrCreateManifest(adapter)
+    const session = new ProjectSession(uri, adapter, manifest, readOnly, hooks)
     await session.start()
     return session
   }
@@ -141,11 +150,15 @@ export class ProjectSession {
       root: this.adapter.root,
       assetToken: this.assetToken,
       isLocal: this.isLocal,
-      manifest: this.manifest
+      manifest: this.manifest,
+      readOnly: this.readOnly
     }
   }
 
   async saveManifest(manifest: ProjectManifest): Promise<ProjectManifest> {
+    if (this.readOnly) {
+      throw new Error('This project is read-only — its manifest was written by a newer version of The Pub.')
+    }
     const next: ProjectManifest = { ...manifest, modified: new Date().toISOString() }
     await writeManifest(this.adapter, next)
     this.manifest = next
@@ -172,15 +185,23 @@ function indexDbPath(uri: string, root: string): string {
   return path.join(app.getPath('userData'), 'indexes', `${digest}.db`)
 }
 
-async function loadOrCreateManifest(adapter: VfsAdapter): Promise<ProjectManifest> {
+async function loadOrCreateManifest(
+  adapter: VfsAdapter
+): Promise<{ manifest: ProjectManifest; readOnly: boolean }> {
   const existing = await adapter.stat(MANIFEST_FILE)
   if (existing) {
     try {
       const raw = await adapter.readFile(MANIFEST_FILE)
-      return projectManifestSchema.parse(JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('manifest', JSON.parse(raw.toString('utf8')))
+      // A manifest ahead of what this build knows still parses today: the
+      // schema drops fields it doesn't recognise rather than rejecting them.
+      // That is exactly why it must not be saved back — see the constructor.
+      return { manifest: projectManifestSchema.parse(value), readOnly: tooNew }
     } catch {
       // Keep the unreadable manifest rather than deleting it — it may hold
-      // styles the author wants back — and continue with a fresh one.
+      // styles the author wants back — and continue with a fresh one. This is
+      // reached only when the file doesn't parse at all, not merely when it's
+      // newer than this build.
       await adapter
         .rename(MANIFEST_FILE, `${MANIFEST_FILE}.corrupt-${Date.now()}`)
         .catch(() => {})
@@ -188,7 +209,7 @@ async function loadOrCreateManifest(adapter: VfsAdapter): Promise<ProjectManifes
   }
   const manifest = createManifest(path.basename(adapter.root))
   await writeManifest(adapter, manifest)
-  return manifest
+  return { manifest, readOnly: false }
 }
 
 export function createManifest(name: string): ProjectManifest {

@@ -32,7 +32,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   updateManifest: async (update) => {
     const current = get().project
-    if (!current) return
+    if (!current || current.readOnly) return
     const next = update(current.manifest)
     // Show the change immediately — style edits should feel instant — and let
     // the write happen behind it.

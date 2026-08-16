@@ -10,13 +10,17 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Typography from '@tiptap/extension-typography'
 import Placeholder from '@tiptap/extension-placeholder'
 import { TableKit } from '@tiptap/extension-table'
+import { ulid } from 'ulid'
 import type { PmDoc } from '@shared/model/document.js'
 import type { NamedStyle } from '@shared/model/style.js'
 import type { StoryEntity } from '@shared/model/entity.js'
+import { dedupeBlockIds } from '@shared/pm/blockIds.js'
 import { Mention } from './extensions/mention.js'
 import { NamedStyles } from './extensions/namedStyles.js'
 import { ParagraphFormat } from './extensions/paragraphFormat.js'
 import { FindHighlight } from './extensions/findHighlight.js'
+import { BlockIds } from './extensions/blockIds.js'
+import { Anchors } from './extensions/anchors.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -36,8 +40,15 @@ export interface CreateEditorOptions {
  * scroll position intact.
  */
 export function createEditor(options: CreateEditorOptions): Editor {
+  // A duplicate `blockId` can only reach disk from outside a live editor
+  // session — a hand edit, or content merged in from elsewhere — since the
+  // `BlockIds` extension's own plugin keeps one session's ids unique as it
+  // goes. Sanitising here, once, at the boundary, is cheaper than teaching
+  // every future consumer of a `blockId` to double-check it first.
+  const { doc: content } = dedupeBlockIds(options.content, () => ulid())
+
   return new Editor({
-    content: options.content,
+    content,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
@@ -62,7 +73,9 @@ export function createEditor(options: CreateEditorOptions): Editor {
       NamedStyles.configure({ getStyles: options.getStyles }),
       Mention.configure({ getEntities: options.getEntities }),
       ParagraphFormat,
-      FindHighlight
+      FindHighlight,
+      BlockIds,
+      Anchors
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any

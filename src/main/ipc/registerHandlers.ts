@@ -731,9 +731,13 @@ export function registerHandlers(context: HandlerContext): void {
     if (request.mode === 'inPlace') {
       const result = await session.history.restoreInPlace(request.docId, request.timestamp)
       if (result.ok) return { ok: true as const, docId: request.docId, path: result.path, mtime: result.mtime }
-      return result.reason === 'conflict'
-        ? { ok: false as const, reason: 'conflict' as const, diskMtime: result.diskMtime }
-        : { ok: false as const, reason: 'missing-document' as const }
+      if (result.reason === 'conflict') {
+        return { ok: false as const, reason: 'conflict' as const, diskMtime: result.diskMtime }
+      }
+      if (result.reason === 'format-too-new') {
+        return { ok: false as const, reason: 'format-too-new' as const, diskVersion: result.diskVersion }
+      }
+      return { ok: false as const, reason: 'missing-document' as const }
     }
     requirePortableName(request.targetPath)
     const loaded = await session.history.restoreToNewFile(

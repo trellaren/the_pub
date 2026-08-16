@@ -73,6 +73,13 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
 
   const editor = getEditor(docId)
 
+  // Typing must actually stop, not just fail to save — otherwise the buffer
+  // keeps growing further from what's safe to write, with no way to persist
+  // any of it.
+  useEffect(() => {
+    editor?.setEditable(!state?.tooNew)
+  }, [editor, state?.tooNew])
+
   if (!state || !editor) {
     return (
       <PanelShell>
@@ -109,6 +116,7 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
         />
       ) : null}
       {state.conflict ? <ConflictBar docId={docId} /> : null}
+      {state.tooNew ? <TooNewBar /> : null}
 
       <div className="flex-1 overflow-auto bg-bg" onMouseDown={() => setActive(docId)}>
         <div
@@ -121,6 +129,18 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
 
       <StatusBar docId={docId} />
     </PanelShell>
+  )
+}
+
+/** No keep-mine/reload choice here, unlike `ConflictBar` — overwriting is exactly what must not happen. */
+function TooNewBar() {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[12px]">
+      <span className="flex-1 text-danger">
+        This file was written by a newer version of The Pub. It's open read-only until you
+        upgrade — your changes are kept here, but nothing can be saved.
+      </span>
+    </div>
   )
 }
 

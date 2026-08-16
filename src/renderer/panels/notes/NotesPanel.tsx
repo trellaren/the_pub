@@ -12,6 +12,17 @@ import { PanelShell, PanelHeader, EmptyState, ToolbarButton, Checkbox } from '@r
 const MAX_REATTACH_CANDIDATES = 5
 
 /**
+ * One shared empty array, never a fresh `[]` from the selector.
+ *
+ * zustand compares a selector's result by identity, so a selector that mints an
+ * array on every call reports a change on every render — and React re-renders
+ * forever, taking the whole window down with it. A document with no notes yet
+ * is exactly the case that hits it, which is why every existing test missed it:
+ * they all add a note before opening the panel.
+ */
+const NO_NOTES: Note[] = []
+
+/**
  * Notes attached to the active document.
  *
  * Scoped to whichever editor last had focus, the same way `StatusBar` is —
@@ -20,7 +31,7 @@ const MAX_REATTACH_CANDIDATES = 5
  */
 export function NotesPanel() {
   const docId = useDocumentStore((store) => store.activeDocId)
-  const notes = useNoteStore((store) => (docId ? (store.notesByDoc[docId] ?? []) : []))
+  const notes = useNoteStore((store) => (docId ? (store.notesByDoc[docId] ?? NO_NOTES) : NO_NOTES))
 
   useEffect(() => {
     if (docId) void useNoteStore.getState().loadForDoc(docId)

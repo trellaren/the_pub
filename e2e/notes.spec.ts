@@ -63,6 +63,24 @@ async function showNotes(): Promise<void> {
   await harness.page.evaluate(() => window.__pub.runCommand('panel.notes'))
 }
 
+test('the panel opens on a document with no notes without taking the window down', async () => {
+  // The regression this guards: every other test here adds a note before
+  // opening the panel, so the empty case — the one a person meets first — went
+  // unexercised, and a selector minting a fresh array crashed the renderer.
+  harness = await launch()
+  const crashes: string[] = []
+  harness.page.on('pageerror', (error) => crashes.push(error.message))
+
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+  await showNotes()
+
+  await expect(harness.page.getByText('No notes yet')).toBeVisible()
+  expect(crashes).toEqual([])
+  // Still a live window: the crash left a surface nothing could be clicked through.
+  await (await editor()).click()
+})
+
 test('the Add note button is disabled until text is selected', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

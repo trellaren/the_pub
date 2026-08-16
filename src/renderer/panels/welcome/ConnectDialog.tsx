@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { ConnectionProfile, ConnectionProtocol, UntrustedHostKey } from '@shared/model/connection.js'
+import type {
+  ConnectionProfile,
+  ConnectionProtocol,
+  DbEngine,
+  UntrustedHostKey
+} from '@shared/model/connection.js'
 import { defaultPort, projectUri, describeConnection } from '@shared/model/connection.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -20,6 +25,9 @@ interface Draft {
   tenant: string
   account: string
   signedIn: boolean
+  engine: DbEngine
+  database: string
+  schema: string
 }
 
 const BLANK: Draft = {
@@ -35,13 +43,21 @@ const BLANK: Draft = {
   clientId: '',
   tenant: 'common',
   account: '',
-  signedIn: false
+  signedIn: false,
+  engine: 'postgres',
+  database: '',
+  schema: 'thepub'
 }
 
 /** What a server is called when nobody has named it. */
 function defaultName(draft: Draft): string {
   if (draft.protocol === 'onedrive') {
     return draft.account ? `OneDrive — ${draft.account}` : 'OneDrive'
+  }
+  if (draft.protocol === 'db') {
+    return draft.engine === 'sqlite'
+      ? draft.host || 'SQLite database'
+      : `${draft.database || 'database'} on ${draft.host || 'host'}`
   }
   return `${draft.user || 'user'}@${draft.host || 'host'}`
 }
@@ -63,6 +79,11 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   /** The SSH identity awaiting a decision, when a test refused one. */
   const [hostKey, setHostKey] = useState<UntrustedHostKey | null>(null)
   const isOneDrive = draft.protocol === 'onedrive'
+  const isDb = draft.protocol === 'db'
+  // SQLite is a file on this machine: no host to dial, no user, no password.
+  const isSqlite = isDb && draft.engine === 'sqlite'
+  /** Set when a test found the server reachable but holding no project yet. */
+  const [needsCreate, setNeedsCreate] = useState(false)
 
   const load = async (): Promise<void> => {
     const result = await attempt(invoke('connections:list', {}), 'Could not load saved servers')
@@ -90,11 +111,15 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       clientId: profile.clientId,
       tenant: profile.tenant,
       account: profile.account,
-      signedIn: profile.hasSecret
+      signedIn: profile.hasSecret,
+      engine: profile.engine,
+      database: profile.database,
+      schema: profile.schema
     })
     setSecret('')
     setStatus(null)
     setHostKey(null)
+    setNeedsCreate(false)
   }
 
   const save = async (): Promise<ConnectionProfile | null> => {
@@ -102,7 +127,22 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       setStatus('An Application (client) ID is needed.')
       return null
     }
-    if (!isOneDrive && (!draft.host.trim() || !draft.user.trim())) {
+    if (isDb) {
+      if (!draft.host.trim()) {
+        setStatus(isSqlite ? 'A path to a database file is needed.' : 'A host is needed.')
+        return null
+      }
+      if (!isSqlite && !draft.database.trim()) {
+        setStatus('A database name is needed.')
+        return null
+      }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.schema.trim())) {
+        // Interpolated into DDL, where no placeholder is allowed. Said here so
+        // it is caught while it is still being typed rather than on connect.
+        setStatus('The schema name must be letters, digits and underscores, starting with a letter.')
+        return null
+      }
+    } else if (!isOneDrive && (!draft.host.trim() || !draft.user.trim())) {
       setStatus('A host and a user are needed.')
       return null
     }
@@ -111,7 +151,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
         profile: {
           ...draft,
           name: draft.name.trim() || defaultName(draft),
-          port: draft.port || defaultPort(draft.protocol)
+          port: draft.port || defaultPort(draft.protocol, draft.engine)
         },
         // Undefined keeps the stored secret; the field is only sent when typed.
         // A OneDrive profile's secret is its refresh token, which only signing
@@ -136,11 +176,14 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
       setStatus(
         result
           ? result.ok
-            ? `${result.message} ${result.entries} items in the folder.`
+            ? isDb
+              ? result.message
+              : `${result.message} ${result.entries} items in the folder.`
             : result.message
           : 'Could not reach the server.'
       )
       setHostKey(result?.hostKey ?? null)
+      setNeedsCreate(result?.needsCreate ?? false)
     }
     setBusy(false)
   }
@@ -197,6 +240,23 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     setDraft((current) => ({ ...current, account: '', signedIn: false }))
     setStatus('Signed out on this machine.')
     await load()
+  }
+
+  /**
+   * Create a project's tables, having said so.
+   *
+   * A button of its own, never a step folded into opening: writing DDL into
+   * someone's database is not something to discover afterwards, and the
+   * sentence above it names the schema it is about to create.
+   */
+  const createDatabase = async (): Promise<void> => {
+    const saved = await save()
+    if (!saved) return
+    setBusy(true)
+    const result = await invoke('connections:createDatabase', { id: saved.id }).catch(() => null)
+    setBusy(false)
+    setStatus(result?.message ?? 'The project could not be created.')
+    if (result?.ok) setNeedsCreate(false)
   }
 
   const openThere = async (profile: ConnectionProfile): Promise<void> => {
@@ -265,7 +325,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                     setDraft((current) => ({
                       ...current,
                       protocol,
-                      port: defaultPort(protocol),
+                      port: defaultPort(protocol, current.engine),
                       // The drive root, not a server path: OneDrive projects
                       // live in a folder inside the drive.
                       remotePath: protocol === 'onedrive' && current.remotePath === '/' ? '' : current.remotePath
@@ -277,9 +337,27 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   <option value="sftp">SFTP (SSH)</option>
                   <option value="ftp">FTP</option>
                   <option value="onedrive">OneDrive</option>
+                  <option value="db">Database</option>
                 </Select>
               </Field>
-              {!isOneDrive ? (
+              {isDb ? (
+                <Field label="Engine">
+                  <Select
+                    value={draft.engine}
+                    onChange={(event) => {
+                      const engine = event.target.value as DbEngine
+                      setDraft((current) => ({ ...current, engine, port: defaultPort('db', engine) }))
+                      setStatus(null)
+                    }}
+                    data-testid="connect-engine"
+                  >
+                    <option value="postgres">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="sqlite">SQLite (a file)</option>
+                  </Select>
+                </Field>
+              ) : null}
+              {!isOneDrive && !isSqlite ? (
                 <Field label="Port">
                   <TextInput
                     type="number"
@@ -339,17 +417,41 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
             ) : null}
 
             {!isOneDrive ? (
-              <Field label="Host">
+              <Field label={isSqlite ? 'Database file' : 'Host'}>
                 <TextInput
                   value={draft.host}
-                  placeholder="files.example.com"
+                  placeholder={isSqlite ? '/home/you/novel.pubdb' : 'files.example.com'}
                   onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))}
                   data-testid="connect-host"
                 />
               </Field>
             ) : null}
 
-            {!isOneDrive ? (
+            {isDb && !isSqlite ? (
+              <Field label="Database">
+                <TextInput
+                  value={draft.database}
+                  placeholder="thepub"
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, database: event.target.value }))
+                  }
+                  data-testid="connect-database"
+                />
+              </Field>
+            ) : null}
+
+            {isDb ? (
+              <Field label="Schema">
+                <TextInput
+                  value={draft.schema}
+                  placeholder="thepub"
+                  onChange={(event) => setDraft((current) => ({ ...current, schema: event.target.value }))}
+                  data-testid="connect-schema"
+                />
+              </Field>
+            ) : null}
+
+            {!isOneDrive && !isSqlite ? (
               <Field label="User">
                 <TextInput
                   value={draft.user}
@@ -385,7 +487,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               </Field>
             ) : null}
 
-            {!isOneDrive ? (
+            {!isOneDrive && !isSqlite ? (
               <Field
                 label={
                   draft.auth === 'key'
@@ -403,6 +505,17 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               </Field>
             ) : null}
 
+            {isDb ? (
+              // A database project has no folder: the schema is the whole of
+              // where it lives, and offering a path would invite a value
+              // nothing would read.
+              <p className="mb-2 text-[11px] text-muted">
+                One database can hold several projects, one per schema. Nothing outside this
+                schema&rsquo;s own tables is read or written.
+              </p>
+            ) : null}
+
+            {isDb ? null : (
             <Field label={isOneDrive ? 'Folder in your drive' : 'Folder on the server'}>
               <TextInput
                 value={draft.remotePath}
@@ -413,6 +526,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                 data-testid="connect-path"
               />
             </Field>
+            )}
 
             {draft.protocol === 'ftp' ? (
               <div className="mb-2">
@@ -490,6 +604,35 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                     onClick={() => void acceptHostKey()}
                   >
                     {hostKey.verdict === 'changed' ? 'accept the new fingerprint' : 'accept fingerprint'}
+                  </ToolbarButton>
+                </div>
+              </div>
+            ) : null}
+
+            {/*
+              Creating tables in someone's database, said out loud.
+
+              The alternative — opening a project and quietly running DDL —
+              is the kind of thing that gets an application banned from a
+              company's production server, and rightly.
+            */}
+            {needsCreate ? (
+              <div className="mb-2 rounded border border-border p-2" data-testid="connect-create-db">
+                <p className="text-[11px] text-text">
+                  There is no project in this database yet. Creating one adds three tables
+                  {draft.engine === 'postgres'
+                    ? ` to a new "${draft.schema}" schema`
+                    : ` named "${draft.schema}_pub_files", "${draft.schema}_pub_changes" and "${draft.schema}_pub_meta"`}
+                  . Nothing else in the database is touched.
+                </p>
+                <div className="mt-2">
+                  <ToolbarButton
+                    label="Create the project tables in this database"
+                    disabled={busy}
+                    data-testid="connect-create-db-confirm"
+                    onClick={() => void createDatabase()}
+                  >
+                    create the project here
                   </ToolbarButton>
                 </div>
               </div>

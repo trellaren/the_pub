@@ -95,6 +95,11 @@ and keep a manuscript per schema.
 One adapter, a `DbDialect` seam beneath it (`quoteIdent`, `upsertFile`, `listen`, `now`), and no
 Electron import — the `src/main/onedrive/` rule, so it tests as pure logic.
 
+One correctness note worth carrying, found while building it: a dialect whose placeholder is a
+bare `?` binds parameters **by their position in the SQL**, so an `UPDATE` cannot reuse an
+`INSERT`'s value list reordered. Getting that wrong shifts every column by one — and does it only
+on SQLite and MySQL, passing cleanly against Postgres, whose `$n` says which value it means.
+
 `caps`: `atomicRename: true` (a transaction), `preservesMtime: true`, `fastStat: true`,
 `caseSensitive: true`, and `watch: true` **for Postgres only** — the registry already emulates
 what a backend lacks, so MySQL and SQLite fall back to polling `pub_changes`, which is cheap
@@ -110,6 +115,12 @@ the only thing the renderer learns.
 SQLite), schema name, and a **Test connection** button reusing `connections:test`. Creating a
 project on an empty database runs the schema creation, announced plainly — silently creating
 tables in someone's production database is not a thing to do quietly.
+
+That announcement is load-bearing enough to be structural rather than a warning label. "Reachable
+but holding no project" comes back from `connections:test` as its own field rather than as a
+failure, because those are different answers; creating the tables is a separate channel reached
+from a sentence naming the schema and the tables it is about to add; and opening a project on an
+empty database *refuses*, so DDL is never a side effect of opening anything.
 
 ---
 

@@ -113,6 +113,7 @@ interface PubTestHook {
       proposals: EditProposal[]
       llm: LlmStatus | null
       refreshLlm: () => Promise<void>
+      ensureModel: (model: string) => Promise<string | null>
     }
   }
   manuscript: {

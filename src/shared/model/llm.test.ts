@@ -6,6 +6,9 @@ import {
   findVariant,
   resolveVariant,
   isSideloadedModel,
+  modelChoice,
+  variantStatusSchema,
+  type VariantStatus,
   memoryGate,
   formatBytes
 } from './llm.js'
@@ -94,5 +97,56 @@ describe('formatBytes', () => {
     expect(formatBytes(16 * GB)).toBe('16.0 GB')
     expect(formatBytes(512 * 1024 ** 2)).toBe('512 MB')
     expect(formatBytes(4 * 1024)).toBe('4 kB')
+  })
+})
+
+describe('modelChoice', () => {
+  const ready = (variantId: string): VariantStatus =>
+    variantStatusSchema.parse({ variantId, state: 'ready', verified: true })
+  const absent = (variantId: string, gate: string | null = null): VariantStatus =>
+    variantStatusSchema.parse({ variantId, state: 'absent', gate })
+
+  const first = EMBEDDED_MODELS[0]!.variants[0]!
+
+  it('downloads a catalogue variant that is not here yet', () => {
+    expect(modelChoice(first.id, [absent(first.id)])).toEqual({
+      kind: 'download',
+      variantId: first.id
+    })
+  })
+
+  it('resolves a bare model id to the variant it would run', () => {
+    // The picker offers variants and older projects hold model ids, so both
+    // spellings reach here.
+    expect(modelChoice(EMBEDDED_MODELS[0]!.id, [absent(first.id)])).toEqual({
+      kind: 'download',
+      variantId: first.id
+    })
+  })
+
+  it('needs nothing for a variant already on disk, or one already arriving', () => {
+    expect(modelChoice(first.id, [ready(first.id)])).toEqual({ kind: 'ready' })
+    expect(
+      modelChoice(first.id, [variantStatusSchema.parse({ variantId: first.id, state: 'downloading' })])
+    ).toEqual({ kind: 'ready' })
+  })
+
+  it('refuses before any bytes move when the machine is too small', () => {
+    // A download that ends in weights this machine cannot load costs someone an
+    // afternoon and several gigabytes to learn nothing.
+    expect(modelChoice(first.id, [absent(first.id, 'Needs about 24 GB.')])).toEqual({
+      kind: 'refuse',
+      reason: 'Needs about 24 GB.'
+    })
+  })
+
+  it('needs nothing for a file already on this machine', () => {
+    expect(modelChoice('/home/me/models/mistral.gguf', [])).toEqual({ kind: 'ready' })
+    expect(modelChoice('C:\\models\\mistral.gguf', [])).toEqual({ kind: 'ready' })
+  })
+
+  it('says so when the name is not a model at all', () => {
+    const choice = modelChoice('not-a-model', [])
+    expect(choice).toMatchObject({ kind: 'refuse' })
   })
 })

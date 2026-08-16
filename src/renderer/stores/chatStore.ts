@@ -7,7 +7,7 @@ import type {
   ToolCall,
   EditProposal
 } from '@shared/model/ai.js'
-import type { LlmStatus } from '@shared/model/llm.js'
+import { modelChoice, type LlmStatus } from '@shared/model/llm.js'
 import type { RetrievalStatus } from '@shared/model/retrieval.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
@@ -45,6 +45,14 @@ interface ChatStore {
   downloadModel: (variantId: string) => Promise<string | null>
   cancelDownload: (variantId: string) => Promise<void>
   removeModel: (variantId: string) => Promise<void>
+  /**
+   * Make a chosen embedded model usable, downloading it if it is not here yet.
+   *
+   * Returns a message when it cannot be — this machine is too small for it, or
+   * the transfer failed — and null when the model is ready to answer.
+   */
+  ensureModel: (model: string) => Promise<string | null>
+  chooseModelFile: () => Promise<string | null>
   /** How much of the manuscript can be searched by meaning. */
   retrieval: RetrievalStatus | null
   refreshRetrieval: () => Promise<void>
@@ -159,6 +167,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   removeModel: async (variantId) => {
     await invoke('llm:remove', { variantId }).catch(() => {})
     await get().refreshLlm()
+  },
+
+  ensureModel: async (model) => {
+    // Refreshed first, because the decision is made against what is actually on
+    // disk and this panel may have been open since before a download finished.
+    await get().refreshLlm()
+    const choice = modelChoice(model, get().llm?.variants ?? [])
+    if (choice.kind === 'ready') return null
+    if (choice.kind === 'refuse') return choice.reason
+    return get().downloadModel(choice.variantId)
+  },
+
+  chooseModelFile: async () => {
+    const chosen = await invoke('llm:chooseFile', {}).catch(() => null)
+    return chosen?.path ?? null
   },
 
   retrieval: null,

@@ -8,12 +8,28 @@ import { FORMAT_VERSIONS } from '../constants.js'
  * passphrases are stored separately and encrypted, and never travel to the
  * renderer — the same rule the AI keys follow, for the same reason.
  */
-export const connectionProtocols = ['sftp', 'ftp', 'onedrive'] as const
+export const connectionProtocols = ['sftp', 'ftp', 'onedrive', 'db'] as const
 export const connectionProtocolSchema = z.enum(connectionProtocols)
 export type ConnectionProtocol = z.infer<typeof connectionProtocolSchema>
 
 export const connectionAuthSchema = z.enum(['password', 'key'])
 export type ConnectionAuth = z.infer<typeof connectionAuthSchema>
+
+/**
+ * Which SQL a `db` project speaks.
+ *
+ * A field on the profile rather than three protocols, because the mapping from
+ * a project to tables is identical for all of them — only the dialect differs,
+ * and a protocol per engine would triple the surface above this layer to
+ * express a difference that lives below it.
+ *
+ * SQLite is here because it needs no driver and no server: `node:sqlite` is
+ * already what the search index runs on, so a database-backed project is
+ * something a single writer can try without standing anything up.
+ */
+export const dbEngines = ['postgres', 'mysql', 'sqlite'] as const
+export const dbEngineSchema = z.enum(dbEngines)
+export type DbEngine = z.infer<typeof dbEngineSchema>
 
 export const connectionProfileSchema = z.object({
   id: z.string(),
@@ -44,6 +60,20 @@ export const connectionProfileSchema = z.object({
   tenant: z.string().default('common'),
   /** OneDrive only: the signed-in account, written by sign-in and shown back. */
   account: z.string().default(''),
+  /** `db` only: which SQL dialect to speak. */
+  engine: dbEngineSchema.default('postgres'),
+  /**
+   * `db` only: the database to connect to. For SQLite this is unused — the file
+   * path lives in `host`, because that is the field that already means "where
+   * the thing is" and a second one would be a second thing to keep in step.
+   */
+  database: z.string().default(''),
+  /**
+   * `db` only: which schema (or, on MySQL and SQLite, which table prefix) holds
+   * this project. One database can carry a manuscript per schema, so a writing
+   * group runs one server rather than one per book.
+   */
+  schema: z.string().default('thepub'),
   /** True when a secret is stored for this profile; never the secret itself. */
   hasSecret: z.boolean().default(false),
   created: z.string(),
@@ -77,9 +107,16 @@ export const connectionFileSchema = z.object({
 })
 export type ConnectionFile = z.infer<typeof connectionFileSchema>
 
-export function defaultPort(protocol: ConnectionProtocol): number {
+export function defaultPort(protocol: ConnectionProtocol, engine: DbEngine = 'postgres'): number {
   if (protocol === 'sftp') return 22
   if (protocol === 'ftp') return 21
+  if (protocol === 'db') {
+    // SQLite is a file and has no port at all. The field is required by the
+    // schema, so it holds a value that is never dialled rather than a zero the
+    // range check would reject.
+    if (engine === 'sqlite') return 1
+    return engine === 'mysql' ? 3306 : 5432
+  }
   // OneDrive is HTTPS to a fixed endpoint and has no port to choose. The field
   // is required by the schema, so it holds the port that is actually used.
   return 443
@@ -105,7 +142,7 @@ export function projectUri(profile: ConnectionProfile, path = ''): string {
 
 /** Take a project URI back apart. Returns null for anything not remote. */
 export function parseProjectUri(uri: string): { profileId: string; path: string } | null {
-  const match = /^(sftp|ftp|onedrive):\/\/([^/]+)(?:\/(.*))?$/i.exec(uri)
+  const match = /^(sftp|ftp|onedrive|db):\/\/([^/]+)(?:\/(.*))?$/i.exec(uri)
   if (!match) return null
   return { profileId: match[2]!, path: match[3] ?? '' }
 }
@@ -117,6 +154,13 @@ export function describeConnection(profile: ConnectionProfile, path = ''): strin
   // address, and `@graph.microsoft.com` would be noise in every window title.
   if (profile.protocol === 'onedrive') {
     return `${profile.account || 'OneDrive'}${where === '/' ? '' : where}`
+  }
+  if (profile.protocol === 'db') {
+    // A SQLite project is a file; the others are a database on a server. Naming
+    // the schema matters either way, because that is what tells two manuscripts
+    // in one database apart.
+    const target = profile.engine === 'sqlite' ? profile.host : `${profile.host}/${profile.database}`
+    return `${target} (${profile.schema})`
   }
   return `${profile.user}@${profile.host}${where}`
 }

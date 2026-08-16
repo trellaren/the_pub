@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AiProviderId, ToolCall, EditProposal } from '@shared/model/ai.js'
 import { PROVIDERS, PROMPT_PRESETS, providerInfo, resolveSettings } from '@shared/model/ai.js'
-import { EMBEDDED_MODELS } from '@shared/model/llm.js'
+import { EMBEDDED_MODELS, isSideloadedModel } from '@shared/model/llm.js'
 import { ModelManager } from './ModelManager.js'
 import { RetrievalManager } from './RetrievalManager.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -238,10 +238,26 @@ function SettingsForm() {
   const keyStatus = useChatStore((store) => store.keyStatus)
   const [keyDraft, setKeyDraft] = useState('')
   const [keyError, setKeyError] = useState<string | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
   const info = providerInfo(settings.provider)
 
   const patch = (changes: Partial<typeof settings>): void => {
     void useChatStore.getState().saveSettings({ ...settings, ...changes })
+  }
+
+  /**
+   * Choosing a model is what starts its download.
+   *
+   * The rule Phase 8 set was that *pressing send* never begins a multi-gigabyte
+   * transfer, and that still holds — this is someone picking a model from a
+   * list of sizes, which is the one moment they have said which one they want.
+   * Leaving them to find a second button in a section further down was the
+   * gap, not a safeguard.
+   */
+  const chooseModel = async (model: string): Promise<void> => {
+    setModelError(null)
+    patch({ model })
+    setModelError(await useChatStore.getState().ensureModel(model))
   }
 
   return (
@@ -261,19 +277,46 @@ function SettingsForm() {
       </Field>
 
       {settings.provider === 'embedded' ? (
-        <Field label="Model">
-          <Select
-            value={settings.model || info.defaultModel}
-            onChange={(event) => patch({ model: event.target.value })}
-            data-testid="embedded-model"
-          >
-            {EMBEDDED_MODELS.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <>
+          <Field label="Model">
+            {/* Variants rather than models, because a variant is the thing that
+                is actually downloaded and run: choosing "the 27B" without
+                saying which quantisation is choosing nothing. */}
+            <Select
+              value={settings.model || info.defaultModel}
+              onChange={(event) => void chooseModel(event.target.value)}
+              data-testid="embedded-model"
+            >
+              {EMBEDDED_MODELS.flatMap((model) =>
+                model.variants.map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {model.name} — {variant.label}
+                  </option>
+                ))
+              )}
+              {isSideloadedModel(settings.model) ? (
+                <option value={settings.model}>{basename(settings.model)}</option>
+              ) : null}
+            </Select>
+          </Field>
+          <div className="mb-2 flex gap-1">
+            <ToolbarButton
+              label="Use a .gguf model file already on this computer"
+              data-testid="choose-model-file"
+              onClick={async () => {
+                const chosen = await useChatStore.getState().chooseModelFile()
+                if (chosen) await chooseModel(chosen)
+              }}
+            >
+              use a file on this computer
+            </ToolbarButton>
+          </div>
+          {modelError ? (
+            <p className="mb-2 text-[11px] text-danger" data-testid="model-error">
+              {modelError}
+            </p>
+          ) : null}
+        </>
       ) : (
         <Field label="Model">
           <TextInput
@@ -490,4 +533,9 @@ function insertIntoDocument(text: string): void {
     type: 'paragraph',
     content: block ? [{ type: 'text', text: block }] : []
   }))).run()
+}
+
+/** The file name of a sideloaded model, on either platform's separator. */
+function basename(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || filePath
 }

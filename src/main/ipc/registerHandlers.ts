@@ -11,7 +11,7 @@ import { ConnectionStore } from '../services/connectionStore.js'
 import { KnownHostsStore } from '../services/knownHostsStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
 import type { TemplateService } from '../services/templateService.js'
-import { createAdapter } from '../vfs/vfsRegistry.js'
+import { createAdapter, inspectDatabase, createDatabaseProject } from '../vfs/vfsRegistry.js'
 import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
@@ -917,6 +917,18 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  handle('llm:chooseFile', async (_payload, event) => {
+    const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
+      title: 'Choose a model file',
+      message: 'Choose a .gguf model file already on this computer',
+      buttonLabel: 'Use this model',
+      properties: ['openFile'],
+      filters: [{ name: 'Model weights', extensions: ['gguf'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return { path: result.filePaths[0]! }
+  })
+
   handle('llm:remove', async ({ variantId }) => {
     // Stop it before deleting the file underneath it.
     if (engine.status().model === variantId) await engine.stop()
@@ -1056,7 +1068,46 @@ export function registerHandlers(context: HandlerContext): void {
   handle('connections:test', async ({ id }) => {
     const profile = connections.get(id)
     if (!profile) {
-      return { ok: false, message: 'That server is no longer saved.', entries: 0, hostKey: null }
+      return { ok: false, message: 'That server is no longer saved.', entries: 0, hostKey: null, needsCreate: false }
+    }
+
+    /*
+     * A database asks a different question.
+     *
+     * "Reachable, but holding no project" is not a failure — the server is fine
+     * and the tables are simply not there — so it comes back as an offer to
+     * create them rather than as an error the writer has to interpret.
+     */
+    if (profile.protocol === 'db') {
+      try {
+        const { exists, tooNew } = await inspectDatabase(profile.id)
+        if (tooNew) {
+          return {
+            ok: false,
+            message: 'That database holds a project written by a newer version of The Pub.',
+            entries: 0,
+            hostKey: null,
+            needsCreate: false
+          }
+        }
+        return {
+          ok: true,
+          message: exists
+            ? `Connected. A project is already here in the "${profile.schema}" schema.`
+            : `Connected. There is no project here yet — one can be created in the "${profile.schema}" schema.`,
+          entries: 0,
+          hostKey: null,
+          needsCreate: !exists
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+          entries: 0,
+          hostKey: null,
+          needsCreate: false
+        }
+      }
     }
 
     /*
@@ -1095,7 +1146,7 @@ export function registerHandlers(context: HandlerContext): void {
       adapter = createAdapter(projectUri(profile), { hostKeys: watching })
       const entries = await adapter.list('')
       const where = profile.protocol === 'onedrive' ? profile.account || 'OneDrive' : profile.host
-      return { ok: true, message: `Connected to ${where}.`, entries: entries.length, hostKey: null }
+      return { ok: true, message: `Connected to ${where}.`, entries: entries.length, hostKey: null, needsCreate: false }
     } catch (error) {
       const pending = refused.at(-1) ?? null
       if (pending) pendingHostKeys.set(id, pending)
@@ -1106,7 +1157,8 @@ export function registerHandlers(context: HandlerContext): void {
         entries: 0,
         hostKey: pending
           ? { ...pending.presented, verdict: pending.verdict, previous: pending.previous }
-          : null
+          : null,
+        needsCreate: false
       }
     } finally {
       await adapter?.dispose().catch(() => {})
@@ -1122,6 +1174,15 @@ export function registerHandlers(context: HandlerContext): void {
    * arbitrary trust: a dialog left open while the server changed underneath it
    * commits nothing, because the fingerprint no longer matches.
    */
+  handle('connections:createDatabase', async ({ id }) => {
+    try {
+      await createDatabaseProject(id)
+      return { ok: true, message: 'The project tables have been created.' }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
   handle('connections:trustHostKey', ({ id, fingerprint }) => {
     const pending = pendingHostKeys.get(id)
     if (!pending) {

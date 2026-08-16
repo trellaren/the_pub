@@ -25,10 +25,10 @@ describe('migrate', () => {
   })
 
   it('only the kinds whose formats have actually changed carry steps', () => {
-    // `document`, `manifest` and `chats` are the only formats to have changed
-    // since this machinery shipped. Any *other* kind showing up with a step
-    // here is a signal, not a typo.
-    const changed = new Set(['document', 'manifest', 'chats'])
+    // `document`, `manifest`, `chats` and `connections` are the only formats to
+    // have changed since this machinery shipped. Any *other* kind showing up
+    // with a step here is a signal, not a typo.
+    const changed = new Set(['document', 'manifest', 'chats', 'connections'])
     for (const [kind, steps] of Object.entries(MIGRATIONS)) {
       if (changed.has(kind)) continue
       expect(steps).toEqual([])
@@ -74,5 +74,20 @@ describe('migrate', () => {
   it('is unfazed by a non-object payload', () => {
     expect(migrate('document', null)).toEqual({ value: null, migrated: false, tooNew: false })
     expect(migrate('document', 'not json')).toEqual({ value: 'not json', migrated: false, tooNew: false })
+  })
+})
+
+describe('the connections file', () => {
+  it('carries a v1 file forward, and refuses one from a newer build', () => {
+    // The step is a no-op, and the version moving is the whole of its value: a
+    // build that predates the `db` protocol fails the enum on a file naming
+    // one, and `ConnectionStore.read` turns an unparseable file into "you have
+    // no saved servers" — losing every profile, not only the new one.
+    const forward = migrate('connections', { formatVersion: 1, connections: [{ id: 'a' }] })
+    expect(forward.tooNew).toBe(false)
+    expect(forward.migrated).toBe(true)
+
+    const future = migrate('connections', { formatVersion: 99, connections: [] })
+    expect(future.tooNew).toBe(true)
   })
 })

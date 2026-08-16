@@ -287,6 +287,9 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
       <ToolbarButton label="Add note" disabled={editor.state.selection.empty} onClick={() => void addNote()}>
         🗨
       </ToolbarButton>
+      <ToolbarButton label="Insert footnote" onClick={() => editor.chain().focus().insertFootnote().run()}>
+        [n]
+      </ToolbarButton>
       <Select
         value=""
         title="Insert cross-reference"

@@ -22,6 +22,7 @@ import { FindHighlight } from './extensions/findHighlight.js'
 import { BlockIds } from './extensions/blockIds.js'
 import { Anchors } from './extensions/anchors.js'
 import { Field } from './extensions/field.js'
+import { Footnote } from './extensions/footnote.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -77,7 +78,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       FindHighlight,
       BlockIds,
       Anchors,
-      Field
+      Field,
+      Footnote
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any

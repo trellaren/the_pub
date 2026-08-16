@@ -16,7 +16,15 @@ export interface TextBlock {
  * word counts, search snippets and mention positions are all measured in those
  * offsets.
  */
-export const INLINE_TYPES = new Set(['text', 'hardBreak', 'image', 'characterMention', 'mention', 'field'])
+export const INLINE_TYPES = new Set([
+  'text',
+  'hardBreak',
+  'image',
+  'characterMention',
+  'mention',
+  'field',
+  'footnote'
+])
 
 function isInline(node: PmNode): boolean {
   return INLINE_TYPES.has(node.type)
@@ -25,6 +33,12 @@ function isInline(node: PmNode): boolean {
 function nodeText(node: PmNode): string {
   if (node.type === 'text') return node.text ?? ''
   if (node.type === 'hardBreak') return '\n'
+  // A footnote's marker is part of the sentence; its own content is not — the
+  // opposite of a field, whose cached text *is* meant to read inline. Leaving
+  // it out here is what keeps word counts, search offsets and mention
+  // scanning measuring the prose a reader sees, not the asides attached to it.
+  // `pm/footnotes.ts` reads a footnote's own text directly, bypassing this.
+  if (node.type === 'footnote') return ''
   const children = node.content
   if (!children || children.length === 0) return ''
   // A textblock's children are all inline, so they concatenate directly. Anything
@@ -84,6 +98,7 @@ function walk(
     visit({ node, text: '\n', start: offset, end: offset + 1, parent, index })
     return offset + 1
   }
+  if (node.type === 'footnote') return offset
   const children = node.content
   if (!children || children.length === 0) return offset
   const separatorLength = children.every(isInline) ? 0 : 1

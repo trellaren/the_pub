@@ -22,7 +22,9 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // older build would otherwise treat any v1 document as already current
     // and silently drop `field` nodes it re-saves, which is the exact loss
     // Phase 0's version check exists to prevent.
-    { from: 1, to: 2, up: (raw) => raw }
+    { from: 1, to: 2, up: (raw) => raw },
+    // Phase 3b adds the `footnote` node type; same reasoning as the step above.
+    { from: 2, to: 3, up: (raw) => raw }
   ],
   manifest: [],
   manuscript: [],

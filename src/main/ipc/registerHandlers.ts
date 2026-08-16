@@ -210,9 +210,13 @@ export function registerHandlers(context: HandlerContext): void {
       onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
       onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
       resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
-      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status)
+      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status),
+      author: () => appState.author()
     })
     sessions.set(ownerId, session)
+    // Put ourselves in the project's registry on open, so a collaborator sees a
+    // name against our comments rather than an id.
+    await session.reviews.registerAuthor(appState.author()).catch(() => {})
     appState.addRecent(uri, session.manifest.name)
     for (const window of windows.windowsForSession(ownerId)) {
       window.setTitle(`${session.manifest.name} — The Pub`)
@@ -632,6 +636,76 @@ export function registerHandlers(context: HandlerContext): void {
   handle('notes:delete', async ({ docId, noteId }, event) => {
     await requireSession(event).notes.remove(docId, noteId)
     noteChanged(event, docId)
+    return { ok: true as const }
+  })
+
+  function reviewChanged(event: IpcMainInvokeEvent, docId: string): void {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'review:changed', { docId })
+  }
+
+  handle('review:list', async ({ docId }, event) => {
+    const session = requireSession(event)
+    // Always re-read: a collaborator's file arrives by sync, not by anything
+    // this window did, so a cache trusted across calls would show yesterday's
+    // discussion.
+    session.reviews.invalidate(docId)
+    return session.reviews.list(docId)
+  })
+  handle('review:createThread', async ({ docId, anchorId, anchorText, blockIndex }, event) => {
+    const thread = await requireSession(event).reviews.createThread(docId, anchorId, anchorText, blockIndex)
+    reviewChanged(event, docId)
+    return thread
+  })
+  handle('review:saveThread', async ({ docId, thread }, event) => {
+    await requireSession(event).reviews.patchThread(docId, thread.id, thread)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:setStatus', async ({ docId, threadId, status }, event) => {
+    await requireSession(event).reviews.setStatus(docId, threadId, status)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:deleteThread', async ({ docId, threadId }, event) => {
+    await requireSession(event).reviews.removeThread(docId, threadId)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:reply', async ({ docId, threadId, text }, event) => {
+    const reply = await requireSession(event).reviews.reply(docId, threadId, text)
+    reviewChanged(event, docId)
+    return reply
+  })
+  handle('review:saveReply', async ({ docId, reply }, event) => {
+    await requireSession(event).reviews.patchReply(docId, reply.id, reply)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:deleteReply', async ({ docId, replyId }, event) => {
+    await requireSession(event).reviews.removeReply(docId, replyId)
+    reviewChanged(event, docId)
+    return { ok: true as const }
+  })
+  handle('review:authors', async (_payload, event) => {
+    const session = requireSession(event)
+    session.reviews.invalidateAuthors()
+    return session.reviews.listAuthors()
+  })
+  handle('review:me', () => appState.author())
+  handle('review:setMe', async (changes, event) => {
+    const profile = appState.setAuthor(changes).author
+    const me = appState.author()
+    // Record the new name in the project so collaborators see it, if one is
+    // open — naming yourself from the welcome screen is perfectly ordinary.
+    const ownerId = windows.ownerWindowId(event.sender)
+    const session = ownerId === null ? undefined : sessions.get(ownerId)
+    await session?.reviews.registerAuthor(me).catch(() => {})
+    return { ...me, name: profile.name }
+  })
+  handle('review:presence', ({ docId }, event) => requireSession(event).presence.list(docId))
+  handle('review:enter', ({ docId }, event) => {
+    requireSession(event).presence.enter(docId)
     return { ok: true as const }
   })
 

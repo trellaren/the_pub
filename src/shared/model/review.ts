@@ -78,9 +78,10 @@ export const EMPTY_REVIEW_FILE: ReviewFile = {
 }
 
 /** A thread with everyone's replies gathered onto it, oldest first. */
-export interface AssembledThread extends ReviewThread {
-  replies: ReviewReply[]
-}
+export const assembledThreadSchema = reviewThreadSchema.extend({
+  replies: z.array(reviewReplySchema).default(() => [])
+})
+export type AssembledThread = z.infer<typeof assembledThreadSchema>
 
 /**
  * Gather every author's file for one document into threads.

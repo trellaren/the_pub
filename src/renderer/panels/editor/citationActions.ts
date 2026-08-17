@@ -70,19 +70,21 @@ export function insertCitation(
 
 /**
  * Cite a source from a highlight made inside one of its research
- * attachments (a PDF, per `docs/phase-11-plan.md` Part 2) — the join that
- * turns the research library into a library rather than a folder.
+ * attachments — a PDF or a web capture, per `docs/phase-11-plan.md` Part 2 —
+ * the join that turns the research library into a library rather than a
+ * folder.
  *
  * Reuses `insertCitation` rather than growing separate insertion machinery:
- * the only thing a PDF highlight adds is a page number for the locator and,
- * optionally, the quoted text pasted as a block quote immediately above the
- * citation, in its own paragraph, so the two land as one thought in the
- * prose rather than a citation with a quote awkwardly inside its locator.
+ * the only thing an attachment highlight adds is a locator (a PDF's page
+ * number; nothing for a capture, which has no pages) and, optionally, the
+ * quoted text pasted as a block quote immediately above the citation, in its
+ * own paragraph, so the two land as one thought in the prose rather than a
+ * citation with a quote awkwardly inside its locator.
  */
 export function citeFromPdfHighlight(
   editor: Editor,
   sourceId: string,
-  highlight: { quote: string; page: number },
+  highlight: { quote: string; page?: number },
   placement: 'inline' | 'note',
   opts: { includeQuote?: boolean } = {}
 ): void {
@@ -96,7 +98,7 @@ export function citeFromPdfHighlight(
       })
       .run()
   }
-  insertCitation(editor, [sourceId], { locator: String(highlight.page) }, placement)
+  insertCitation(editor, [sourceId], { locator: highlight.page ? String(highlight.page) : undefined }, placement)
 }
 
 /**

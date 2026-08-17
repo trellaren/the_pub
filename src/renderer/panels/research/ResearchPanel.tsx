@@ -11,6 +11,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { revealBlock } from '../editor/editorActions.js'
 import { citeFromPdfHighlight, citationPlacement, refreshCitations } from '../editor/citationActions.js'
 import { PdfViewer } from './PdfViewer.js'
+import { CaptureViewer } from './CaptureViewer.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, TextInput, Select } from '@renderer/ui/primitives.js'
 
 const NO_CATEGORIES: HighlightCategoryDef[] = []
@@ -195,11 +196,14 @@ function HighlightCard({
 }
 
 /**
- * Highlights made inside research attachments (currently PDFs), grouped by
- * source and searchable over `quote`/`note` — the Manuscript tab's UX,
- * against `pdfHighlightService` instead of `highlightService`. Clicking a
- * highlight opens its PDF at the right page; the reader's own "Cite" action
- * inserts a citation into whichever document last had focus.
+ * Highlights made inside research attachments — PDFs and web captures alike
+ * — grouped by source and searchable over `quote`/`note` — the Manuscript
+ * tab's UX, against `pdfHighlightService` instead of `highlightService`.
+ * Clicking a highlight opens its attachment (a PDF at the right page, a
+ * capture just opens); the reader's own "Cite" action inserts a citation
+ * into whichever document last had focus. One unified list rather than a
+ * PDF list and a capture list — a highlight is a highlight regardless of
+ * which kind of attachment it lives in.
  */
 function SourcesTab({ docId }: { docId: string | null }) {
   const sources = useSourceStore((store) => store.sources)
@@ -212,14 +216,18 @@ function SourcesTab({ docId }: { docId: string | null }) {
     (store) => store.project?.manifest.settings.citationStyleId ?? 'chicago-author-date'
   )
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState<{ sourceId: string; attachmentId: string; page?: number } | null>(null)
+  const [open, setOpen] = useState<{ sourceId: string; attachmentId: string; kind: 'pdf' | 'capture'; page?: number } | null>(
+    null
+  )
 
   useEffect(() => {
     void loadSources()
   }, [loadSources])
 
-  const pdfSources = sources.filter((source) =>
-    (attachmentsBySource[source.id] ?? []).some((attachment) => attachment.kind === 'pdf')
+  const highlightableSources = sources.filter((source) =>
+    (attachmentsBySource[source.id] ?? []).some(
+      (attachment) => attachment.kind === 'pdf' || attachment.kind === 'capture'
+    )
   )
 
   useEffect(() => {
@@ -227,20 +235,20 @@ function SourcesTab({ docId }: { docId: string | null }) {
   }, [sources, loadAttachments])
 
   useEffect(() => {
-    for (const source of pdfSources) {
+    for (const source of highlightableSources) {
       for (const attachment of attachmentsBySource[source.id] ?? []) {
-        if (attachment.kind === 'pdf') void loadHighlights(source.id, attachment.id)
+        void loadHighlights(source.id, attachment.id)
       }
     }
-    // pdfSources is derived from attachmentsBySource each render; only the
-    // underlying data need be watched, not the derived array's identity.
+    // highlightableSources is derived from attachmentsBySource each render;
+    // only the underlying data need be watched, not the derived array's identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachmentsBySource, loadHighlights])
 
   const rows: { source: CslItemLike; attachment: ResearchAttachment; highlight: PdfHighlight }[] = []
-  for (const source of pdfSources) {
+  for (const source of highlightableSources) {
     for (const attachment of attachmentsBySource[source.id] ?? []) {
-      if (attachment.kind !== 'pdf') continue
+      if (attachment.kind !== 'pdf' && attachment.kind !== 'capture') continue
       const highlights = highlightsByAttachment[`${source.id}/${attachment.id}`] ?? []
       for (const highlight of highlights) {
         rows.push({ source, attachment, highlight })
@@ -274,12 +282,20 @@ function SourcesTab({ docId }: { docId: string | null }) {
             ← Back
           </ToolbarButton>
         </div>
-        <PdfViewer
-          sourceId={open.sourceId}
-          attachmentId={open.attachmentId}
-          initialPage={open.page}
-          onCite={(highlight) => void cite(open.sourceId, highlight)}
-        />
+        {open.kind === 'pdf' ? (
+          <PdfViewer
+            sourceId={open.sourceId}
+            attachmentId={open.attachmentId}
+            initialPage={open.page}
+            onCite={(highlight) => void cite(open.sourceId, highlight)}
+          />
+        ) : (
+          <CaptureViewer
+            sourceId={open.sourceId}
+            attachmentId={open.attachmentId}
+            onCite={(highlight) => void cite(open.sourceId, highlight)}
+          />
+        )}
       </div>
     )
   }
@@ -297,8 +313,8 @@ function SourcesTab({ docId }: { docId: string | null }) {
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
           <EmptyState
-            title="No PDF highlights yet"
-            hint="Attach a PDF to a source in the Sources panel, open it, and select text to highlight."
+            title="No highlights yet"
+            hint="Attach a PDF or web capture to a source in the Sources panel, open it, and select text to highlight."
           />
         ) : (
           <>
@@ -306,7 +322,7 @@ function SourcesTab({ docId }: { docId: string | null }) {
               <SourceHighlightCard
                 key={row.highlight.id}
                 row={row}
-                onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, page: row.highlight.page })}
+                onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, kind: row.attachment.kind as 'pdf' | 'capture', page: row.highlight.page })}
                 onCite={() => void cite(row.source.id, row.highlight)}
               />
             ))}
@@ -317,7 +333,7 @@ function SourcesTab({ docId }: { docId: string | null }) {
                   <SourceHighlightCard
                     key={row.highlight.id}
                     row={row}
-                    onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, page: row.highlight.page })}
+                    onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, kind: row.attachment.kind as 'pdf' | 'capture', page: row.highlight.page })}
                     onCite={() => void cite(row.source.id, row.highlight)}
                   />
                 ))}

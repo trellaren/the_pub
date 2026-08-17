@@ -40,27 +40,36 @@ export const captureSchema = z.object({
 export type Capture = z.infer<typeof captureSchema>
 
 /**
- * A highlight made inside a research attachment (currently PDFs only).
+ * A highlight made inside a research attachment — a PDF or a web capture.
  * Mirrors `Highlight` (`highlight.ts`) for the same reasons, anchored by
- * quoted text first and page/rects second — see `pdfAnchor.ts`.
+ * quoted text first: page/rects second for PDFs (`pdfAnchor.ts`), a text
+ * offset second for captures (`captureAnchor.ts`) — a capture has no page or
+ * coordinate system, only its stored plain text, so `offset` is the whole of
+ * its recovery hint.
  */
 export const pdfHighlightSchema = z.object({
   id: z.string(),
   sourceId: z.string(),
   attachmentId: z.string(),
+  kind: z.enum(['pdf', 'capture']).default('pdf'),
   color: z.string(),
   categoryId: z.string().default(''),
   note: z.string().default(''),
   authorId: z.string().default(''),
   quote: z.string(),
-  page: z.number().int(),
+  /** PDF only. Unused (0) for a capture highlight. */
+  page: z.number().int().default(0),
   /** `[x0, y0, x1, y1]` in unrotated PDF page-space, one per selected rect. Recovery hint only. */
   rects: z.array(z.tuple([z.number(), z.number(), z.number(), z.number()])).default(() => []),
+  /** Capture only: character offset of `quote` in the capture's stored text. `-1` when unknown. */
+  offset: z.number().int().default(-1),
   orphaned: z.boolean().default(false),
   created: z.string(),
   modified: z.string()
 })
 export type PdfHighlight = z.infer<typeof pdfHighlightSchema>
+/** Same shape, read where the code means "a highlight in any research attachment" rather than "a PDF one". */
+export type AttachmentHighlight = PdfHighlight
 
 export const pdfHighlightFileSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.pdfHighlights),

@@ -206,7 +206,7 @@ interface PubTestHook {
   citeFromPdfHighlight: (
     editor: unknown,
     sourceId: string,
-    highlight: { quote: string; page: number },
+    highlight: { quote: string; page?: number },
     placement: 'inline' | 'note',
     opts?: { includeQuote?: boolean }
   ) => void

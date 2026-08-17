@@ -144,6 +144,103 @@ test('a PDF attachment can be highlighted and cited, with the citation carrying 
   void docId
 })
 
+test('a web capture can be highlighted and cited, with no page locator', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
+  const source = await createSource('A Captured Page')
+
+  const capture = { url: 'https://example.com/article', title: 'Example Article', text: 'The quick brown fox jumps over the lazy dog.', accessed: '2026-01-01' }
+  const attachment: ResearchAttachment = await harness.page.evaluate(
+    ({ sourceId, capture: cap }) =>
+      window.pub.invoke('research:attachments:addCapture', { sourceId, capture: cap, label: cap.url }),
+    { sourceId: source.id, capture }
+  )
+  expect(attachment.kind).toBe('capture')
+
+  // The capture's own file exists under .thepub/research/, never inside the
+  // project's own file tree — mirrors the PDF attachment's storage.
+  const capturePath = path.join(harness.projectDir, '.thepub', 'research', source.id, `${attachment.id}.capture.json`)
+  await expect.poll(async () => fs.stat(capturePath).then(() => true).catch(() => false)).toBe(true)
+
+  const quote = 'quick brown fox'
+  const highlight = await harness.page.evaluate(
+    ({ sourceId, attachmentId, quote: q, offset }) =>
+      window.pub.invoke('research:highlights:save', {
+        sourceId,
+        attachmentId,
+        highlight: {
+          id: '',
+          sourceId,
+          attachmentId,
+          kind: 'capture',
+          color: '#ffef8a',
+          categoryId: '',
+          note: '',
+          authorId: '',
+          quote: q,
+          page: 0,
+          rects: [],
+          offset,
+          orphaned: false,
+          created: new Date().toISOString(),
+          modified: new Date().toISOString()
+        }
+      }),
+    { sourceId: source.id, attachmentId: attachment.id, quote, offset: capture.text.indexOf(quote) }
+  )
+  expect(highlight.kind).toBe('capture')
+  expect(highlight.offset).toBe(capture.text.indexOf(quote))
+
+  await waitFor(async () => {
+    const file = await readJson<PdfHighlightFile>(attachmentHighlightsFile(source.id, attachment.id)).catch(
+      () => null
+    )
+    return file !== null && file.highlights.length === 1
+  }, 'the capture highlight to reach its sidecar file')
+
+  const storeState = await harness.page.evaluate(async ({ sourceId, attachmentId }) => {
+    await window.__pub.research.getState().loadAttachments(sourceId)
+    await window.__pub.research.getState().loadHighlights(sourceId, attachmentId)
+    const state = window.__pub.research.getState()
+    return {
+      attachments: state.attachmentsBySource[sourceId],
+      highlights: state.highlightsByAttachment[`${sourceId}/${attachmentId}`]
+    }
+  }, { sourceId: source.id, attachmentId: attachment.id })
+  expect(storeState.attachments).toHaveLength(1)
+  expect(storeState.highlights).toHaveLength(1)
+  expect(storeState.highlights![0]!.kind).toBe('capture')
+
+  // Cited via `citeFromPdfHighlight`, the exact function the Sources tab's
+  // "Cite" button calls — a capture highlight has no page, so the citation
+  // carries no locator (unlike the PDF test above, which asserts `"locator":"1"`).
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror').first()).toBeVisible()
+  await harness.page.evaluate(
+    async ({ sourceId, quote: q }) => {
+      const editor = window.__pub.getEditor(window.__pub.documents.getState().activeDocId!)!
+      const placement = await window.__pub.citationPlacement('chicago-author-date')
+      window.__pub.citeFromPdfHighlight(editor, sourceId, { quote: q }, placement, { includeQuote: true })
+    },
+    { sourceId: source.id, quote }
+  )
+
+  await waitFor(async () => {
+    const doc = await savedDocument(`chapter-01.pubdoc`).catch(() => null)
+    if (!doc) return false
+    return JSON.stringify(doc).includes('"kind":"citation"')
+  }, 'the citation field to be saved into the document')
+
+  const doc = await savedDocument('chapter-01.pubdoc')
+  const raw = JSON.stringify(doc)
+  expect(raw).toContain('"kind":"citation"')
+  expect(raw).toContain(`"sourceIds":["${source.id}"]`)
+  expect(raw).toContain('"locator":null')
+  expect(raw).toContain('"type":"blockquote"')
+
+  void docId
+})
+
 test('the Research panel opens without crashing the renderer', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

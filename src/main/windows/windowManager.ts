@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, shell, type WebContents } from 'electron'
+import { BrowserWindow, Menu, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { IpcEventChannel, IpcEvent } from '../../shared/ipc/contract.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,10 +32,21 @@ interface WindowRecord {
 export class WindowManager {
   private records = new Map<number, WindowRecord>()
   private onCreateProject?: (window: BrowserWindow) => void
+  private onSpellcheckAddWord?: (ownerId: number, word: string) => void
   private baseUrl: string | null = null
 
   setProjectWindowHandler(handler: (window: BrowserWindow) => void): void {
     this.onCreateProject = handler
+  }
+
+  /**
+   * Called when someone chooses "Add to Dictionary" from the native
+   * right-click menu, so the word is written into the project's own
+   * `.thepub/dictionary.json` rather than only into this run's in-memory
+   * Electron session.
+   */
+  setSpellcheckAddWordHandler(handler: (ownerId: number, word: string) => void): void {
+    this.onSpellcheckAddWord = handler
   }
 
   /** Where the renderer is served from: the vite dev server, or the loopback server when packaged. */
@@ -112,6 +123,25 @@ export class WindowManager {
       }
       if (/^https?:/.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
+    })
+
+    // The native right-click spellcheck menu: Electron hands us the misspelled
+    // word and Chromium's own suggestions on `params`, so this is wiring, not
+    // a spellchecker of our own.
+    contents.on('context-menu', (_event, params) => {
+      if (!params.misspelledWord) return
+      const template: MenuItemConstructorOptions[] = params.dictionarySuggestions.map(
+        (suggestion) => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })
+      )
+      if (template.length > 0) template.push({ type: 'separator' })
+      template.push({
+        label: 'Add to Dictionary',
+        click: () => {
+          contents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+          this.onSpellcheckAddWord?.(ownerId, params.misspelledWord)
+        }
+      })
+      Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(contents) ?? undefined })
     })
 
     contents.on('will-navigate', (event, url) => {

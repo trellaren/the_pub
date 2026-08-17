@@ -64,7 +64,12 @@ export const Mention = Mark.create<MentionOptions>({
     // The colour comes from the generated stylesheet keyed on the id, not from
     // an inline style, so changing a record's colour restyles every open
     // document at once — and reaches popout windows, which share the sheet.
-    return ['span', mergeAttributes(HTMLAttributes, { class: 'pub-mention' }), 0]
+    return [
+      'span',
+      mergeAttributes(HTMLAttributes, { class: 'pub-mention' }),
+      ['span', { class: 'pub-sr-only', contenteditable: 'false' }, 'mention: '],
+      ['span', {}, 0]
+    ]
   },
 
   addCommands() {

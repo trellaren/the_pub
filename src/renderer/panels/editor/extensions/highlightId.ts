@@ -40,6 +40,18 @@ export const HighlightId = Highlight.extend({
     }
   },
 
+  // A highlight is colour alone otherwise — the category itself lives in the
+  // Research sidecar, not on the mark, so the label a screen reader gets is
+  // generic rather than the category name; still better than silent prose.
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'mark',
+      HTMLAttributes,
+      ['span', { class: 'pub-sr-only', contenteditable: 'false' }, 'highlight: '],
+      ['span', {}, 0]
+    ]
+  },
+
   addCommands() {
     return {
       ...this.parent?.(),

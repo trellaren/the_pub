@@ -179,6 +179,23 @@ export function PanelHeader({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * An `aria-live="polite"` announcement that carries no visual weight.
+ *
+ * For things that change without being touched — save state, a streamed reply
+ * landing, a result count — where the sighted UI already shows the change and
+ * a screen reader would otherwise never hear it. Always polite: nothing in
+ * this app is urgent enough to interrupt what someone is doing, which is what
+ * `assertive` is for.
+ */
+export function LiveRegion({ text, testId }: { text: string; testId?: string }) {
+  return (
+    <div className="pub-sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid={testId}>
+      {text}
+    </div>
+  )
+}
+
 export function EmptyState({
   title,
   hint,

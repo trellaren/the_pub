@@ -5,7 +5,14 @@ import { invoke, on } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { openLocation } from '@renderer/lib/openLocation.js'
 import { Snippet } from '@renderer/ui/Snippet.js'
-import { PanelShell, PanelHeader, EmptyState, TextInput, ToolbarButton } from '@renderer/ui/primitives.js'
+import {
+  PanelShell,
+  PanelHeader,
+  EmptyState,
+  LiveRegion,
+  TextInput,
+  ToolbarButton
+} from '@renderer/ui/primitives.js'
 
 /** Project-wide search over document text and filenames. */
 export function SearchPanel() {
@@ -16,6 +23,7 @@ export function SearchPanel() {
   const [hits, setHits] = useState<SearchHit[]>([])
   const [progress, setProgress] = useState<IndexProgress | null>(null)
   const [searching, setSearching] = useState(false)
+  const [resultAnnouncement, setResultAnnouncement] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const requestId = useRef(0)
 
@@ -31,6 +39,7 @@ export function SearchPanel() {
   useEffect(() => {
     if (!term.trim()) {
       setHits([])
+      setResultAnnouncement('')
       return
     }
     setSearching(true)
@@ -46,6 +55,7 @@ export function SearchPanel() {
       if (id === requestId.current) {
         setHits(results)
         setSearching(false)
+        setResultAnnouncement(`${results.length} result${results.length === 1 ? '' : 's'} for ${term}`)
       }
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
@@ -98,6 +108,8 @@ export function SearchPanel() {
           ab
         </ToolbarButton>
       </div>
+
+      <LiveRegion text={resultAnnouncement} testId="search-result-live" />
 
       {progress?.indexing ? (
         <div className="border-b border-border px-2 py-1 text-[11px] text-faint">

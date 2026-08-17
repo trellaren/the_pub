@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AssembledThread, ReviewReply } from '@shared/model/review.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { extractPlainText } from '@shared/pm/extractText.js'
@@ -7,7 +7,14 @@ import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { describeAuthor } from '@shared/model/author.js'
 import { revealBlock, setSuggesting, resolveSuggestion } from '../editor/editorActions.js'
-import { PanelShell, PanelHeader, EmptyState, ToolbarButton, Checkbox } from '@renderer/ui/primitives.js'
+import {
+  PanelShell,
+  PanelHeader,
+  EmptyState,
+  LiveRegion,
+  ToolbarButton,
+  Checkbox
+} from '@renderer/ui/primitives.js'
 
 /**
  * The review pane: everyone's comments on the active document, the suggestions
@@ -26,6 +33,8 @@ export function ReviewPanel() {
   const suggesting = useReviewStore((store) => store.suggesting)
   const me = useReviewStore((store) => store.me)
   const authors = useReviewStore((store) => store.authors)
+  const [arrivalAnnouncement, setArrivalAnnouncement] = useState('')
+  const knownIds = useRef<Set<string> | null>(null)
 
   useEffect(() => {
     void useReviewStore.getState().loadMe()
@@ -35,6 +44,27 @@ export function ReviewPanel() {
     if (!docId) return
     void useReviewStore.getState().loadForDoc(docId)
     return useReviewStore.getState().watch(docId)
+  }, [docId])
+
+  // Announced only for comments and replies that landed without this reader
+  // typing them — `knownIds` resets to null on doc switch so the first load
+  // is silent, and only genuinely new ids after that speak up.
+  useEffect(() => {
+    const ids = new Set<string>()
+    for (const thread of threads) {
+      ids.add(thread.id)
+      for (const reply of thread.replies) ids.add(reply.id)
+    }
+    if (knownIds.current) {
+      const arrivedFromOthers = [...ids].filter((id) => !knownIds.current!.has(id))
+      if (arrivedFromOthers.length > 0) setArrivalAnnouncement('New comment activity')
+    }
+    knownIds.current = ids
+  }, [threads])
+
+  useEffect(() => {
+    knownIds.current = null
+    setArrivalAnnouncement('')
   }, [docId])
 
   if (!docId) {
@@ -52,6 +82,7 @@ export function ReviewPanel() {
   return (
     <PanelShell>
       <PanelHeader>Review</PanelHeader>
+      <LiveRegion text={arrivalAnnouncement} testId="review-arrival-live" />
       <div className="flex flex-col gap-1 border-b border-border px-2 py-1">
         <Checkbox
           label="Suggest changes instead of making them"

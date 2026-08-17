@@ -279,6 +279,8 @@ export function FileTree() {
 
       <div
         ref={treeRef}
+        role="tree"
+        aria-label={`${project.manifest.name} files`}
         className="flex-1 overflow-auto py-1"
         data-testid="file-tree"
         onContextMenu={(event) => {
@@ -391,6 +393,7 @@ function TreeRow({
         aria-label={node.name}
         aria-expanded={node.kind === 'dir' ? expanded : undefined}
         aria-selected={selected}
+        aria-level={node.depth + 1}
         tabIndex={0}
         onClick={() => {
           onSelect()

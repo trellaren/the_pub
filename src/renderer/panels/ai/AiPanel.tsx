@@ -11,6 +11,7 @@ import {
   PanelShell,
   PanelHeader,
   EmptyState,
+  LiveRegion,
   ToolbarButton,
   TextInput,
   TextArea,
@@ -40,7 +41,9 @@ export function AiPanel() {
   const [draft, setDraft] = useState('')
   const [useSelection, setUseSelection] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
+  const [replyAnnouncement, setReplyAnnouncement] = useState('')
   const threadEnd = useRef<HTMLDivElement>(null)
+  const wasStreaming = useRef(false)
 
   const chat = chats.find((candidate) => candidate.id === activeChatId) ?? null
   const resolved = useMemo(
@@ -58,6 +61,13 @@ export function AiPanel() {
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ block: 'end' })
   }, [chat?.messages.length, streaming?.text])
+
+  // Announced once when the reply finishes, not per token — a live region
+  // updated on every streamed chunk would read the whole reply aloud twice.
+  useEffect(() => {
+    if (wasStreaming.current && !streaming) setReplyAnnouncement('Reply received')
+    wasStreaming.current = Boolean(streaming)
+  }, [streaming])
 
   const send = async (prompt: string): Promise<void> => {
     if (!prompt.trim() || streaming) return
@@ -111,6 +121,8 @@ export function AiPanel() {
           ⚙
         </ToolbarButton>
       </PanelHeader>
+
+      <LiveRegion text={replyAnnouncement} testId="ai-reply-live" />
 
       {showSettings && settings ? <SettingsForm /> : null}
 

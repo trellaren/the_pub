@@ -4,7 +4,7 @@ import type { IDockviewPanelProps } from 'dockview-react'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { registerCommand } from '@renderer/commands/registry.js'
-import { PanelShell, EmptyState, cx } from '@renderer/ui/primitives.js'
+import { PanelShell, EmptyState, LiveRegion, cx } from '@renderer/ui/primitives.js'
 import { RichToolbar } from './RichToolbar.js'
 import { FindReplaceBar } from './FindReplaceBar.js'
 import { EndnotesRegion } from './EndnotesRegion.js'
@@ -243,6 +243,15 @@ function StatusBar({ docId }: { docId: string }) {
   const editor = getEditor(docId)
   const goals = useProjectStore((store) => store.project?.manifest.goals)
   const todayStat = useStatsStore((store) => store.days.find((day) => day.date === localDayKey(new Date())))
+  const [savedAnnouncement, setSavedAnnouncement] = useState('')
+  const wasSaving = useRef(false)
+
+  // Announced once per save, on the saving->saved transition — not on every
+  // keystroke's dirty flag, which would be read aloud constantly.
+  useEffect(() => {
+    if (wasSaving.current && !state?.saving) setSavedAnnouncement(`Saved at ${new Date().toLocaleTimeString()}`)
+    wasSaving.current = Boolean(state?.saving)
+  }, [state?.saving])
 
   useEffect(() => {
     if (!editor) return
@@ -258,6 +267,7 @@ function StatusBar({ docId }: { docId: string }) {
 
   return (
     <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-surface px-3 text-[11px] text-faint">
+      <LiveRegion text={savedAnnouncement} testId="save-state-live" />
       <span className="truncate" title={state.path}>
         {state.path}
       </span>

@@ -97,6 +97,11 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
 
   function attach(loaded: { doc: PubDocument; path: string; mtime: number }): string {
     const { doc, path, mtime } = loaded
+    // Document -> project -> OS default, in that order — the same fallback
+    // `createEditor`'s `lang` attribute uses, so the spellchecker never
+    // disagrees with what the document itself claims to be written in.
+    const resolvedLang = doc.lang ?? useProjectStore.getState().project?.manifest.publication.language
+    if (resolvedLang) void invoke('spellcheck:setLanguage', { lang: resolvedLang }).catch(() => {})
     const editor = createEditor({
       content: doc.content,
       getStyles: currentStyles,
@@ -105,7 +110,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       getCitationStyleId: () =>
         useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
       getLocations: () => currentEntities().filter((entity) => entity.kind === 'location'),
-      lang: doc.lang ?? useProjectStore.getState().project?.manifest.publication.language,
+      lang: resolvedLang,
       onUpdate: () => {
         const state = get().docs[doc.docId]
         if (!state) return

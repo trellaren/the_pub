@@ -4,6 +4,7 @@ import type { ContractShape, InvokeChannel, InvokeReq, InvokeRes, EventChannel, 
 import type { InvokeChannelName, EventChannelName } from './channels.js'
 import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
 import { templateSummarySchema, saveTemplateOptionsSchema } from '../model/template.js'
+import { namedStyleSchema } from '../model/style.js'
 import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
@@ -18,6 +19,7 @@ import { mapFileSchema, storyMapSchema } from '../model/map.js'
 import { sourceFileSchema, cslItemSchema } from '../model/source.js'
 import { researchAttachmentSchema, pdfHighlightSchema, captureSchema } from '../model/research.js'
 import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
+import { publishFormatSchema } from '../model/publish.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
   chatFileSchema,
@@ -140,6 +142,20 @@ export const ipcContract = defineContract({
     },
     'templates:saveAs': { req: z.object({ options: saveTemplateOptionsSchema }), res: templateSummarySchema },
     'templates:delete': { req: z.object({ templateId: z.string() }), res: ok },
+    /**
+     * A template's styles and page setup only — "Apply preset" (Phase 12
+     * Part 4). The renderer merges the result into the open project's
+     * manifest and saves it through `project:updateManifest`, exactly as
+     * hand-editing styles or page setup already does; this channel never
+     * touches a project's files, so it cannot alter document content.
+     */
+    'templates:applyPreset': {
+      req: z.object({ templateId: z.string() }),
+      res: z.object({
+        styles: z.array(namedStyleSchema),
+        page: z.object({ width: z.number(), height: z.number(), margin: z.number() })
+      })
+    },
 
     'vfs:list': { req: projectPath, res: z.array(vfsEntrySchema) },
     'vfs:stat': { req: projectPath, res: vfsEntrySchema.nullable() },
@@ -252,6 +268,48 @@ export const ipcContract = defineContract({
     'fountain:exportDialog': {
       req: z.object({ path: z.string(), suggestedName: z.string().optional() }),
       res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+
+    /**
+     * The single export entry point Part 5 of the phase-12 plan collapses
+     * `docx:export`/`epub:export`/`fountain:export` into, plus PDF and print.
+     * Its `path`/`paths`/`items` shapes are the union of what those channels
+     * already took — `path` is fountain's (one document, no binder), `paths`/
+     * `items` is docx/epub's — so the handler can dispatch to the existing
+     * per-format service without reshaping anything.
+     */
+    'publish:export': {
+      req: z
+        .object({
+          format: publishFormatSchema,
+          path: z.string().optional(),
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
+          file: z.string()
+        })
+        .refine((value) => value.format === 'fountain' || value.paths.length > 0 || value.items.length > 0, {
+          message: 'Nothing to export'
+        }),
+      res: z.object({ ok: z.literal(true), file: z.string() })
+    },
+    'publish:exportDialog': {
+      req: z
+        .object({
+          format: publishFormatSchema,
+          path: z.string().optional(),
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
+          suggestedName: z.string().optional()
+        })
+        .refine((value) => value.format === 'fountain' || value.paths.length > 0 || value.items.length > 0, {
+          message: 'Nothing to export'
+        }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+    /** What `format` cannot carry from the project as it stands — shown before the save dialog opens. */
+    'publish:warnings': {
+      req: z.object({ format: publishFormatSchema }),
+      res: z.array(z.string())
     },
 
     'search:query': { req: searchQuerySchema, res: z.array(searchHitSchema) },
@@ -472,6 +530,11 @@ export const ipcContract = defineContract({
     'research:attachments:readPdf': {
       req: z.object({ sourceId: z.string(), attachmentId: z.string() }),
       res: z.object({ bytesBase64: z.string() })
+    },
+    /** The stored readable text/title for a `capture` attachment. */
+    'research:attachments:readCapture': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string() }),
+      res: captureSchema
     },
     'research:capture': {
       req: z.object({ url: z.string() }),

@@ -366,3 +366,54 @@ describe('TemplateService.remove', () => {
     await expect(templates.remove('nope')).resolves.toBeUndefined()
   })
 })
+
+describe('TemplateService.presetStylesAndPage', () => {
+  it('returns only the styles and page setup, never a project the caller could mistake for content', async () => {
+    await writeTemplate(path.join(builtinDir, 'submission'), 'builtin-submission', {
+      manifest: {
+        settings: { pageWidth: 612, pageHeight: 792, pageMargin: 72 },
+        styles: BUILTIN_STYLES.map((style) =>
+          style.id === 'body' ? { ...style, text: { ...style.text, fontSize: 12 }, paragraph: { ...style.paragraph, lineHeight: 2 } } : style
+        )
+      }
+    })
+
+    const preset = await templates.presetStylesAndPage('builtin-submission')
+    expect(preset.page).toEqual({ width: 612, height: 792, margin: 72 })
+    const body = preset.styles.find((style) => style.id === 'body')
+    expect(body?.paragraph.lineHeight).toBe(2)
+  })
+
+  it("applying a preset's styles/page over a project changes no `.pubdoc`'s content", async () => {
+    await writeTemplate(path.join(builtinDir, 'submission'), 'builtin-submission', {
+      manifest: { settings: { pageWidth: 612, pageHeight: 792, pageMargin: 72 } }
+    })
+    const preset = await templates.presetStylesAndPage('builtin-submission')
+
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-tpl-project-'))
+    const project = new LocalAdapter(projectDir)
+    try {
+      await project.mkdir('.thepub')
+      const docBefore = {
+        formatVersion: 6,
+        docId: 'd1',
+        title: 'Chapter One',
+        created: '2026-01-01T00:00:00.000Z',
+        modified: '2026-01-01T00:00:00.000Z',
+        wordCount: 2,
+        content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello world' }] }] }
+      }
+      await project.writeFileAtomic('chapter-01.pubdoc', Buffer.from(JSON.stringify(docBefore)))
+
+      // The whole point of "Apply preset": the manifest's styles/page setup
+      // change, the document is never opened or rewritten at all.
+      void preset
+
+      const after = JSON.parse(await project.readFile('chapter-01.pubdoc').then((b) => b.toString('utf8')))
+      expect(after).toEqual(docBefore)
+    } finally {
+      await project.dispose()
+      await fs.rm(projectDir, { recursive: true, force: true })
+    }
+  })
+})

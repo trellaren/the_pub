@@ -3,6 +3,8 @@ import type { ResearchAttachment, Capture } from '@shared/model/research.js'
 import type { PdfHighlight } from '@shared/model/research.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
+export type CaptureFailureReason = 'offline' | 'not-found' | 'unreadable'
+
 interface ResearchStore {
   attachmentsBySource: Record<string, ResearchAttachment[]>
   highlightsByAttachment: Record<string, PdfHighlight[]>
@@ -10,6 +12,11 @@ interface ResearchStore {
   loadAttachments: (sourceId: string) => Promise<void>
   addPdf: (sourceId: string, bytes: ArrayBuffer, label: string) => Promise<ResearchAttachment | null>
   addCapture: (sourceId: string, capture: Capture, label: string) => Promise<ResearchAttachment | null>
+  /** Fetches `url` in the main process and returns the extracted title/text, ready to hand to `addCapture`. */
+  capturePage: (
+    url: string
+  ) => Promise<{ ok: true; capture: Capture } | { ok: false; reason: CaptureFailureReason } | null>
+  readCapture: (sourceId: string, attachmentId: string) => Promise<Capture | null>
   removeAttachment: (sourceId: string, attachmentId: string) => Promise<void>
   readPdf: (sourceId: string, attachmentId: string) => Promise<ArrayBuffer | null>
 
@@ -81,6 +88,14 @@ export const useResearchStore = create<ResearchStore>((set, get) => ({
     const current = get().attachmentsBySource[sourceId] ?? []
     set({ attachmentsBySource: { ...get().attachmentsBySource, [sourceId]: [...current, attachment] } })
     return attachment
+  },
+
+  capturePage: async (url) => {
+    return attempt(invoke('research:capture', { url }), 'Could not capture that page')
+  },
+
+  readCapture: async (sourceId, attachmentId) => {
+    return attempt(invoke('research:attachments:readCapture', { sourceId, attachmentId }), 'Could not open capture')
   },
 
   removeAttachment: async (sourceId, attachmentId) => {

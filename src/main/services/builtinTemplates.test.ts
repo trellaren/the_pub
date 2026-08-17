@@ -37,10 +37,18 @@ afterEach(async () => {
 })
 
 describe('the built-in templates on disk', () => {
-  it('lists all five', async () => {
+  it('lists every built-in template, including the submission-format presets', async () => {
     const list = await templates.list()
     expect(list.map((template) => template.id).sort()).toEqual(
-      ['builtin-essay', 'builtin-novel', 'builtin-research-paper', 'builtin-screenplay', 'builtin-thesis'].sort()
+      [
+        'builtin-essay',
+        'builtin-novel',
+        'builtin-research-paper',
+        'builtin-screenplay',
+        'builtin-submission-courier',
+        'builtin-submission-times',
+        'builtin-thesis'
+      ].sort()
     )
   })
 

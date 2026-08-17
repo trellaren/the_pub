@@ -101,13 +101,12 @@ test('a document highlight can be collected, categorised, and survives closing a
   }, 'the reopened document to become active')
 
   // Confirmed against the sidecar file directly rather than through the
-  // Research panel here: opening *any* dock panel immediately after a
-  // project reopen currently crashes the renderer with a pre-existing
-  // "Maximum update depth exceeded" loop (React error #185), reproducible
-  // on `notes` too and present before this change (see the final report —
-  // out of scope to fix under this task). The panel's own rendering of a
-  // collected highlight is covered by the pre-close assertion above, which
-  // exercises the same component against the same store.
+  // Research panel here, to keep this test's focus on persistence. Whether
+  // opening a dock panel after a reopen crashes the renderer at all is
+  // covered separately and conclusively (it does not) by
+  // `panel-reopen.spec.ts`. The panel's own rendering of a collected
+  // highlight is covered by the pre-close assertion above, which exercises
+  // the same component against the same store.
   const reopened = await readHighlights(projectDir, docId)
   expect(reopened.highlights).toHaveLength(1)
   expect(reopened.highlights[0]).toMatchObject({

@@ -33,6 +33,7 @@ import { PresenceService } from './presenceService.js'
 import { DocxService } from './docxService.js'
 import { EpubService } from './epubService.js'
 import { FountainService } from './fountainService.js'
+import { PrintService, type RendererServerLike } from '../print/printService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 export interface SessionHooks {
@@ -54,6 +55,13 @@ export interface SessionHooks {
    * reach in and set it would be a session that could rewrite someone's id.
    */
   author: () => AuthorProfile
+  /**
+   * The app's loopback renderer server, when one is running — absent in
+   * `npm run dev` (the Vite dev server serves the UI instead) and in tests.
+   * `PrintService` falls back to a `data:` URL when this is undefined, so
+   * PDF/print work either way; see its own comment.
+   */
+  rendererServer?: RendererServerLike
 }
 
 /**
@@ -84,6 +92,7 @@ export class ProjectSession {
   readonly docx: DocxService
   readonly epub: EpubService
   readonly fountain: FountainService
+  readonly print: PrintService
   /**
    * The opaque name asset URLs know this project by.
    *
@@ -154,6 +163,7 @@ export class ProjectSession {
     this.docx = new DocxService(adapter, this.documents, this.reviews)
     this.epub = new EpubService(adapter, this.documents)
     this.fountain = new FountainService(adapter, this.documents)
+    this.print = new PrintService(adapter, this.documents, hooks.rendererServer)
   }
 
   static async open(uri: string, hooks: SessionHooks): Promise<ProjectSession> {

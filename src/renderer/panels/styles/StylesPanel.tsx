@@ -15,6 +15,7 @@ import {
   cx
 } from '@renderer/ui/primitives.js'
 import { previewStyle } from '@renderer/panels/editor/extensions/namedStyles.js'
+import { invoke, attempt, reportNotice } from '@renderer/lib/ipc.js'
 
 /**
  * Faces that exist on the platforms this ships to, each with a fallback of the
@@ -97,6 +98,40 @@ export function StylesPanel() {
     setSelectedId(null)
   }
 
+  const [preset, setPreset] = useState<'builtin-submission-times' | 'builtin-submission-courier'>(
+    'builtin-submission-times'
+  )
+
+  /**
+   * Writes a submission preset's styles and page setup over the project's own
+   * — see `TemplateService.presetStylesAndPage`. Never touches a `.pubdoc`:
+   * this only replaces `manifest.styles` and the three `project.page*`
+   * settings, the same two things editing a style or the page setup panel by
+   * hand already changes.
+   */
+  const applyPreset = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        'This replaces every style (fonts, sizes, spacing) and the page setup with the preset\'s. Prose content is untouched. Continue?'
+      )
+    ) {
+      return
+    }
+    const result = await attempt(invoke('templates:applyPreset', { templateId: preset }), 'Could not apply the preset')
+    if (!result) return
+    await updateManifest((manifest) => ({
+      ...manifest,
+      styles: result.styles,
+      settings: {
+        ...manifest.settings,
+        pageWidth: result.page.width,
+        pageHeight: result.page.height,
+        pageMargin: result.page.margin
+      }
+    }))
+    reportNotice('Preset applied.')
+  }
+
   if (!project) {
     return (
       <PanelShell>
@@ -115,6 +150,18 @@ export function StylesPanel() {
         </ToolbarButton>
         <ToolbarButton label="Delete style" onClick={removeStyle} disabled={selected?.builtin ?? true}>
           ✕
+        </ToolbarButton>
+        <select
+          aria-label="Submission preset"
+          className="h-6 shrink-0 rounded border border-border bg-transparent px-1 text-[11px]"
+          value={preset}
+          onChange={(event) => setPreset(event.target.value as typeof preset)}
+        >
+          <option value="builtin-submission-times">Standard Manuscript (Times)</option>
+          <option value="builtin-submission-courier">Standard Manuscript (Courier)</option>
+        </select>
+        <ToolbarButton label="Apply submission preset" onClick={() => void applyPreset()}>
+          Apply preset
         </ToolbarButton>
       </PanelHeader>
 

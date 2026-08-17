@@ -92,7 +92,8 @@ app.whenReady().then(async () => {
     oneDrive,
     templates: new TemplateService(templateDirs()),
     models,
-    engine
+    engine,
+    rendererServer: rendererServer ?? undefined
   })
 
   const createWindow = (): BrowserWindow => windows.createProjectWindow()

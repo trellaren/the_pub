@@ -16,6 +16,7 @@ import { PanelShell, PanelHeader, EmptyState, ToolbarButton } from '@renderer/ui
 import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { ContextMenu, type MenuEntry } from '@renderer/ui/Menu.js'
 import { invoke, attempt, on, reportError, reportNotice } from '@renderer/lib/ipc.js'
+import type { PublishFormat } from '@shared/model/publish.js'
 import { DOC_EXT } from '@shared/constants.js'
 import { DocumentPicker } from './DocumentPicker.js'
 import { ManuscriptNodeRow, ManuscriptPlaceholderRow } from './ManuscriptRow.js'
@@ -181,6 +182,8 @@ export function ManuscriptPanel() {
    * so an omission is named in the same notice as the success, never hidden
    * behind it.
    */
+  const [format, setFormat] = useState<PublishFormat>('docx')
+
   const compile = useCallback(async () => {
     const { items, skipped } = toExportItems(view.nodes)
     if (view.nodes.length === 0) {
@@ -195,19 +198,28 @@ export function ManuscriptPanel() {
       reportError(`Nothing could be exported. Could not find: ${skipped.join(', ')}.`)
       return
     }
+
+    // The dialog shows what this format cannot carry before the save dialog
+    // even opens — the honest counterpart to `docxImportResultSchema.warnings`
+    // on the way in. `window.confirm` is the one native dialog Electron
+    // implements (see `noNativeDialogs.test.ts`), so it is what a yes/no gate
+    // like this one uses.
+    const warnings = await invoke('publish:warnings', { format })
+    if (warnings.length > 0 && !window.confirm(`${warnings.join('\n\n')}\n\nContinue?`)) return
+
     const result = await attempt(
-      invoke('docx:exportDialog', { paths: [], items, suggestedName: project?.manifest.name }),
-      'Could not compile the manuscript'
+      invoke('publish:exportDialog', { format, paths: [], items, suggestedName: project?.manifest.name }),
+      format === 'print' ? 'Could not print the manuscript' : 'Could not compile the manuscript'
     )
     if (!result) return
     const notice = [
-      `Compiled to ${result.file}.`,
+      format === 'print' ? 'Sent to the printer.' : `Compiled to ${result.file}.`,
       skipped.length > 0 ? `Could not find: ${skipped.join(', ')}.` : ''
     ]
       .filter(Boolean)
       .join(' ')
     reportNotice(notice)
-  }, [view.nodes, project?.manifest.name])
+  }, [view.nodes, project?.manifest.name, format])
 
   if (!project) {
     return (
@@ -237,7 +249,18 @@ export function ManuscriptPanel() {
         >
           ＋ chapter
         </ToolbarButton>
-        <ToolbarButton label="Compile to Word" onClick={() => void compile()}>
+        <select
+          aria-label="Export format"
+          className="h-6 shrink-0 rounded border border-border bg-transparent px-1 text-[11px]"
+          value={format}
+          onChange={(event) => setFormat(event.target.value as PublishFormat)}
+        >
+          <option value="docx">Word</option>
+          <option value="epub">EPUB</option>
+          <option value="pdf">PDF</option>
+          <option value="print">Print</option>
+        </select>
+        <ToolbarButton label="Compile the manuscript" onClick={() => void compile()}>
           Compile
         </ToolbarButton>
       </PanelHeader>

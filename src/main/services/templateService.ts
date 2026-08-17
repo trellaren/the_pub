@@ -177,6 +177,42 @@ export class TemplateService {
     })
   }
 
+  /**
+   * A template's styles and page setup, without its content — what "Apply
+   * preset" (Phase 12 Part 4) writes over the *current* project. `instantiate`
+   * makes a whole new project from a template; this reads only the two
+   * fields a submission-format preset carries (`resources/templates/
+   * submission-*`), so applying one to an in-progress manuscript cannot touch
+   * a single word of prose. The caller merges the result into its own
+   * manifest and saves it — this never touches a project's files itself,
+   * the same division `instantiate` draws between building a manifest and
+   * `saveManifest` persisting one.
+   */
+  async presetStylesAndPage(templateId: string): Promise<{
+    styles: ProjectManifest['styles']
+    page: { width: number; height: number; margin: number }
+  }> {
+    const found = await this.find(templateId)
+    if (!found) throw new Error(`No such template: ${templateId}`)
+    const seeded = await readManifest(new LocalAdapter(found.dir))
+    const manifest = projectManifestSchema.parse({
+      ...seeded,
+      id: 'preset',
+      name: 'preset',
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      projectType: found.manifest.projectType
+    })
+    return {
+      styles: manifest.styles,
+      page: {
+        width: manifest.settings.pageWidth,
+        height: manifest.settings.pageHeight,
+        margin: manifest.settings.pageMargin
+      }
+    }
+  }
+
   /** Delete a user template. Built-ins ship with the app and cannot be removed. */
   async remove(templateId: string): Promise<void> {
     const found = await this.find(templateId)

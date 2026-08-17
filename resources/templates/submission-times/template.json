@@ -1,0 +1,6 @@
+{
+  "id": "builtin-submission-times",
+  "name": "Standard Manuscript (Times)",
+  "description": "12pt, double-spaced, first-line indents and centered scene breaks, ready to Apply as a preset over an existing project's styles and page setup. Times New Roman body text.",
+  "projectType": "novel"
+}

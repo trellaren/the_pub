@@ -14,6 +14,7 @@ import { PdfViewer } from './PdfViewer.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, TextInput, Select } from '@renderer/ui/primitives.js'
 
 const NO_CATEGORIES: HighlightCategoryDef[] = []
+const NO_HIGHLIGHTS: Highlight[] = []
 
 /**
  * Highlights collected across the writer's own documents (Manuscript tab)
@@ -30,7 +31,9 @@ export function ResearchPanel() {
   const [categoryFilter, setCategoryFilter] = useState('')
 
   const docId = useDocumentStore((store) => store.activeDocId)
-  const highlights = useHighlightStore((store) => (docId ? (store.highlightsByDoc[docId] ?? []) : []))
+  const highlights = useHighlightStore((store) =>
+    docId ? (store.highlightsByDoc[docId] ?? NO_HIGHLIGHTS) : NO_HIGHLIGHTS
+  )
   const categories = useProjectStore((store) => store.project?.manifest.highlightCategories) ?? NO_CATEGORIES
 
   useEffect(() => {

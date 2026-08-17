@@ -93,8 +93,9 @@ test('a PDF attachment can be highlighted and cited, with the citation carrying 
   }, 'the PDF highlight to reach its sidecar file')
 
   // The Sources tab reads through `useResearchStore` (`researchStore.ts`);
-  // exercise that store directly, since mounting the panel itself hits the
-  // pre-existing crash noted below.
+  // exercise that store directly here rather than through panel UI, since
+  // this test is about the citation side-effect, not panel rendering — see
+  // the dedicated "opens without crashing" test below for that.
   const storeState = await harness.page.evaluate(async ({ sourceId, attachmentId }) => {
     await window.__pub.research.getState().loadAttachments(sourceId)
     await window.__pub.research.getState().loadHighlights(sourceId, attachmentId)
@@ -112,17 +113,10 @@ test('a PDF attachment can be highlighted and cited, with the citation carrying 
   // so cite-from-highlight has somewhere to insert into.
   //
   // Cited via `__pub`'s exposed `citeFromPdfHighlight` — the exact function
-  // `ResearchPanel`'s Sources tab "Cite" button calls — rather than through
-  // the panel's own UI: mounting the Research panel via `panel.research`
-  // trips a pre-existing "Maximum update depth exceeded" (React error #185)
-  // that predates this work and blanks the renderer. It is reproducible with
-  // the unmodified `ResearchPanel` on `main` too (confirmed by temporarily
-  // reverting this file's changes and repeating the same sequence — the
-  // crash persists), so it is not this task's bug to fix. Worked around here
-  // the same way the "highlights.spec.ts" test avoids asserting through the
-  // panel after a reopen: exercise the real function against the real live
-  // editor and confirm the effect it has on the saved document, rather than
-  // driving it through the currently-crashing panel component.
+  // `ResearchPanel`'s Sources tab "Cite" button calls — asserting the
+  // citation's effect on the saved document directly rather than driving it
+  // through the panel's "Cite" button, which would just be a less direct way
+  // of calling the same function.
   await expect(harness.page.locator('.pub-sheet:visible .ProseMirror').first()).toBeVisible()
   await harness.page.evaluate(
     async ({ sourceId, quote, page }) => {
@@ -148,4 +142,29 @@ test('a PDF attachment can be highlighted and cited, with the citation carrying 
   expect(raw).toContain('"type":"blockquote"')
 
   void docId
+})
+
+test('the Research panel opens without crashing the renderer', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.research'))
+
+  // A regression check for the "Maximum update depth exceeded" (React error
+  // #185) that a Zustand selector returning a fresh `[]` literal on its
+  // falsy branch triggers — the same footgun `NotesPanel` already avoids
+  // with its own `NO_NOTES` constant. If the panel is mid-crash the dock
+  // blanks and this text never appears. `createDocument` already leaves a
+  // document active, so the panel renders its highlight-list branch rather
+  // than the "open a document" empty state.
+  await expect(harness.page.getByText('No highlights yet')).toBeVisible()
+
+  await harness.page.locator('.pub-sheet:visible .ProseMirror').first().click()
+  await harness.page.locator('.pub-sheet:visible .ProseMirror').first().pressSequentially('hello world')
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror').first()).toContainText('hello world')
+
+  // The panel is still alive after further editor activity — not merely
+  // rendered once before crashing on the next state update.
+  await expect(harness.page.getByText('No highlights yet')).toBeVisible()
 })

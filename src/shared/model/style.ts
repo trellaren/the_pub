@@ -16,7 +16,10 @@ export type TextStyleAttrs = z.infer<typeof textStyleAttrsSchema>
 
 /** Paragraph-level defaults of a named style. Lengths are points. */
 export const paragraphStyleAttrsSchema = z.object({
-  align: z.enum(['left', 'center', 'right', 'justify']).optional(),
+  // `start`/`end` are the logical counterparts of `left`/`right`, used by RTL
+  // paragraphs so alignment follows reading direction instead of the physical
+  // side — see `paragraphFormat.ts`'s `dir` attribute.
+  align: z.enum(['left', 'center', 'right', 'justify', 'start', 'end']).optional(),
   lineHeight: z.number().optional(),
   spaceBefore: z.number().optional(),
   spaceAfter: z.number().optional(),

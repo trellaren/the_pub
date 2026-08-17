@@ -29,6 +29,7 @@ import { Citation } from './extensions/citation.js'
 import { HeadingNumbers } from './extensions/headingNumbers.js'
 import { SceneHeading } from './extensions/sceneHeading.js'
 import { Lang } from './extensions/lang.js'
+import { EscapeFocus } from './extensions/escapeFocus.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -73,6 +74,15 @@ export function createEditor(options: CreateEditorOptions): Editor {
   return new Editor({
     content,
     extensions: [
+      // `ExtensionManager.plugins` reverses extension order before building
+      // each extension's own keymap plugin, so whatever is listed *first*
+      // here ends up *last* in the resulting ProseMirror plugin list — the
+      // one whose `handleKeyDown`/keymap entries run only once nothing
+      // earlier has already claimed the key. `EscapeFocus` depends on that:
+      // it must run after the footnote popover's own Escape-close handler
+      // (`footnote.ts`) and the suggestion popups' (mention/citation), or it
+      // blurs the editor before they get a chance to close themselves.
+      EscapeFocus,
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
         link: { openOnClick: false, autolink: true },
@@ -87,7 +97,13 @@ export function createEditor(options: CreateEditorOptions): Editor {
       HighlightId.configure({ multicolor: true }),
       Subscript,
       Superscript,
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      // `start`/`end` are the RTL-safe alignments `paragraphFormat.ts`'s
+      // `setParagraphDir` swaps `left`/`right` into when a paragraph's
+      // direction changes.
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+        alignments: ['left', 'center', 'right', 'justify', 'start', 'end']
+      }),
       TableKit.configure({ table: { resizable: true } }),
       Image.configure({ inline: false, allowBase64: false }),
       CharacterCount,

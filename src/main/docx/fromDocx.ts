@@ -376,6 +376,8 @@ function readParagraph(paragraph: XmlNode, context: Context): PmNode {
   if (format.indentLeft !== undefined) attrs.indentLeft = format.indentLeft
   if (format.indentRight !== undefined) attrs.indentRight = format.indentRight
   if (format.firstLineIndent !== undefined) attrs.firstLineIndent = format.firstLineIndent
+  const bidi = child(properties, 'w:bidi')
+  if (bidi && (att(bidi, 'w:val') ?? '1') !== '0' && att(bidi, 'w:val') !== 'false') attrs.dir = 'rtl'
 
   const content = readInline(paragraph, context)
   const outline = numAtt(child(properties, 'w:outlineLvl'), 'w:val')
@@ -398,9 +400,14 @@ function readParagraphStyle(properties: XmlNode | undefined): ParagraphStyleAttr
   const align = att(child(properties, 'w:jc'), 'w:val')
   if (align === 'left' || align === 'center' || align === 'right' || align === 'justify') {
     style.align = align
-  } else if (align === 'both' || align === 'start') {
-    // Word's own names for justified and left.
-    style.align = align === 'both' ? 'justify' : 'left'
+  } else if (align === 'both') {
+    // Word's own name for justified.
+    style.align = 'justify'
+  } else if (align === 'start' || align === 'end') {
+    // Logical alignments — kept distinct from `left`/`right` rather than
+    // collapsed, so a paragraph exported with `w:bidi` round-trips its
+    // alignment relative to reading direction, not a fixed physical side.
+    style.align = align
   }
 
   const spacing = child(properties, 'w:spacing')

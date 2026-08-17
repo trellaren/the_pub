@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Highlight } from '@shared/model/highlight.js'
+import type { PdfHighlight, ResearchAttachment } from '@shared/model/research.js'
 import type { HighlightCategoryDef } from '@shared/model/manifest.js'
+import { describeSource } from '@shared/model/source.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useHighlightStore } from '@renderer/stores/highlightStore.js'
+import { useResearchStore } from '@renderer/stores/researchStore.js'
+import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { revealBlock } from '../editor/editorActions.js'
+import { citeFromPdfHighlight, citationPlacement, refreshCitations } from '../editor/citationActions.js'
+import { PdfViewer } from './PdfViewer.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, TextInput, Select } from '@renderer/ui/primitives.js'
 
 const NO_CATEGORIES: HighlightCategoryDef[] = []
 
 /**
- * Highlights collected across the writer's own documents and, eventually,
- * research attachments. Phase 11 Part 3 ships the Manuscript tab against
- * `highlightService`; the Sources tab (PDF/web-capture highlights) is
- * deferred — see `docs/phase-11-plan.md` Part 2, not yet wired in.
+ * Highlights collected across the writer's own documents (Manuscript tab)
+ * and inside research attachments — currently PDFs (Sources tab). See
+ * `docs/phase-11-plan.md` Part 3.
  *
  * Scoped to the active document, the same way `NotesPanel` is: a highlight
  * belongs to whichever document last had focus, not to whatever tab happens
@@ -69,12 +74,7 @@ export function ResearchPanel() {
       </div>
 
       {tab === 'sources' ? (
-        <div className="flex-1 overflow-auto">
-          <EmptyState
-            title="Not available yet"
-            hint="Highlights in research attachments (PDFs and web captures) are not wired up in this build."
-          />
-        </div>
+        <SourcesTab docId={docId} />
       ) : !docId ? (
         <EmptyState title="Open a document to see its highlights" />
       ) : (
@@ -187,6 +187,191 @@ function HighlightCard({
         placeholder="Note…"
         className="mt-1 w-full"
       />
+    </div>
+  )
+}
+
+/**
+ * Highlights made inside research attachments (currently PDFs), grouped by
+ * source and searchable over `quote`/`note` — the Manuscript tab's UX,
+ * against `pdfHighlightService` instead of `highlightService`. Clicking a
+ * highlight opens its PDF at the right page; the reader's own "Cite" action
+ * inserts a citation into whichever document last had focus.
+ */
+function SourcesTab({ docId }: { docId: string | null }) {
+  const sources = useSourceStore((store) => store.sources)
+  const loadSources = useSourceStore((store) => store.load)
+  const attachmentsBySource = useResearchStore((store) => store.attachmentsBySource)
+  const loadAttachments = useResearchStore((store) => store.loadAttachments)
+  const highlightsByAttachment = useResearchStore((store) => store.highlightsByAttachment)
+  const loadHighlights = useResearchStore((store) => store.loadHighlights)
+  const styleId = useProjectStore(
+    (store) => store.project?.manifest.settings.citationStyleId ?? 'chicago-author-date'
+  )
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState<{ sourceId: string; attachmentId: string; page?: number } | null>(null)
+
+  useEffect(() => {
+    void loadSources()
+  }, [loadSources])
+
+  const pdfSources = sources.filter((source) =>
+    (attachmentsBySource[source.id] ?? []).some((attachment) => attachment.kind === 'pdf')
+  )
+
+  useEffect(() => {
+    for (const source of sources) void loadAttachments(source.id)
+  }, [sources, loadAttachments])
+
+  useEffect(() => {
+    for (const source of pdfSources) {
+      for (const attachment of attachmentsBySource[source.id] ?? []) {
+        if (attachment.kind === 'pdf') void loadHighlights(source.id, attachment.id)
+      }
+    }
+    // pdfSources is derived from attachmentsBySource each render; only the
+    // underlying data need be watched, not the derived array's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachmentsBySource, loadHighlights])
+
+  const rows: { source: CslItemLike; attachment: ResearchAttachment; highlight: PdfHighlight }[] = []
+  for (const source of pdfSources) {
+    for (const attachment of attachmentsBySource[source.id] ?? []) {
+      if (attachment.kind !== 'pdf') continue
+      const highlights = highlightsByAttachment[`${source.id}/${attachment.id}`] ?? []
+      for (const highlight of highlights) {
+        rows.push({ source, attachment, highlight })
+      }
+    }
+  }
+
+  const needle = query.trim().toLowerCase()
+  const filtered = rows.filter(
+    (row) =>
+      !needle ||
+      row.highlight.quote.toLowerCase().includes(needle) ||
+      row.highlight.note.toLowerCase().includes(needle)
+  )
+  const active = filtered.filter((row) => !row.highlight.orphaned)
+  const orphaned = filtered.filter((row) => row.highlight.orphaned)
+
+  const cite = async (sourceId: string, highlight: PdfHighlight) => {
+    const editor = docId ? getEditor(docId) : null
+    if (!editor) return
+    const placement = await citationPlacement(styleId)
+    citeFromPdfHighlight(editor, sourceId, highlight, placement, { includeQuote: true })
+    await refreshCitations(editor, sources, styleId)
+  }
+
+  if (open) {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center gap-1 border-b border-border p-1">
+          <ToolbarButton label="Back to list" onClick={() => setOpen(null)}>
+            ← Back
+          </ToolbarButton>
+        </div>
+        <PdfViewer
+          sourceId={open.sourceId}
+          attachmentId={open.attachmentId}
+          initialPage={open.page}
+          onCite={(highlight) => void cite(open.sourceId, highlight)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="flex shrink-0 items-center gap-1 border-b border-border p-1">
+        <TextInput
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search quote or note"
+          className="flex-1"
+        />
+      </div>
+      <div className="flex-1 overflow-auto">
+        {rows.length === 0 ? (
+          <EmptyState
+            title="No PDF highlights yet"
+            hint="Attach a PDF to a source in the Sources panel, open it, and select text to highlight."
+          />
+        ) : (
+          <>
+            {active.map((row) => (
+              <SourceHighlightCard
+                key={row.highlight.id}
+                row={row}
+                onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, page: row.highlight.page })}
+                onCite={() => void cite(row.source.id, row.highlight)}
+              />
+            ))}
+            {orphaned.length > 0 ? (
+              <div className="border-t border-border/60 p-2">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-faint">Orphaned</p>
+                {orphaned.map((row) => (
+                  <SourceHighlightCard
+                    key={row.highlight.id}
+                    row={row}
+                    onOpen={() => setOpen({ sourceId: row.source.id, attachmentId: row.attachment.id, page: row.highlight.page })}
+                    onCite={() => void cite(row.source.id, row.highlight)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+type CslItemLike = { id: string } & Record<string, unknown>
+
+function SourceHighlightCard({
+  row,
+  onOpen,
+  onCite
+}: {
+  row: { source: CslItemLike; attachment: ResearchAttachment; highlight: PdfHighlight }
+  onOpen: () => void
+  onCite: () => void
+}) {
+  const removeHighlight = useResearchStore((store) => store.removeHighlight)
+  return (
+    <div className="border-b border-border/60 p-2">
+      <div className="flex items-start gap-1">
+        <span
+          className="mt-0.5 h-3 w-3 shrink-0 rounded-sm border border-border"
+          style={{ background: row.highlight.color }}
+        />
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex-1 truncate text-left text-[12px] italic text-muted hover:text-text"
+          title={row.highlight.quote}
+        >
+          “{row.highlight.quote}” — p.{row.highlight.page}
+        </button>
+        <ToolbarButton label="Cite this highlight" onClick={onCite}>
+          Cite
+        </ToolbarButton>
+        <ToolbarButton
+          label="Delete highlight"
+          onClick={() => void removeHighlight(row.source.id, row.attachment.id, row.highlight.id)}
+        >
+          ✕
+        </ToolbarButton>
+      </div>
+      <p className="mt-0.5 truncate text-[11px] text-faint">
+        {describeSource(row.source as never)} · {row.attachment.label || row.attachment.title}
+      </p>
+      {row.highlight.orphaned ? (
+        <p className="my-1 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-faint">
+          This highlight's text could not be found on any page.
+        </p>
+      ) : null}
     </div>
   )
 }

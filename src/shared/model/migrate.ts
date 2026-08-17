@@ -114,7 +114,8 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   authors: [],
   reviews: [],
   presence: [],
-  highlights: []
+  highlights: [],
+  pdfHighlights: []
 }
 
 export interface MigrationResult {

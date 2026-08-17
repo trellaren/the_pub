@@ -18,7 +18,8 @@ export const FORMAT_VERSIONS = {
   authors: 1,
   reviews: 1,
   presence: 1,
-  highlights: 1
+  highlights: 1,
+  pdfHighlights: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 

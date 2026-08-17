@@ -69,6 +69,37 @@ export function insertCitation(
 }
 
 /**
+ * Cite a source from a highlight made inside one of its research
+ * attachments (a PDF, per `docs/phase-11-plan.md` Part 2) — the join that
+ * turns the research library into a library rather than a folder.
+ *
+ * Reuses `insertCitation` rather than growing separate insertion machinery:
+ * the only thing a PDF highlight adds is a page number for the locator and,
+ * optionally, the quoted text pasted as a block quote immediately above the
+ * citation, in its own paragraph, so the two land as one thought in the
+ * prose rather than a citation with a quote awkwardly inside its locator.
+ */
+export function citeFromPdfHighlight(
+  editor: Editor,
+  sourceId: string,
+  highlight: { quote: string; page: number },
+  placement: 'inline' | 'note',
+  opts: { includeQuote?: boolean } = {}
+): void {
+  if (opts.includeQuote && highlight.quote) {
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'blockquote',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: highlight.quote }] }]
+      })
+      .run()
+  }
+  insertCitation(editor, [sourceId], { locator: String(highlight.page) }, placement)
+}
+
+/**
  * Recompute every citation's rendered text in one pass, and return the
  * engine so a caller — `insertOrRefreshBibliography` — can reuse it rather
  * than reloading the same style a second time.

@@ -10,6 +10,7 @@ import type { Note } from '../src/shared/model/note.js'
 import type { Highlight } from '../src/shared/model/highlight.js'
 import type { OpenProject } from '../src/shared/model/manifest.js'
 import type { CslItem } from '../src/shared/model/source.js'
+import type { ResearchAttachment, PdfHighlight } from '../src/shared/model/research.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -168,6 +169,22 @@ interface PubTestHook {
       flush: () => Promise<void>
     }
   }
+  research: {
+    getState: () => {
+      attachmentsBySource: Record<string, ResearchAttachment[]>
+      highlightsByAttachment: Record<string, PdfHighlight[]>
+      loadAttachments: (sourceId: string) => Promise<void>
+      addPdf: (sourceId: string, bytes: ArrayBuffer, label: string) => Promise<ResearchAttachment | null>
+      removeAttachment: (sourceId: string, attachmentId: string) => Promise<void>
+      loadHighlights: (sourceId: string, attachmentId: string) => Promise<void>
+      saveHighlight: (
+        sourceId: string,
+        attachmentId: string,
+        fields: { id?: string; color: string; categoryId?: string; note?: string; quote: string; page: number }
+      ) => Promise<PdfHighlight | null>
+      removeHighlight: (sourceId: string, attachmentId: string, id: string) => Promise<void>
+    }
+  }
   confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>
   openLocation: (location: {
     path: string
@@ -175,6 +192,17 @@ interface PubTestHook {
     blockIndex: number
     term?: string
   }) => Promise<boolean>
+  /** The live TipTap editor for an open document, exactly what `citeFromPdfHighlight` etc. below operate on. */
+  getEditor: (docId: string) => { getJSON: () => unknown } | undefined
+  citeFromPdfHighlight: (
+    editor: unknown,
+    sourceId: string,
+    highlight: { quote: string; page: number },
+    placement: 'inline' | 'note',
+    opts?: { includeQuote?: boolean }
+  ) => void
+  citationPlacement: (styleId: string) => Promise<'inline' | 'note'>
+  refreshCitations: (editor: unknown, sources: CslItem[], styleId: string) => Promise<unknown>
   runCommand: (id: string) => boolean
   listCommands: () => { id: string; title: string }[]
 }

@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { ulid } from 'ulid'
 import { STYLE_BODY, type NamedStyle } from '@shared/model/style.js'
+import type { HighlightCategoryDef } from '@shared/model/manifest.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { findAnchor } from '@shared/pm/anchors.js'
 import { buildToc } from '@shared/pm/toc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { useNoteStore } from '@renderer/stores/noteStore.js'
+import { useHighlightStore } from '@renderer/stores/highlightStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
@@ -30,6 +32,7 @@ const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 48]
 const LINE_HEIGHTS = [1, 1.15, 1.5, 1.6, 2, 2.5]
 const HIGHLIGHTS = ['#ffe066', '#a5d8ff', '#b2f2bb', '#ffc9c9', '#eebefa']
 const NO_STYLES: NamedStyle[] = []
+const NO_CATEGORIES: HighlightCategoryDef[] = []
 
 /**
  * Word-style formatting controls.
@@ -48,6 +51,8 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   const citationStyleId =
     useProjectStore((store) => store.project?.manifest.settings.citationStyleId) ?? 'chicago-author-date'
   const sources = useSourceStore((store) => store.sources)
+  const highlightCategories =
+    useProjectStore((store) => store.project?.manifest.highlightCategories) ?? NO_CATEGORIES
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -108,6 +113,47 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
     if (!location) return
     await useReviewStore.getState().createThread(docId, anchorId, location.text, location.blockIndex)
     useLayoutStore.getState().showPanel('review', 'Review')
+  }
+
+  /**
+   * Allocate (or reuse) the selection's `highlightId` and record it in the
+   * sidecar, then hand off to the Research panel — the counterpart of
+   * `addNote`/`addComment` for highlights. See `highlightId.ts`'s
+   * `collectHighlight` command for why the id is only minted here, never on
+   * a plain colour toggle.
+   */
+  const collectHighlight = async (categoryId: string): Promise<void> => {
+    // `collectHighlight`'s callback fires from inside the chain, before the
+    // transaction that stamps the mark's attribute is dispatched — reading
+    // `editor.getJSON()`/`getAttributes()` there would still see the
+    // undecorated document. Capture the color now (from the live selection,
+    // still correct) and the id from the callback, then resolve the anchor
+    // once `.run()` has returned and the transaction has landed.
+    const color = typeof editor.getAttributes('highlight').color === 'string'
+      ? (editor.getAttributes('highlight').color as string)
+      : HIGHLIGHTS[0]
+    let collectedId: string | null = null
+    const applied = editor
+      .chain()
+      .focus()
+      .collectHighlight((highlightId) => {
+        collectedId = highlightId
+      })
+      .run()
+    if (!applied || !collectedId) return
+
+    const location = findAnchor(editor.getJSON() as PmDoc, collectedId, {
+      markType: 'highlight',
+      attrKey: 'highlightId'
+    })
+    if (!location) return
+    const collected = await useHighlightStore.getState().collect(docId, collectedId, {
+      color,
+      quote: location.text,
+      blockIndex: location.blockIndex,
+      categoryId
+    })
+    if (collected) useLayoutStore.getState().showPanel('research', 'Research')
   }
 
   // Read-only preview for the picker below — minting the `blockId`s a chosen
@@ -236,6 +282,27 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
         <ToolbarButton label="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearParagraphFormat().run()}>
           ⌫
         </ToolbarButton>
+        <Select
+          value="__collect__"
+          title="Collect highlight into the Research panel"
+          className="w-24"
+          disabled={!editor.isActive('highlight')}
+          onChange={(event) => {
+            const raw = event.target.value
+            event.target.value = '__collect__'
+            void collectHighlight(raw === '__none__' ? '' : raw)
+          }}
+        >
+          <option value="__collect__" disabled>
+            Collect…
+          </option>
+          <option value="__none__">No category</option>
+          {highlightCategories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.label}
+            </option>
+          ))}
+        </Select>
       </div>
 
       <Divider />

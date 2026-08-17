@@ -411,6 +411,8 @@ export function registerHandlers(context: HandlerContext): void {
       // so they are re-checked on the same save rather than on a timer.
       await session.reviews.reconcile(doc.docId, doc.content).catch(() => {})
       reviewChanged(event, doc.docId)
+      const highlightsReconciled = await session.highlights.reconcile(doc.docId, doc.content).catch(() => null)
+      if (highlightsReconciled) highlightChanged(event, doc.docId)
     }
     return result
   })
@@ -653,6 +655,33 @@ export function registerHandlers(context: HandlerContext): void {
   handle('notes:delete', async ({ docId, noteId }, event) => {
     await requireSession(event).notes.remove(docId, noteId)
     noteChanged(event, docId)
+    return { ok: true as const }
+  })
+
+  function highlightChanged(event: IpcMainInvokeEvent, docId: string): void {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'highlights:changed', { docId })
+  }
+
+  handle('highlights:list', ({ docId }, event) => requireSession(event).highlights.listForDoc(docId))
+  handle('highlights:collect', async ({ docId, highlightId, color, quote, blockIndex, categoryId }, event) => {
+    const collected = await requireSession(event).highlights.collect(docId, highlightId, {
+      color,
+      quote,
+      blockIndex,
+      categoryId
+    })
+    highlightChanged(event, docId)
+    return collected
+  })
+  handle('highlights:save', async ({ docId, highlight }, event) => {
+    const saved = await requireSession(event).highlights.save(docId, highlight)
+    highlightChanged(event, docId)
+    return saved
+  })
+  handle('highlights:delete', async ({ docId, id }, event) => {
+    await requireSession(event).highlights.remove(docId, id)
+    highlightChanged(event, docId)
     return { ok: true as const }
   })
 

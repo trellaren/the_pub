@@ -5,6 +5,19 @@ import { namedStyleSchema, BUILTIN_STYLES } from './style.js'
 import { entityKindDefSchema } from './entity.js'
 
 /**
+ * A project-defined highlight category: `Evidence`, `Quote to use`, and so
+ * on. The colour lives here, not on the highlight record, so choosing a
+ * category *is* choosing the mark's colour — the two can never disagree. See
+ * `docs/phase-11-plan.md`.
+ */
+export const highlightCategoryDefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  color: z.string()
+})
+export type HighlightCategoryDef = z.infer<typeof highlightCategoryDefSchema>
+
+/**
  * Per-project preferences, derived from the settings registry rather than
  * written out here.
  *
@@ -28,6 +41,31 @@ export const projectTypes = ['novel', 'thesis', 'essay', 'research-paper', 'scre
 export const projectTypeSchema = z.enum(projectTypes)
 export type ProjectType = z.infer<typeof projectTypeSchema>
 
+/**
+ * Everything a finished book needs and a manuscript does not: content about
+ * the *work*, not the project. Kept off `projectSettings`, which is editor
+ * behaviour (autosave, page size, default style) — an ISBN has nothing to do
+ * with an autosave debounce. This is what an OPF, a title page, and a
+ * submission cover sheet are built from.
+ */
+export const publicationSchema = z.object({
+  subtitle: z.string().optional(),
+  /** Display name on the cover/title page — distinct from Phase 9's `authorId`. */
+  authorName: z.string().optional(),
+  publisher: z.string().optional(),
+  isbn: z.string().optional(),
+  language: z.string().optional(),
+  rights: z.string().optional(),
+  /** ISO date string (YYYY-MM-DD), not a `Date` — the on-disk shapes are pure JSON. */
+  publicationDate: z.string().optional(),
+  series: z.string().optional(),
+  seriesNumber: z.number().optional(),
+  /** Project-relative path into `ASSETS_DIR`, same convention as other stored images. */
+  coverImagePath: z.string().optional(),
+  description: z.string().optional()
+})
+export type Publication = z.infer<typeof publicationSchema>
+
 export const projectManifestSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.manifest),
   id: z.string(),
@@ -47,7 +85,15 @@ export const projectManifestSchema = z.object({
    * fiction defaults (`DEFAULT_ENTITY_KINDS`), so every project made before
    * this field existed is unaffected.
    */
-  entityKinds: z.array(entityKindDefSchema).optional()
+  entityKinds: z.array(entityKindDefSchema).optional(),
+  /**
+   * Project-defined highlight categories, alongside `entityKinds`. Absent
+   * means no categories are defined yet — every project made before this
+   * field existed opens with an empty list, not a crash.
+   */
+  highlightCategories: z.array(highlightCategoryDefSchema).optional(),
+  /** Book/manuscript metadata, distinct from editor-behaviour `settings`. See `publicationSchema`. */
+  publication: publicationSchema.prefault({})
 })
 export type ProjectManifest = z.infer<typeof projectManifestSchema>
 

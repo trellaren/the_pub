@@ -5,7 +5,7 @@
  */
 export const FORMAT_VERSIONS = {
   document: 6,
-  manifest: 5,
+  manifest: 7, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block
   manuscript: 1,
   entities: 1,
   beats: 1,
@@ -17,7 +17,8 @@ export const FORMAT_VERSIONS = {
   sources: 1,
   authors: 1,
   reviews: 1,
-  presence: 1
+  presence: 1,
+  highlights: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 
@@ -51,6 +52,19 @@ export const CHATS_FILE = `${PUB_DIR}/chats.json`
  * on any other, and a remote VFS write stays small either way.
  */
 export const NOTES_DIR = `${PUB_DIR}/notes`
+/**
+ * Highlights, one file per document: `highlights/<docId>.json`. Mirrors
+ * `NOTES_DIR` for the same reason — a highlight is a private reading act, no
+ * more prone to cross-document conflict than a note is.
+ */
+export const HIGHLIGHTS_DIR = `${PUB_DIR}/highlights`
+/**
+ * Research attachments (PDFs, web captures) for a source in `sources.json`:
+ * `research/<sourceId>/<attachmentId>.*`. Never under the project's own
+ * folder tree — see `docs/phase-11-plan.md` — so the search indexer and file
+ * tree both ignore it via `IGNORED_DIRS`' `.thepub` entry.
+ */
+export const RESEARCH_DIR = `${PUB_DIR}/research`
 /** A CSL-JSON bibliography: every source the project can cite. */
 export const SOURCES_FILE = `${PUB_DIR}/sources.json`
 /** Who has worked on this project: id, display name and colour. */

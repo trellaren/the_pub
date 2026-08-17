@@ -7,6 +7,7 @@ import type { Chat, AiSettings, EditProposal } from '../src/shared/model/ai.js'
 import type { LlmStatus } from '../src/shared/model/llm.js'
 import type { ManuscriptView, PartRole } from '../src/shared/model/manuscript.js'
 import type { Note } from '../src/shared/model/note.js'
+import type { Highlight } from '../src/shared/model/highlight.js'
 import type { OpenProject } from '../src/shared/model/manifest.js'
 import type { CslItem } from '../src/shared/model/source.js'
 
@@ -26,6 +27,8 @@ interface PubTestHook {
       save: (docId: string) => Promise<void>
       flushAll: () => Promise<void>
       docs: Record<string, { docId: string; path: string; title: string; dirty: boolean }>
+      activeDocId: string | null
+      setActive: (docId: string | null) => void
     }
   }
   layout: {
@@ -138,6 +141,20 @@ interface PubTestHook {
       create: (docId: string, anchorId: string, anchorText: string, blockIndex: number) => Promise<Note | null>
       patch: (docId: string, noteId: string, changes: Partial<Note>) => void
       remove: (docId: string, noteId: string) => Promise<void>
+      flush: () => Promise<void>
+    }
+  }
+  highlights: {
+    getState: () => {
+      highlightsByDoc: Record<string, Highlight[]>
+      loadForDoc: (docId: string) => Promise<void>
+      collect: (
+        docId: string,
+        highlightId: string,
+        fields: { color: string; quote: string; blockIndex: number; categoryId?: string }
+      ) => Promise<Highlight | null>
+      patch: (docId: string, id: string, changes: Partial<Highlight>) => void
+      remove: (docId: string, id: string) => Promise<void>
       flush: () => Promise<void>
     }
   }

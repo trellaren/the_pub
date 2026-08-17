@@ -18,6 +18,7 @@ import { SearchIndexService } from './searchIndexService.js'
 import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
 import { NoteService } from './noteService.js'
+import { HighlightService } from './highlightService.js'
 import { BeatService } from './beatService.js'
 import { MapService } from './mapService.js'
 import { SourceService } from './sourceService.js'
@@ -66,6 +67,7 @@ export class ProjectSession {
   readonly layout: LayoutService
   readonly entities: EntityService
   readonly notes: NoteService
+  readonly highlights: HighlightService
   readonly beats: BeatService
   readonly maps: MapService
   readonly sources: SourceService
@@ -113,6 +115,7 @@ export class ProjectSession {
     this.layout = new LayoutService(adapter)
     this.entities = new EntityService(adapter)
     this.notes = new NoteService(adapter)
+    this.highlights = new HighlightService(adapter)
     this.beats = new BeatService(adapter)
     this.maps = new MapService(adapter)
     this.sources = new SourceService(adapter)

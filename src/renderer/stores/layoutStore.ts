@@ -53,6 +53,7 @@ export type PanelComponent =
   | 'history'
   | 'settings'
   | 'notes'
+  | 'research'
   | 'sources'
   | 'review'
 
@@ -188,6 +189,7 @@ const SIDEBAR_PANELS = new Set<PanelComponent>([
   'characters',
   'locations',
   'notes',
+  'research',
   'sources',
   'review'
 ])

@@ -8,6 +8,7 @@ import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
+import { useHighlightStore } from './stores/highlightStore.js'
 import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
@@ -189,7 +190,8 @@ export function App() {
         useEntityStore.getState().flush(),
         useBeatStore.getState().flush(),
         useMapStore.getState().flush(),
-        useSourceStore.getState().flush()
+        useSourceStore.getState().flush(),
+        useHighlightStore.getState().flush()
       ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])

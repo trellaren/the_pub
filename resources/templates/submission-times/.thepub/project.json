@@ -1,0 +1,235 @@
+{
+  "formatVersion": 7,
+  "id": "builtin-submission-times",
+  "name": "Standard Manuscript (Times)",
+  "created": "2026-01-01T00:00:00.000Z",
+  "modified": "2026-01-01T00:00:00.000Z",
+  "projectType": "novel",
+  "settings": {
+    "pageWidth": 612,
+    "pageHeight": 792,
+    "pageMargin": 72
+  },
+  "styles": [
+    {
+      "id": "body",
+      "name": "Body",
+      "builtin": true,
+      "nextStyle": "body",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceAfter": 0,
+        "firstLineIndent": 36
+      }
+    },
+    {
+      "id": "first-paragraph",
+      "name": "First Paragraph",
+      "builtin": true,
+      "basedOn": "body",
+      "nextStyle": "indented-body",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12
+      },
+      "paragraph": {
+        "firstLineIndent": 36,
+        "lineHeight": 2,
+        "align": "left",
+        "spaceAfter": 0
+      }
+    },
+    {
+      "id": "indented-body",
+      "name": "Indented Body",
+      "builtin": true,
+      "basedOn": "body",
+      "nextStyle": "indented-body",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12
+      },
+      "paragraph": {
+        "firstLineIndent": 36,
+        "spaceAfter": 0,
+        "lineHeight": 2,
+        "align": "left"
+      }
+    },
+    {
+      "id": "heading-1",
+      "name": "Heading 1",
+      "builtin": true,
+      "headingLevel": 1,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "heading-2",
+      "name": "Heading 2",
+      "builtin": true,
+      "headingLevel": 2,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "heading-3",
+      "name": "Heading 3",
+      "builtin": true,
+      "headingLevel": 3,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "heading-4",
+      "name": "Heading 4",
+      "builtin": true,
+      "headingLevel": 4,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "heading-5",
+      "name": "Heading 5",
+      "builtin": true,
+      "headingLevel": 5,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "heading-6",
+      "name": "Heading 6",
+      "builtin": true,
+      "headingLevel": 6,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "italic": true,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "left",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "chapter-title",
+      "name": "Chapter Title",
+      "builtin": true,
+      "headingLevel": 1,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12,
+        "bold": false,
+        "underline": false
+      },
+      "paragraph": {
+        "align": "center",
+        "lineHeight": 2,
+        "spaceBefore": 24,
+        "spaceAfter": 24
+      }
+    },
+    {
+      "id": "scene-break",
+      "name": "Scene Break",
+      "builtin": true,
+      "nextStyle": "first-paragraph",
+      "text": {
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12
+      },
+      "paragraph": {
+        "align": "center",
+        "spaceBefore": 16,
+        "spaceAfter": 16,
+        "lineHeight": 2
+      }
+    },
+    {
+      "id": "block-quote",
+      "name": "Block Quote",
+      "builtin": true,
+      "basedOn": "body",
+      "nextStyle": "body",
+      "text": {
+        "italic": true,
+        "fontFamily": "Times New Roman, Times, serif",
+        "fontSize": 12
+      },
+      "paragraph": {
+        "indentLeft": 36,
+        "indentRight": 36,
+        "spaceBefore": 12,
+        "spaceAfter": 12,
+        "lineHeight": 2,
+        "align": "left"
+      }
+    }
+  ]
+}

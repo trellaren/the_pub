@@ -23,6 +23,14 @@ const MIME_TYPES: Record<string, string> = {
 export interface RendererServer {
   baseUrl: string
   close: () => Promise<void>
+  /**
+   * Publish an in-memory HTML document under the server's own origin and
+   * return its URL. Used by `printService` to give the offscreen print
+   * window something to `loadURL` — same-origin, so it shares the CSP a
+   * `file://` page could not offer, without writing a temp file to disk.
+   * `revoke` removes it; callers call it once the print/PDF pass is done.
+   */
+  servePrintJob: (html: string) => { url: string; revoke: () => void }
 }
 
 /**
@@ -42,9 +50,10 @@ export interface RendererServer {
 export async function startRendererServer(rendererDir: string): Promise<RendererServer> {
   const root = path.resolve(rendererDir)
   const token = randomBytes(16).toString('hex')
+  const printJobs = new Map<string, string>()
 
   const server = http.createServer((request, response) => {
-    void handle(request, response, root, token)
+    void handle(request, response, root, token, printJobs)
   })
 
   await new Promise<void>((resolve, reject) => {
@@ -60,12 +69,24 @@ export async function startRendererServer(rendererDir: string): Promise<Renderer
     throw new Error('Renderer server did not bind to a port')
   }
 
+  const baseUrl = `http://127.0.0.1:${address.port}/${token}`
+
   return {
-    baseUrl: `http://127.0.0.1:${address.port}/${token}`,
+    baseUrl,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())
-      })
+      }),
+    servePrintJob: (html: string) => {
+      const id = randomBytes(16).toString('hex')
+      printJobs.set(id, html)
+      return {
+        url: `${baseUrl}/print-job/${id}`,
+        revoke: () => {
+          printJobs.delete(id)
+        }
+      }
+    }
   }
 }
 
@@ -73,7 +94,8 @@ async function handle(
   request: http.IncomingMessage,
   response: http.ServerResponse,
   root: string,
-  token: string
+  token: string,
+  printJobs: Map<string, string>
 ): Promise<void> {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405).end()
@@ -88,6 +110,23 @@ async function handle(
   }
 
   const relative = requestUrl.pathname.slice(prefix.length).replace(/^\/+/, '')
+
+  const printJobMatch = relative.match(/^print-job\/([a-f0-9]+)$/)
+  if (printJobMatch) {
+    const html = printJobs.get(printJobMatch[1])
+    if (html === undefined) {
+      response.writeHead(404).end()
+      return
+    }
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': Buffer.byteLength(html),
+      'Cache-Control': 'no-store'
+    })
+    response.end(request.method === 'HEAD' ? undefined : html)
+    return
+  }
+
   const target = path.resolve(root, relative === '' ? 'index.html' : relative)
   // Resolve first, then check containment, so `..` in the URL cannot escape.
   if (target !== root && !target.startsWith(root + path.sep)) {

@@ -1,0 +1,6 @@
+{
+  "id": "builtin-submission-courier",
+  "name": "Standard Manuscript (Courier)",
+  "description": "12pt, double-spaced, first-line indents and centered scene breaks, ready to Apply as a preset over an existing project's styles and page setup. Courier monospace body text, the older agent/publisher convention.",
+  "projectType": "novel"
+}

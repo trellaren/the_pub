@@ -21,6 +21,7 @@ export const INVOKE_CHANNELS = [
   'templates:instantiate',
   'templates:saveAs',
   'templates:delete',
+  'templates:applyPreset',
   'vfs:list',
   'vfs:stat',
   'vfs:mkdir',

@@ -337,6 +337,8 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  handle('templates:applyPreset', ({ templateId }) => templates.presetStylesAndPage(templateId))
+
   handle('vfs:list', ({ path: target }, event) => requireSession(event).adapter.list(target))
   handle('vfs:stat', ({ path: target }, event) => requireSession(event).adapter.stat(target))
 

@@ -4,6 +4,7 @@ import type { ContractShape, InvokeChannel, InvokeReq, InvokeRes, EventChannel, 
 import type { InvokeChannelName, EventChannelName } from './channels.js'
 import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
 import { templateSummarySchema, saveTemplateOptionsSchema } from '../model/template.js'
+import { namedStyleSchema } from '../model/style.js'
 import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
 import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
@@ -141,6 +142,20 @@ export const ipcContract = defineContract({
     },
     'templates:saveAs': { req: z.object({ options: saveTemplateOptionsSchema }), res: templateSummarySchema },
     'templates:delete': { req: z.object({ templateId: z.string() }), res: ok },
+    /**
+     * A template's styles and page setup only — "Apply preset" (Phase 12
+     * Part 4). The renderer merges the result into the open project's
+     * manifest and saves it through `project:updateManifest`, exactly as
+     * hand-editing styles or page setup already does; this channel never
+     * touches a project's files, so it cannot alter document content.
+     */
+    'templates:applyPreset': {
+      req: z.object({ templateId: z.string() }),
+      res: z.object({
+        styles: z.array(namedStyleSchema),
+        page: z.object({ width: z.number(), height: z.number(), margin: z.number() })
+      })
+    },
 
     'vfs:list': { req: projectPath, res: z.array(vfsEntrySchema) },
     'vfs:stat': { req: projectPath, res: vfsEntrySchema.nullable() },

@@ -74,6 +74,15 @@ export function createEditor(options: CreateEditorOptions): Editor {
   return new Editor({
     content,
     extensions: [
+      // `ExtensionManager.plugins` reverses extension order before building
+      // each extension's own keymap plugin, so whatever is listed *first*
+      // here ends up *last* in the resulting ProseMirror plugin list — the
+      // one whose `handleKeyDown`/keymap entries run only once nothing
+      // earlier has already claimed the key. `EscapeFocus` depends on that:
+      // it must run after the footnote popover's own Escape-close handler
+      // (`footnote.ts`) and the suggestion popups' (mention/citation), or it
+      // blurs the editor before they get a chance to close themselves.
+      EscapeFocus,
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
         link: { openOnClick: false, autolink: true },
@@ -114,8 +123,7 @@ export function createEditor(options: CreateEditorOptions): Editor {
       Field,
       Footnote,
       Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId }),
-      Lang,
-      EscapeFocus
+      Lang
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any

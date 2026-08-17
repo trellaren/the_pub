@@ -9,8 +9,13 @@ import { Extension } from '@tiptap/core'
  * other focusable region.
  *
  * Popup key handling (mention/citation/scene-heading suggestions, the
- * footnote popover) consumes its own Escape while open and returns early, so
- * this only ever fires once nothing above it has already handled the key.
+ * footnote popover) consumes its own Escape while open and returns `true`.
+ * TipTap builds one keymap plugin per extension and orders the resulting
+ * ProseMirror plugin list by *reversing* the extensions array first
+ * (`ExtensionManager.plugins`), so whichever extension is listed earliest in
+ * `createEditor.ts` runs latest — `EscapeFocus` is deliberately first in that
+ * list so every popup's own Escape handler gets a chance to fire before this
+ * one blurs the editor. Do not move it without keeping that ordering.
  */
 export const EscapeFocus = Extension.create({
   name: 'escapeFocus',

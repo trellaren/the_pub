@@ -13,7 +13,10 @@ import { useHistoryStore } from './stores/historyStore.js'
 import { useNoteStore } from './stores/noteStore.js'
 import { useHighlightStore } from './stores/highlightStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
+import { useResearchStore } from './stores/researchStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
+import { citeFromPdfHighlight, citationPlacement, refreshCitations } from './panels/editor/citationActions.js'
+import { getEditor } from './stores/documentStore.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand, listCommands } from './commands/registry.js'
 import './styles.css'
@@ -43,8 +46,13 @@ Object.assign(window, {
     notes: useNoteStore,
     highlights: useHighlightStore,
     sources: useSourceStore,
+    research: useResearchStore,
     confirmMention: confirmMentionHere,
     openLocation,
+    getEditor,
+    citeFromPdfHighlight,
+    citationPlacement,
+    refreshCitations,
     runCommand,
     listCommands
   }

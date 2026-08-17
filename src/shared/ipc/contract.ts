@@ -16,6 +16,7 @@ import { presenceBeatSchema } from '../model/presence.js'
 import { beatFileSchema, beatSchema, boardColumnSchema } from '../model/beat.js'
 import { mapFileSchema, storyMapSchema } from '../model/map.js'
 import { sourceFileSchema, cslItemSchema } from '../model/source.js'
+import { researchAttachmentSchema, pdfHighlightSchema, captureSchema } from '../model/research.js'
 import { manuscriptViewSchema, partRoleSchema, exportItemSchema } from '../model/manuscript.js'
 import { connectionProfileSchema, untrustedHostKeySchema } from '../model/connection.js'
 import {
@@ -207,6 +208,24 @@ export const ipcContract = defineContract({
           paths: z.array(z.string()).default([]),
           items: z.array(exportItemSchema).default([]),
           /** Proposed file name for the save dialog, without the extension. */
+          suggestedName: z.string().optional()
+        })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+
+    /** Mirrors `docx:export`/`docx:exportDialog` exactly — same `paths`/`items` stream, EPUB output. */
+    'epub:export': {
+      req: z
+        .object({ paths: z.array(z.string()).default([]), items: z.array(exportItemSchema).default([]), file: z.string() })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
+      res: z.object({ ok: z.literal(true), file: z.string() })
+    },
+    'epub:exportDialog': {
+      req: z
+        .object({
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
           suggestedName: z.string().optional()
         })
         .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
@@ -436,6 +455,44 @@ export const ipcContract = defineContract({
      * ordinary thing, and the panel has to tell "no such record" from "could
      * not reach the service" because they ask different things of the person.
      */
+    'research:attachments:list': { req: z.object({ sourceId: z.string() }), res: z.array(researchAttachmentSchema) },
+    'research:attachments:addPdf': {
+      req: z.object({ sourceId: z.string(), bytesBase64: z.string(), label: z.string() }),
+      res: researchAttachmentSchema
+    },
+    'research:attachments:addCapture': {
+      req: z.object({ sourceId: z.string(), capture: captureSchema, label: z.string() }),
+      res: researchAttachmentSchema
+    },
+    'research:attachments:remove': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string() }),
+      res: ok
+    },
+    /** Returns the PDF as base64 — IPC payloads are JSON, so raw bytes travel this way, same as docx import/export. */
+    'research:attachments:readPdf': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string() }),
+      res: z.object({ bytesBase64: z.string() })
+    },
+    'research:capture': {
+      req: z.object({ url: z.string() }),
+      res: z.union([
+        z.object({ ok: z.literal(true), capture: captureSchema }),
+        z.object({ ok: z.literal(false), reason: z.enum(['offline', 'not-found', 'unreadable']) })
+      ])
+    },
+    'research:highlights:list': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string() }),
+      res: z.array(pdfHighlightSchema)
+    },
+    'research:highlights:save': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string(), highlight: pdfHighlightSchema }),
+      res: pdfHighlightSchema
+    },
+    'research:highlights:delete': {
+      req: z.object({ sourceId: z.string(), attachmentId: z.string(), id: z.string() }),
+      res: ok
+    },
+
     'sources:lookup': {
       req: z.object({ query: z.string().min(1) }),
       res: z.union([
@@ -657,6 +714,7 @@ export const ipcContract = defineContract({
      */
     'notes:changed': z.object({ docId: z.string() }),
     'highlights:changed': z.object({ docId: z.string() }),
+    'research:highlights:changed': z.object({ sourceId: z.string(), attachmentId: z.string() }),
 
     /** A document's review threads changed, from this window or a collaborator's sync. */
     'review:changed': z.object({ docId: z.string() }),

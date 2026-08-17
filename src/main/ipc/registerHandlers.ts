@@ -56,6 +56,7 @@ import type { CslItem } from '../../shared/model/source.js'
 import { parseBibtex } from '../sources/fromBibtex.js'
 import { parseRis } from '../sources/fromRis.js'
 import { lookupSource } from '../sources/lookup.js'
+import { capturePage } from '../research/capture.js'
 
 /**
  * Refuse a name no Windows filesystem can hold.
@@ -527,6 +528,26 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const, file: picked.filePath }
   })
 
+  handle('epub:export', async ({ paths, items, file }, event) => {
+    const session = requireSession(event)
+    await session.epub.export(resolveExportItems(paths, items), file, session.manifest)
+    return { ok: true as const, file }
+  })
+
+  handle('epub:exportDialog', async ({ paths, items, suggestedName }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const suggested = `${suggestedName ?? defaultExportName(paths)}.epub`
+    const picked = await dialog.showSaveDialog(window!, {
+      title: 'Export to EPUB',
+      defaultPath: suggested,
+      filters: [{ name: 'EPUB', extensions: ['epub'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await session.epub.export(resolveExportItems(paths, items), picked.filePath, session.manifest)
+    return { ok: true as const, file: picked.filePath }
+  })
+
   /** Mirrors `importDocxFiles` — see its own comment. */
   const importFountainFiles = async (
     session: ProjectSession,
@@ -872,6 +893,47 @@ export function registerHandlers(context: HandlerContext): void {
     if (!result.ok) return result
     await session.sources.merge([result.item])
     return result
+  })
+
+  handle('research:attachments:list', ({ sourceId }, event) =>
+    requireSession(event).sources.listAttachments(sourceId)
+  )
+  handle('research:attachments:addPdf', ({ sourceId, bytesBase64, label }, event) =>
+    requireSession(event).sources.addPdfAttachment(sourceId, Buffer.from(bytesBase64, 'base64'), label)
+  )
+  handle('research:attachments:addCapture', ({ sourceId, capture, label }, event) =>
+    requireSession(event).sources.addCaptureAttachment(sourceId, capture, label)
+  )
+  handle('research:attachments:remove', async ({ sourceId, attachmentId }, event) => {
+    await requireSession(event).sources.removeAttachment(sourceId, attachmentId)
+    return { ok: true as const }
+  })
+  handle('research:attachments:readPdf', async ({ sourceId, attachmentId }, event) => {
+    const bytes = await requireSession(event).sources.readPdfAttachment(sourceId, attachmentId)
+    return { bytesBase64: bytes.toString('base64') }
+  })
+  handle('research:capture', async ({ url }, event) => {
+    requireSession(event) // a project must be open, even though capture itself is project-agnostic
+    return capturePage(url, (target) => fetch(target))
+  })
+
+  function researchHighlightChanged(event: IpcMainInvokeEvent, sourceId: string, attachmentId: string): void {
+    const ownerId = windows.ownerWindowId(event.sender)
+    if (ownerId !== null) windows.sendToSession(ownerId, 'research:highlights:changed', { sourceId, attachmentId })
+  }
+
+  handle('research:highlights:list', ({ sourceId, attachmentId }, event) =>
+    requireSession(event).pdfHighlights.listForAttachment(sourceId, attachmentId)
+  )
+  handle('research:highlights:save', async ({ sourceId, attachmentId, highlight }, event) => {
+    const saved = await requireSession(event).pdfHighlights.save(sourceId, attachmentId, highlight)
+    researchHighlightChanged(event, sourceId, attachmentId)
+    return saved
+  })
+  handle('research:highlights:delete', async ({ sourceId, attachmentId, id }, event) => {
+    await requireSession(event).pdfHighlights.remove(sourceId, attachmentId, id)
+    researchHighlightChanged(event, sourceId, attachmentId)
+    return { ok: true as const }
   })
 
   handle('ai:list', (_payload, event) => requireSession(event).chats.snapshot())

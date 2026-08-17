@@ -19,6 +19,7 @@ import { LayoutService } from './layoutService.js'
 import { EntityService } from './entityService.js'
 import { NoteService } from './noteService.js'
 import { HighlightService } from './highlightService.js'
+import { PdfHighlightService } from './pdfHighlightService.js'
 import { BeatService } from './beatService.js'
 import { MapService } from './mapService.js'
 import { SourceService } from './sourceService.js'
@@ -30,6 +31,7 @@ import { MentionService } from './mentionService.js'
 import { ReviewService } from './reviewService.js'
 import { PresenceService } from './presenceService.js'
 import { DocxService } from './docxService.js'
+import { EpubService } from './epubService.js'
 import { FountainService } from './fountainService.js'
 import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
 
@@ -68,6 +70,7 @@ export class ProjectSession {
   readonly entities: EntityService
   readonly notes: NoteService
   readonly highlights: HighlightService
+  readonly pdfHighlights: PdfHighlightService
   readonly beats: BeatService
   readonly maps: MapService
   readonly sources: SourceService
@@ -79,6 +82,7 @@ export class ProjectSession {
   readonly reviews: ReviewService
   readonly presence: PresenceService
   readonly docx: DocxService
+  readonly epub: EpubService
   readonly fountain: FountainService
   /**
    * The opaque name asset URLs know this project by.
@@ -116,6 +120,7 @@ export class ProjectSession {
     this.entities = new EntityService(adapter)
     this.notes = new NoteService(adapter)
     this.highlights = new HighlightService(adapter)
+    this.pdfHighlights = new PdfHighlightService(adapter)
     this.beats = new BeatService(adapter)
     this.maps = new MapService(adapter)
     this.sources = new SourceService(adapter)
@@ -147,6 +152,7 @@ export class ProjectSession {
     this.reviews = new ReviewService(adapter, hooks.author)
     this.presence = new PresenceService(adapter, hooks.author)
     this.docx = new DocxService(adapter, this.documents, this.reviews)
+    this.epub = new EpubService(adapter, this.documents)
     this.fountain = new FountainService(adapter, this.documents)
   }
 

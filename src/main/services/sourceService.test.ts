@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { SourceService } from './sourceService.js'
+import { SourceService, attachmentDir, attachmentPdfPath, attachmentCapturePath } from './sourceService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
-import { SOURCES_FILE, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { SOURCES_FILE, FORMAT_VERSIONS, IGNORED_DIRS, RESEARCH_DIR } from '../../shared/constants.js'
 import { sourceFileSchema, type CslItem } from '../../shared/model/source.js'
+import { PUB_ATTACHMENTS_KEY } from '../../shared/model/research.js'
 
 let root: string
 let adapter: LocalAdapter
@@ -104,5 +105,82 @@ describe('SourceService.merge', () => {
     await sources.merge([book('a', 'Alpha')])
     const raw = JSON.parse(await fs.readFile(path.join(root, SOURCES_FILE), 'utf8'))
     expect(raw.formatVersion).toBe(FORMAT_VERSIONS.sources)
+  })
+})
+
+describe('SourceService attachments', () => {
+  it('resolves attachment paths under .thepub/research/<sourceId>/', () => {
+    expect(attachmentDir('src1')).toBe(`${RESEARCH_DIR}/src1`)
+    expect(attachmentPdfPath('src1', 'att1')).toBe(`${RESEARCH_DIR}/src1/att1.pdf`)
+    expect(attachmentCapturePath('src1', 'att1')).toBe(`${RESEARCH_DIR}/src1/att1.capture.json`)
+  })
+
+  it('writes a PDF attachment through the VfsAdapter and indexes it on the source', async () => {
+    const source = await sources.create('article-journal')
+    const bytes = Buffer.from('%PDF-1.4 fake bytes')
+    const attachment = await sources.addPdfAttachment(source.id, bytes, 'paper.pdf')
+
+    expect(attachment.kind).toBe('pdf')
+    const onDiskBytes = await fs.readFile(path.join(root, attachmentPdfPath(source.id, attachment.id)))
+    expect(onDiskBytes.equals(bytes)).toBe(true)
+
+    expect(sources.listAttachments(source.id)).toEqual([attachment])
+    const stored = (await onDisk()).find((item) => item.id === source.id) as unknown as Record<string, unknown>
+    expect(stored[PUB_ATTACHMENTS_KEY]).toEqual([attachment])
+  })
+
+  it('rides the attachment index in the catchall key so ordinary CSL fields are untouched', async () => {
+    const source = await sources.create('book')
+    await sources.save({ ...source, title: 'A Book' })
+    await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'scan.pdf')
+
+    const stored = (await onDisk()).find((item) => item.id === source.id)!
+    expect(stored.title).toBe('A Book')
+    expect(Object.keys(stored)).toContain(PUB_ATTACHMENTS_KEY)
+  })
+
+  it('writes a capture attachment and merges URL/accessed into the source', async () => {
+    const source = await sources.create('webpage')
+    const attachment = await sources.addCaptureAttachment(
+      source.id,
+      { url: 'https://example.com/a', title: 'A Page', text: 'body text', accessed: '2026-08-17' },
+      'https://example.com/a'
+    )
+
+    expect(attachment.kind).toBe('capture')
+    const capture = await sources.readCapture(source.id, attachment.id)
+    expect(capture.text).toBe('body text')
+
+    const stored = (await onDisk()).find((item) => item.id === source.id)!
+    expect(stored.URL).toBe('https://example.com/a')
+    expect(stored.accessed).toEqual({ 'date-parts': [[2026, 8, 17]] })
+  })
+
+  it('removes an attachment file and its index entry', async () => {
+    const source = await sources.create('book')
+    const attachment = await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'x.pdf')
+
+    await sources.removeAttachment(source.id, attachment.id)
+
+    expect(sources.listAttachments(source.id)).toEqual([])
+    await expect(fs.readFile(path.join(root, attachmentPdfPath(source.id, attachment.id)))).rejects.toThrow()
+  })
+
+  /*
+   * The load-bearing exclusion: `.thepub/research/` must never be walked by
+   * the search indexer or shown in the file tree, the same way
+   * `.thepub/notes/` and `.thepub/highlights/` already aren't. It rides the
+   * same mechanism — `IGNORED_DIRS`' `.thepub` prefix in `walk` — rather than
+   * a second, attachment-specific skip-list.
+   */
+  it('is excluded from adapter.walk the same way notes and highlights are', async () => {
+    const source = await sources.create('book')
+    await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'x.pdf')
+    await fs.mkdir(path.join(root, 'chapters'), { recursive: true })
+    await fs.writeFile(path.join(root, 'chapters/one.pubdoc'), '{}')
+
+    const files = await adapter.walk('', IGNORED_DIRS)
+    expect(files.some((entry) => entry.path.startsWith(RESEARCH_DIR))).toBe(false)
+    expect(files.some((entry) => entry.path.endsWith('one.pubdoc'))).toBe(true)
   })
 })

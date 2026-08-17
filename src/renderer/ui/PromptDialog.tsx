@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { TextInput, cx } from './primitives.js'
+import { useModalFocusTrap } from './useModalFocusTrap.js'
 
 /*
  * The replacement for the browser's native prompt(), which Electron does not
@@ -93,6 +94,8 @@ function PromptView({ pending: current }: { pending: PendingPrompt }) {
   const { request } = current
   const [value, setValue] = useState(request.defaultValue ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  useModalFocusTrap(formRef)
 
   const problem = request.validate ? request.validate(value.trim()) : null
   const usable = value.trim().length > 0 && !problem
@@ -115,6 +118,10 @@ function PromptView({ pending: current }: { pending: PendingPrompt }) {
       }}
     >
       <form
+        ref={formRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={request.title}
         data-testid="prompt-dialog"
         className="flex w-[22rem] flex-col gap-2 rounded border border-border bg-surface p-3"
         onSubmit={(event) => {

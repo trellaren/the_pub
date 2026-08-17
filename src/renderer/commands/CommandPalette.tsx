@@ -13,8 +13,14 @@ interface Entry {
   run: () => void
 }
 
-/** Command palette and quick-open, sharing one list UI. */
-export function CommandPalette({ mode, onClose }: { mode: 'commands' | 'files'; onClose: () => void }) {
+/** Command palette, quick-open and the panel picker, sharing one list UI. */
+export function CommandPalette({
+  mode,
+  onClose
+}: {
+  mode: 'commands' | 'files' | 'panels'
+  onClose: () => void
+}) {
   const [query, setQuery] = useState('')
   const [fileEntries, setFileEntries] = useState<Entry[]>([])
   const [index, setIndex] = useState(0)
@@ -30,6 +36,21 @@ export function CommandPalette({ mode, onClose }: { mode: 'commands' | 'files'; 
       })),
     []
   )
+
+  // The dock's currently open panels — "Focus panel…"'s list. Read fresh each
+  // time the palette opens in this mode rather than subscribed, since which
+  // panels are open does not change while the picker itself is up.
+  const panelEntries = useMemo<Entry[]>(() => {
+    if (mode !== 'panels') return []
+    return useLayoutStore
+      .getState()
+      .listOpenPanels()
+      .map((panel) => ({
+        id: panel.id,
+        label: panel.title,
+        run: () => useLayoutStore.getState().focusPanelById(panel.id)
+      }))
+  }, [mode])
 
   // Quick-open reuses the search index rather than walking the tree, so it stays
   // fast on a large project and matches what search already knows about.
@@ -65,10 +86,11 @@ export function CommandPalette({ mode, onClose }: { mode: 'commands' | 'files'; 
 
   const entries = useMemo(() => {
     if (mode === 'files') return fileEntries
+    const source = mode === 'panels' ? panelEntries : commandEntries
     const needle = query.trim().toLowerCase()
-    if (!needle) return commandEntries
-    return commandEntries.filter((entry) => entry.label.toLowerCase().includes(needle))
-  }, [mode, query, commandEntries, fileEntries])
+    if (!needle) return source
+    return source.filter((entry) => entry.label.toLowerCase().includes(needle))
+  }, [mode, query, commandEntries, fileEntries, panelEntries])
 
   useEffect(() => setIndex(0), [query, mode])
 
@@ -84,7 +106,9 @@ export function CommandPalette({ mode, onClose }: { mode: 'commands' | 'files'; 
         <input
           autoFocus
           value={query}
-          placeholder={mode === 'files' ? 'Go to document…' : 'Type a command…'}
+          placeholder={
+            mode === 'files' ? 'Go to document…' : mode === 'panels' ? 'Focus which panel?' : 'Type a command…'
+          }
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Escape') onClose()

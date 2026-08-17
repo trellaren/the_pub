@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   ConnectionProtocol,
@@ -9,6 +9,7 @@ import { defaultPort, projectUri, describeConnection } from '@shared/model/conne
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { Field, TextInput, Select, ToolbarButton, Checkbox, cx } from '@renderer/ui/primitives.js'
+import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 
 interface Draft {
   id?: string
@@ -266,9 +267,16 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     if (opened) onClose()
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocusTrap(dialogRef, onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Connect to a server"
         className="flex max-h-full w-[42rem] flex-col overflow-hidden rounded border border-border bg-surface"
         data-testid="connect-dialog"
       >

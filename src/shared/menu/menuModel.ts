@@ -149,6 +149,24 @@ export const MENU_MODEL: MenuTopLevel[] = [
       { kind: 'separator' },
       { kind: 'command', commandId: 'panel.explorer', label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E' },
       { kind: 'command', commandId: 'panel.search', label: 'Search' },
+      {
+        kind: 'command',
+        commandId: 'panel.focus',
+        label: 'Focus Panel…',
+        accelerator: 'CmdOrCtrl+K'
+      },
+      {
+        kind: 'command',
+        commandId: 'panel.cycle',
+        label: 'Cycle Panel Focus',
+        accelerator: 'CmdOrCtrl+Alt+]'
+      },
+      {
+        kind: 'command',
+        commandId: 'panel.cycleBack',
+        label: 'Cycle Panel Focus Backward',
+        accelerator: 'CmdOrCtrl+Alt+['
+      },
       // No fixed entries for record panels: which kinds a project offers is
       // project data (`manifest.entityKinds`), and this menu is built once,
       // with no access to whichever project is open — see `panel.records.*`

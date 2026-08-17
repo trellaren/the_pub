@@ -5,6 +5,7 @@ import { TextInput, cx } from '@renderer/ui/primitives.js'
 import { invoke, attempt, errorMessage, reportError } from '@renderer/lib/ipc.js'
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 import { useMapStore } from '@renderer/stores/mapStore.js'
+import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 
 interface PickedImage {
   name: string
@@ -37,6 +38,7 @@ export function NewMapDialog({
   const [picked, setPicked] = useState<PickedImage | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
 
   const pick = async (file: File): Promise<void> => {
     try {
@@ -81,6 +83,8 @@ export function NewMapDialog({
     }
   }
 
+  useModalFocusTrap(formRef)
+
   const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
@@ -89,6 +93,10 @@ export function NewMapDialog({
       }}
     >
       <form
+        ref={formRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New map"
         data-testid="new-map-dialog"
         className="flex w-[24rem] flex-col gap-2 rounded border border-border bg-surface p-3"
         onSubmit={(event) => {

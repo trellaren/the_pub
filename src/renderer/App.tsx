@@ -36,7 +36,7 @@ export function App() {
   const styles = useProjectStore((store) => store.project?.manifest.styles)
   const defaultStyleId = useProjectStore((store) => store.project?.manifest.settings.defaultStyleId)
   const entities = useEntityStore((store) => store.entities)
-  const [palette, setPalette] = useState<'hidden' | 'commands' | 'files'>('hidden')
+  const [palette, setPalette] = useState<'hidden' | 'commands' | 'files' | 'panels'>('hidden')
   // Here rather than in the Welcome panel, because a project can be created
   // from the menu and the palette with no Welcome panel on screen at all.
   const [newProject, setNewProject] = useState(false)
@@ -118,6 +118,24 @@ export function App() {
         run: () => setPalette('commands')
       }),
       registerCommand({ id: 'palette.quickOpen', title: 'Quick Open', run: () => setPalette('files') }),
+      registerCommand({
+        id: 'panel.focus',
+        title: 'Focus Panel…',
+        // Nothing to list without a dock, and the picker would just show
+        // "No matches".
+        isEnabled: () => useLayoutStore.getState().listOpenPanels().length > 0,
+        run: () => setPalette('panels')
+      }),
+      registerCommand({
+        id: 'panel.cycle',
+        title: 'Cycle Panel Focus',
+        run: () => useLayoutStore.getState().cyclePanelFocus()
+      }),
+      registerCommand({
+        id: 'panel.cycleBack',
+        title: 'Cycle Panel Focus Backward',
+        run: () => useLayoutStore.getState().cyclePanelFocus(true)
+      }),
       registerCommand({
         id: 'document.save',
         title: 'Save',

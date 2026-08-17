@@ -3,7 +3,7 @@ import type { DockviewApi, IDockviewPanel } from 'dockview-react'
 import type { LayoutPreset, DockLayout } from '@shared/model/layout.js'
 import { LAYOUT_SAVE_DEBOUNCE_MS } from '@shared/constants.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
-import { registerDocument, unregisterDocument } from '@renderer/lib/documents.js'
+import { registerDocument, unregisterDocument, allDocuments } from '@renderer/lib/documents.js'
 import { useProjectStore } from './projectStore.js'
 
 export const EDITOR_PANEL_PREFIX = 'editor:'
@@ -26,6 +26,12 @@ interface LayoutStore {
   setApi: (api: DockviewApi) => void
   openEditor: (docId: string, path: string, title: string) => void
   showPanel: (component: PanelComponent, title: string, options?: ShowPanelOptions) => void
+  /** Every open panel, main window and popouts alike, in tab order — for the "Focus panel…" command. */
+  listOpenPanels: () => { id: string; title: string }[]
+  /** Activate a panel by id and move DOM focus into it, wherever its window is. */
+  focusPanelById: (id: string) => void
+  /** The documented cycle key: step focus to the next (or previous) open panel. */
+  cyclePanelFocus: (reverse?: boolean) => void
   popoutActiveGroup: () => void
   savePreset: (name: string) => Promise<void>
   applyPreset: (id: string) => void
@@ -121,6 +127,38 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     api.getPanel(id)?.api.setActive()
   },
 
+  listOpenPanels: () => {
+    const api = get().api
+    if (!api) return []
+    return api.panels.map((panel) => ({ id: panel.id, title: panel.title ?? panel.id }))
+  },
+
+  focusPanelById: (id) => {
+    const api = get().api
+    const panel = api?.getPanel(id)
+    if (!panel) return
+    panel.api.setActive()
+    focusPanelDom(id)
+  },
+
+  /**
+   * Delegates to dockview's own `activateNext`/`activatePrevious` (spans
+   * groups, including popped-out ones, since they share this one
+   * `DockviewApi`) rather than re-deriving panel order, then explicitly moves
+   * DOM focus — `activate*` alone updates which panel is active without
+   * guaranteeing the keyboard follows it, and `IDockviewPanel.focus()` only
+   * fires a `WillFocus` event for the panel's own component to act on, which
+   * none of ours do.
+   */
+  cyclePanelFocus: (reverse) => {
+    const api = get().api
+    if (!api) return
+    if (reverse) api.activatePrevious({ includePanel: true })
+    else api.activateNext({ includePanel: true })
+    const active = api.activePanel
+    if (active) focusPanelDom(active.id)
+  },
+
   popoutActiveGroup: () => {
     const api = get().api
     const group = api?.activeGroup
@@ -166,6 +204,29 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     if (api) buildDefaultLayout(api)
   }
 }))
+
+/**
+ * Move real DOM focus into a panel's content.
+ *
+ * dockview's `dv-tab` elements carry `data-tab-panel-id` and `aria-controls`
+ * pointing at their `[role="tabpanel"]` content container, which is itself
+ * focusable (`tabIndex="-1"`, meant for exactly this) — that indirection
+ * finds the right element without depending on any panel component
+ * cooperating. Searched across every known `Document` (`allDocuments()`,
+ * see `lib/documents.ts`) rather than just `window.document`, because a
+ * panel torn out into its own OS window lives in a different one.
+ */
+function focusPanelDom(panelId: string): void {
+  for (const doc of allDocuments()) {
+    const tab = doc.querySelector<HTMLElement>(`[data-tab-panel-id="${panelId}"]`)
+    const contentId = tab?.getAttribute('aria-controls')
+    const content = contentId ? doc.getElementById(contentId) : null
+    if (content) {
+      content.focus()
+      return
+    }
+  }
+}
 
 /** Where a newly opened document should go: alongside the documents already open. */
 function editorGroupPanel(api: DockviewApi): IDockviewPanel | undefined {

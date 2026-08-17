@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { invoke, attempt, reportNotice } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { projectTypes, type ProjectType } from '@shared/model/manifest.js'
@@ -11,6 +11,7 @@ import {
   SectionTitle,
   ToolbarButton
 } from '@renderer/ui/primitives.js'
+import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 
 /** The opt-in parts of a project, other than the documents. */
 const PARTS = [
@@ -80,9 +81,16 @@ export function SaveAsTemplateDialog({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocusTrap(dialogRef, onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Save project as template"
         className="flex max-h-full w-[34rem] flex-col overflow-hidden rounded border border-border bg-surface"
         data-testid="save-template-dialog"
       >

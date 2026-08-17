@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { TemplateSummary } from '@shared/model/template.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { Field, TextInput, ToolbarButton, cx } from '@renderer/ui/primitives.js'
+import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 
 /**
  * Pick a template, name the project, choose where it goes.
@@ -27,6 +28,9 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
     })()
   }, [])
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocusTrap(dialogRef, onClose)
+
   const template = templates.find((candidate) => candidate.id === selected) ?? null
 
   async function create(): Promise<void> {
@@ -43,6 +47,10 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New project"
         className="flex max-h-full w-[34rem] flex-col overflow-hidden rounded border border-border bg-surface"
         data-testid="new-project-dialog"
       >

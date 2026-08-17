@@ -42,6 +42,9 @@ interface PubTestHook {
         options?: { panelId?: string; params?: Record<string, unknown> }
       ) => void
       popoutActiveGroup: () => void
+      listOpenPanels: () => { id: string; title: string }[]
+      focusPanelById: (id: string) => void
+      cyclePanelFocus: (reverse?: boolean) => void
       api: {
         panels: { id: string }[]
         getPanel: (id: string) => { group: { id: string; api: { width: number } } } | undefined

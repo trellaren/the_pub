@@ -33,6 +33,7 @@
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@electron/asar": "^3.4.1",
     "@playwright/test": "^1.56.0",
     "@radix-ui/react-context-menu": "^2.2.15",

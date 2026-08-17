@@ -213,6 +213,24 @@ export const ipcContract = defineContract({
       res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
     },
 
+    /** Mirrors `docx:export`/`docx:exportDialog` exactly — same `paths`/`items` stream, EPUB output. */
+    'epub:export': {
+      req: z
+        .object({ paths: z.array(z.string()).default([]), items: z.array(exportItemSchema).default([]), file: z.string() })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
+      res: z.object({ ok: z.literal(true), file: z.string() })
+    },
+    'epub:exportDialog': {
+      req: z
+        .object({
+          paths: z.array(z.string()).default([]),
+          items: z.array(exportItemSchema).default([]),
+          suggestedName: z.string().optional()
+        })
+        .refine((value) => value.paths.length > 0 || value.items.length > 0, { message: 'Nothing to export' }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+
     /**
      * One document at a time, unlike `docx:export`'s `paths`/`items` stream —
      * a screenplay is conventionally a single continuous script, so there is

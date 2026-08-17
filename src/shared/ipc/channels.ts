@@ -36,6 +36,8 @@ export const INVOKE_CHANNELS = [
   'docx:importDialog',
   'docx:export',
   'docx:exportDialog',
+  'epub:export',
+  'epub:exportDialog',
   'fountain:import',
   'fountain:importDialog',
   'fountain:export',

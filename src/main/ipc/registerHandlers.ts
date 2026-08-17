@@ -527,6 +527,26 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const, file: picked.filePath }
   })
 
+  handle('epub:export', async ({ paths, items, file }, event) => {
+    const session = requireSession(event)
+    await session.epub.export(resolveExportItems(paths, items), file, session.manifest)
+    return { ok: true as const, file }
+  })
+
+  handle('epub:exportDialog', async ({ paths, items, suggestedName }, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const suggested = `${suggestedName ?? defaultExportName(paths)}.epub`
+    const picked = await dialog.showSaveDialog(window!, {
+      title: 'Export to EPUB',
+      defaultPath: suggested,
+      filters: [{ name: 'EPUB', extensions: ['epub'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await session.epub.export(resolveExportItems(paths, items), picked.filePath, session.manifest)
+    return { ok: true as const, file: picked.filePath }
+  })
+
   /** Mirrors `importDocxFiles` — see its own comment. */
   const importFountainFiles = async (
     session: ProjectSession,

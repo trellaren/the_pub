@@ -12,6 +12,7 @@ declare module '@tiptap/core' {
       setFirstLineIndent: (value: number | null) => ReturnType
       indent: () => ReturnType
       outdent: () => ReturnType
+      setParagraphDir: (dir: 'rtl' | 'ltr' | null) => ReturnType
       clearParagraphFormat: () => ReturnType
     }
   }
@@ -58,6 +59,16 @@ export const ParagraphFormat = Extension.create({
           spaceBefore: pointAttribute('margin-top', 'space-before'),
           spaceAfter: pointAttribute('margin-bottom', 'space-after'),
           firstLineIndent: pointAttribute('text-indent', 'first-line-indent'),
+          // Only `rtl` is ever written explicitly — `ltr` is the HTML default,
+          // so storing `null` for it keeps documents that never touch direction
+          // free of a `dir` attribute entirely.
+          dir: {
+            default: null as 'rtl' | null,
+            parseHTML: (element: HTMLElement): 'rtl' | null =>
+              element.getAttribute('dir') === 'rtl' ? 'rtl' : null,
+            renderHTML: (attributes: Record<string, unknown>): Record<string, string> =>
+              attributes.dir === 'rtl' ? { dir: 'rtl' } : {}
+          },
           lineHeight: {
             default: null as number | null,
             parseHTML: (element: HTMLElement): number | null => {
@@ -112,6 +123,32 @@ export const ParagraphFormat = Extension.create({
       setFirstLineIndent: setOnBlocks('firstLineIndent'),
       indent: shiftIndent(1),
       outdent: shiftIndent(-1),
+      // Direction and alignment are coupled: a `left`/`right` alignment set
+      // while a paragraph was LTR means nothing once the paragraph flips to
+      // RTL — the physical side it named may now be the trailing edge, not
+      // the leading one. Converting to the logical equivalent on toggle is
+      // what keeps `left` meaning "the start" rather than quietly becoming
+      // wrong the moment `dir` changes.
+      setParagraphDir:
+        (dir: 'rtl' | 'ltr' | null) =>
+        ({ editor, commands }: CommandProps): boolean => {
+          const value = dir === 'rtl' ? 'rtl' : null
+          const currentAlign = (editor.getAttributes('paragraph').textAlign ??
+            editor.getAttributes('heading').textAlign ??
+            null) as string | null
+          const remap: Record<string, string> = value
+            ? { left: 'start', right: 'end' }
+            : { start: 'left', end: 'right' }
+          const nextAlign = currentAlign && remap[currentAlign] ? remap[currentAlign] : currentAlign
+
+          const dirOk =
+            commands.updateAttributes('paragraph', { dir: value }) ||
+            commands.updateAttributes('heading', { dir: value })
+          if (nextAlign && nextAlign !== currentAlign) {
+            editor.chain().setTextAlign(nextAlign).run()
+          }
+          return dirOk
+        },
       clearParagraphFormat:
         () =>
         ({ commands }) => {

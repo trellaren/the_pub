@@ -65,6 +65,7 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
 
   const isHeading = editor.isActive('heading')
   const blockAttributes = isHeading ? editor.getAttributes('heading') : editor.getAttributes('paragraph')
+  const isRtlParagraph = blockAttributes.dir === 'rtl'
   // A block with no style of its own is still rendered with one, so the picker
   // shows that effective style rather than sitting blank.
   const currentStyleId =
@@ -307,16 +308,33 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
 
       <Divider />
 
-      {(['left', 'center', 'right', 'justify'] as const).map((alignment) => (
+      {(isRtlParagraph
+        ? (['start', 'center', 'end', 'justify'] as const)
+        : (['left', 'center', 'right', 'justify'] as const)
+      ).map((alignment) => (
         <ToolbarButton
           key={alignment}
-          label={`Align ${alignment}`}
+          label={`Align ${ALIGN_LABELS[alignment]}`}
           active={editor.isActive({ textAlign: alignment })}
           onClick={() => editor.chain().focus().setTextAlign(alignment).run()}
         >
           {ALIGN_GLYPHS[alignment]}
         </ToolbarButton>
       ))}
+
+      <ToolbarButton
+        label="Right-to-left paragraph"
+        active={isRtlParagraph}
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .setParagraphDir(isRtlParagraph ? 'ltr' : 'rtl')
+            .run()
+        }
+      >
+        ⇄
+      </ToolbarButton>
 
       <ToolbarButton label="Decrease indent" onClick={() => editor.chain().focus().outdent().run()}>
         ⇤
@@ -440,7 +458,26 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   )
 }
 
-const ALIGN_GLYPHS = { left: '⬅', center: '↔', right: '➡', justify: '☰' } as const
+// The `start`/`end` glyphs mirror `left`/`right`'s so an RTL paragraph's
+// toolbar reads the same shape, just naming the logical rather than the
+// physical side (the plan's "mirror the toolbar's alignment icons for RTL").
+const ALIGN_GLYPHS = {
+  left: '⬅',
+  center: '↔',
+  right: '➡',
+  justify: '☰',
+  start: '➡',
+  end: '⬅'
+} as const
+
+const ALIGN_LABELS = {
+  left: 'left',
+  center: 'center',
+  right: 'right',
+  justify: 'justify',
+  start: 'start',
+  end: 'end'
+} as const
 
 function parseSize(value: unknown): string {
   if (typeof value !== 'string') return ''

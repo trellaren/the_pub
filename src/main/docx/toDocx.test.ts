@@ -459,6 +459,24 @@ describe('round trip', () => {
     expect(frenchNode?.marks).toEqual(expect.arrayContaining([{ type: 'lang', attrs: { lang: 'fr' } }]))
   })
 
+  it('writes an RTL paragraph’s logical alignment as w:bidi + start/end, and reads it back (Phase 14)', async () => {
+    const withRtlParagraph = doc(
+      para('Plain LTR paragraph.', { textAlign: 'left' }),
+      para('פסקה בעברית', { dir: 'rtl', textAlign: 'start' })
+    )
+    const xml = await documentXml(withRtlParagraph)
+    const [, rtlPara] = xml.split('<w:p>').slice(1)
+    expect(rtlPara).toContain('<w:bidi/>')
+    expect(rtlPara).toContain('w:jc w:val="start"')
+
+    const back = importDocx(new Uint8Array(await write(withRtlParagraph)))
+    const [ltrBlock, rtlBlock] = back.content.content ?? []
+    expect(ltrBlock?.attrs?.dir).toBeUndefined()
+    expect(ltrBlock?.attrs?.textAlign).toBe('left')
+    expect(rtlBlock?.attrs?.dir).toBe('rtl')
+    expect(rtlBlock?.attrs?.textAlign).toBe('start')
+  })
+
   it('writes the export-wide default language onto the file styles, not individual runs', async () => {
     const buffer = await exportDocx({
       documents: [{ title: 'One', content: doc(para('Bonjour.')) }],

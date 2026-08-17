@@ -29,6 +29,7 @@ import { Citation } from './extensions/citation.js'
 import { HeadingNumbers } from './extensions/headingNumbers.js'
 import { SceneHeading } from './extensions/sceneHeading.js'
 import { Lang } from './extensions/lang.js'
+import { EscapeFocus } from './extensions/escapeFocus.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -87,7 +88,13 @@ export function createEditor(options: CreateEditorOptions): Editor {
       HighlightId.configure({ multicolor: true }),
       Subscript,
       Superscript,
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      // `start`/`end` are the RTL-safe alignments `paragraphFormat.ts`'s
+      // `setParagraphDir` swaps `left`/`right` into when a paragraph's
+      // direction changes.
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+        alignments: ['left', 'center', 'right', 'justify', 'start', 'end']
+      }),
       TableKit.configure({ table: { resizable: true } }),
       Image.configure({ inline: false, allowBase64: false }),
       CharacterCount,
@@ -107,7 +114,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       Field,
       Footnote,
       Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId }),
-      Lang
+      Lang,
+      EscapeFocus
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any

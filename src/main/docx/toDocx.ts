@@ -256,7 +256,11 @@ const ALIGNMENTS = {
   left: AlignmentType.LEFT,
   center: AlignmentType.CENTER,
   right: AlignmentType.RIGHT,
-  justify: AlignmentType.JUSTIFIED
+  justify: AlignmentType.JUSTIFIED,
+  // Logical alignments, used by RTL paragraphs so `start`/`end` follow
+  // reading direction rather than a fixed physical side.
+  start: AlignmentType.START,
+  end: AlignmentType.END
 } as const
 
 const HEADINGS = [
@@ -398,6 +402,10 @@ function paragraphToDocx(
   const direct: Record<string, unknown> = {}
   const align = typeof attrs.textAlign === 'string' ? attrs.textAlign : null
   if (align && align in ALIGNMENTS) direct.alignment = ALIGNMENTS[align as keyof typeof ALIGNMENTS]
+  // `w:bidi` is what makes Word render and edit the paragraph right-to-left;
+  // without it a `start`/`end` alignment is ambiguous and Word falls back to
+  // treating the paragraph as LTR regardless of the text it contains.
+  if (attrs.dir === 'rtl') direct.bidirectional = true
 
   const spacing: Record<string, unknown> = {}
   const before = numberAttr(attrs.spaceBefore)

@@ -10,6 +10,7 @@ import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { noteSchema } from '../model/note.js'
+import { dayStatSchema } from '../model/stats.js'
 import { highlightSchema } from '../model/highlight.js'
 import { assembledThreadSchema, reviewThreadSchema, reviewReplySchema } from '../model/review.js'
 import { authorProfileSchema } from '../model/author.js'
@@ -113,6 +114,10 @@ export const ipcContract = defineContract({
     'app:setAiEnabled': { req: z.object({ enabled: z.boolean() }), res: appStateSchema },
     'app:setEmbeddedIdleMinutes': {
       req: z.object({ minutes: z.number().int().min(0).max(240) }),
+      res: appStateSchema
+    },
+    'app:setStatsIdleTimeoutMinutes': {
+      req: z.object({ minutes: z.number().int().min(1).max(60) }),
       res: appStateSchema
     },
 
@@ -365,6 +370,23 @@ export const ipcContract = defineContract({
     },
     'notes:save': { req: z.object({ docId: z.string(), note: noteSchema }), res: noteSchema },
     'notes:delete': { req: z.object({ docId: z.string(), noteId: z.string() }), res: ok },
+
+    'stats:list': { req: z.object({}), res: z.array(dayStatSchema) },
+    'stats:exportCsv': {
+      req: z.object({ csv: z.string() }),
+      res: z.object({ ok: z.literal(true), file: z.string() }).nullable()
+    },
+    'stats:record': {
+      req: z.object({
+        date: z.string(),
+        docId: z.string(),
+        added: z.number().int(),
+        removed: z.number().int(),
+        net: z.number().int(),
+        minutes: z.number().int()
+      }),
+      res: ok
+    },
 
     'highlights:list': { req: z.object({ docId: z.string() }), res: z.array(highlightSchema) },
     'highlights:collect': {
@@ -776,6 +798,8 @@ export const ipcContract = defineContract({
      * came from a notes action, but not when it came from saving the document.
      */
     'notes:changed': z.object({ docId: z.string() }),
+    /** This author's own stats were flushed to disk — refresh the Progress panel. */
+    'stats:changed': z.object({}),
     'highlights:changed': z.object({ docId: z.string() }),
     'research:highlights:changed': z.object({ sourceId: z.string(), attachmentId: z.string() }),
 

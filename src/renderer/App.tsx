@@ -12,6 +12,7 @@ import { useHighlightStore } from './stores/highlightStore.js'
 import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
+import { useStatsStore } from './stores/statsStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
@@ -54,6 +55,7 @@ export function App() {
     void useMapStore.getState().load()
     void useChatStore.getState().load()
     void useSourceStore.getState().load()
+    void useStatsStore.getState().load()
   }, [project?.root])
 
   useEffect(() => {
@@ -191,7 +193,8 @@ export function App() {
         useBeatStore.getState().flush(),
         useMapStore.getState().flush(),
         useSourceStore.getState().flush(),
-        useHighlightStore.getState().flush()
+        useHighlightStore.getState().flush(),
+        useStatsStore.getState().flush()
       ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])

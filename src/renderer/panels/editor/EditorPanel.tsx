@@ -9,6 +9,8 @@ import { RichToolbar } from './RichToolbar.js'
 import { FindReplaceBar } from './FindReplaceBar.js'
 import { EndnotesRegion } from './EndnotesRegion.js'
 import { wordCount } from './editorActions.js'
+import { useStatsStore } from '@renderer/stores/statsStore.js'
+import { localDayKey } from '@renderer/stats/session.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { currentSources } from '@renderer/stores/sourceStore.js'
 import { DiffView } from '../history/DiffView.js'
@@ -239,6 +241,8 @@ function StatusBar({ docId }: { docId: string }) {
   const state = useDocumentStore((store) => store.docs[docId])
   const [words, setWords] = useState(0)
   const editor = getEditor(docId)
+  const goals = useProjectStore((store) => store.project?.manifest.goals)
+  const todayStat = useStatsStore((store) => store.days.find((day) => day.date === localDayKey(new Date())))
 
   useEffect(() => {
     if (!editor) return
@@ -262,6 +266,11 @@ function StatusBar({ docId }: { docId: string }) {
         {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
       </span>
       <span className="tabular-nums">{words.toLocaleString()} words</span>
+      {goals && goals.dailyTarget > 0 ? (
+        <span className="tabular-nums text-faint" title="Today's writing, against the daily target">
+          {todayStat?.added ?? 0} / {goals.dailyTarget} today
+        </span>
+      ) : null}
     </div>
   )
 }

@@ -69,7 +69,8 @@ export const THEME_OPTIONS = [
   { value: 'ocean', label: 'Ocean' },
   { value: 'red', label: 'Red' },
   { value: 'scottish-highlands', label: 'Scottish Highlands' },
-  { value: 'tokyo', label: 'Tokyo' }
+  { value: 'tokyo', label: 'Tokyo' },
+  { value: 'high-contrast', label: 'High Contrast' }
 ] as const
 
 const THEME_IDS = [
@@ -84,7 +85,8 @@ const THEME_IDS = [
   'ocean',
   'red',
   'scottish-highlands',
-  'tokyo'
+  'tokyo',
+  'high-contrast'
 ] as const
 
 const CITATION_STYLE_OPTIONS = [
@@ -141,6 +143,17 @@ export const SETTING_DEFS = [
       'An embedded model holds gigabytes of memory while it is loaded. Zero keeps it loaded until the app quits.',
     schema: z.number().int().min(0).max(240).default(10),
     control: { kind: 'number', step: 5 }
+  },
+  {
+    key: 'app.stats.idleTimeoutMinutes',
+    storageKey: 'statsIdleTimeoutMinutes',
+    scope: 'app',
+    group: 'Writing stats',
+    title: 'Idle timeout for active minutes (minutes)',
+    description:
+      'How long without typing before a writing session is considered over. Active minutes are the sum of sessions, so leaving the app open does not count as writing.',
+    schema: z.number().int().min(1).max(60).default(5),
+    control: { kind: 'number', step: 1 }
   },
   {
     key: 'project.autosave.debounceMs',

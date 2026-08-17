@@ -122,6 +122,12 @@ export class AppStateService {
     return this.state
   }
 
+  setStatsIdleTimeoutMinutes(statsIdleTimeoutMinutes: number): AppState {
+    this.state = { ...this.state, statsIdleTimeoutMinutes }
+    this.persist()
+    return this.state
+  }
+
   /**
    * Rebind a command, or (with `null`) put it back to its default.
    *

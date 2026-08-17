@@ -2,11 +2,13 @@ import { create } from 'zustand'
 import type { Editor } from '@tiptap/core'
 import type { PubDocument, PmDoc } from '@shared/model/document.js'
 import { AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '@shared/constants.js'
+import { countWords } from '@shared/pm/extractText.js'
 import { invoke, attempt, reportError, errorMessage } from '@renderer/lib/ipc.js'
 import { createEditor } from '@renderer/panels/editor/createEditor.js'
 import { useProjectStore, currentStyles } from './projectStore.js'
 import { currentEntities } from './entityStore.js'
 import { currentSources } from './sourceStore.js'
+import { useStatsStore } from './statsStore.js'
 
 export interface OpenDocument {
   docId: string
@@ -103,6 +105,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       getCitationStyleId: () =>
         useProjectStore.getState().project?.manifest.settings.citationStyleId ?? 'chicago-author-date',
       getLocations: () => currentEntities().filter((entity) => entity.kind === 'location'),
+      lang: doc.lang ?? useProjectStore.getState().project?.manifest.publication.language,
       onUpdate: () => {
         const state = get().docs[doc.docId]
         if (!state) return
@@ -195,6 +198,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       patch(docId, { saving: true, dirty: false })
 
       const content = editor.getJSON() as PmDoc
+      const wordsBefore = countWords(state.envelope.content)
       const envelope: PubDocument = { ...state.envelope, content }
       try {
         const result = await invoke('doc:write', {
@@ -204,6 +208,11 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         })
         if (result.ok) {
           patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false })
+          // Suggested-edit marks count as-if-accepted here too, since
+          // `countWords` walks through `extractPlainText`, the one
+          // text-walking implementation — same reasoning as the plan's
+          // "one definition of how long is this manuscript".
+          void useStatsStore.getState().recordChange(docId, wordsBefore, countWords(content))
         } else if (result.reason === 'conflict') {
           // Someone else wrote the file. Keep the buffer dirty so nothing is lost
           // and let the writer choose.

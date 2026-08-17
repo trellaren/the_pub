@@ -4,8 +4,8 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 6,
-  manifest: 7, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block
+  document: 8, // 7 = Phase 11 highlightId attr (previously unbumped), 8 = Phase 14 lang mark/attr
+  manifest: 8, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block, 8 = Phase 13 goals
   manuscript: 1,
   entities: 1,
   beats: 1,
@@ -19,7 +19,8 @@ export const FORMAT_VERSIONS = {
   reviews: 1,
   presence: 1,
   highlights: 1,
-  pdfHighlights: 1
+  pdfHighlights: 1,
+  stats: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 
@@ -70,6 +71,12 @@ export const RESEARCH_DIR = `${PUB_DIR}/research`
 export const SOURCES_FILE = `${PUB_DIR}/sources.json`
 /** Who has worked on this project: id, display name and colour. */
 export const AUTHORS_FILE = `${PUB_DIR}/authors.json`
+/**
+ * Daily writing rollups, one file per author: `stats/<authorId>.json`. Single
+ * writer by construction, same reasoning as `REVIEWS_DIR` — two people's
+ * writing days must not race on one file. See `docs/phase-13-plan.md`.
+ */
+export const STATS_DIR = `${PUB_DIR}/stats`
 /**
  * Review comments, one file per (document, author): `reviews/<docId>/<authorId>.json`.
  *
@@ -135,6 +142,14 @@ export const BEAT_SAVE_DEBOUNCE_MS = 600
 export const MAP_SAVE_DEBOUNCE_MS = 800
 /** A note's body is edited the same write-through way; same reasoning. */
 export const NOTE_SAVE_DEBOUNCE_MS = 600
+/**
+ * Word-count deltas accumulate in memory (see `statsService.ts`) and flush to
+ * disk on this debounce, not per edit — a day of writing should cost a
+ * handful of writes, not one per keystroke.
+ */
+export const STATS_SAVE_DEBOUNCE_MS = 5000
+/** How long since the last edit before an active writing session is considered over. */
+export const STATS_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
  * Shortest name or alias the scanner will look for. A character called "Al"

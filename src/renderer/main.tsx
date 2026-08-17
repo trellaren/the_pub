@@ -14,6 +14,7 @@ import { useNoteStore } from './stores/noteStore.js'
 import { useHighlightStore } from './stores/highlightStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
 import { useResearchStore } from './stores/researchStore.js'
+import { useStatsStore } from './stores/statsStore.js'
 import { confirmMentionHere } from './panels/editor/mentionActions.js'
 import { citeFromPdfHighlight, citationPlacement, refreshCitations } from './panels/editor/citationActions.js'
 import { getEditor } from './stores/documentStore.js'
@@ -47,6 +48,7 @@ Object.assign(window, {
     highlights: useHighlightStore,
     sources: useSourceStore,
     research: useResearchStore,
+    stats: useStatsStore,
     confirmMention: confirmMentionHere,
     openLocation,
     getEditor,

@@ -8,7 +8,7 @@ import {
 } from '../../shared/model/document.js'
 import { countWords } from '../../shared/pm/extractText.js'
 import { migrate } from '../../shared/model/migrate.js'
-import { FORMAT_VERSION, FORMAT_VERSIONS, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
+import { FORMAT_VERSIONS, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
 import type { SnapshotService } from './snapshotService.js'
 
@@ -41,7 +41,7 @@ export class DocumentService {
     if (existing) throw new Error(`A file already exists at ${finalPath}`)
     const now = new Date().toISOString()
     const doc: PubDocument = {
-      formatVersion: FORMAT_VERSION,
+      formatVersion: FORMAT_VERSIONS.document,
       docId: ulid(),
       title: title ?? basename(finalPath).replace(new RegExp(`${DOC_EXT}$`), ''),
       created: now,
@@ -97,7 +97,7 @@ export class DocumentService {
 
     const doc: PubDocument = {
       ...incoming,
-      formatVersion: FORMAT_VERSION,
+      formatVersion: FORMAT_VERSIONS.document,
       modified: new Date().toISOString(),
       wordCount: countWords(incoming.content)
     }

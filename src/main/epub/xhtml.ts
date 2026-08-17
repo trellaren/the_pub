@@ -185,6 +185,11 @@ function wrapMarks(text: string, marks: PmMark[] | undefined): string {
         if (href) html = `<a href="${escapeXml(href)}">${html}</a>`
         break
       }
+      case 'lang': {
+        const lang = stringAttr(mark.attrs?.lang)
+        if (lang) html = `<span lang="${escapeXml(lang)}">${html}</span>`
+        break
+      }
       // 'mention', 'insertion', 'deletion': see doc comment above.
       default:
         break
@@ -261,5 +266,6 @@ export const XHTML_MARK_TYPES = new Set([
   'superscript',
   'mention',
   'insertion',
-  'deletion'
+  'deletion',
+  'lang'
 ])

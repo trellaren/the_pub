@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../constants.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 /**
  * A section's page geometry. Envelope-level, like `sections` itself — see
@@ -85,7 +85,7 @@ export type Section = z.infer<typeof sectionSchema>
  * survive a rename or move.
  */
 export const pubDocumentSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.document),
   docId: z.string(),
   title: z.string(),
   created: z.string(),
@@ -93,7 +93,16 @@ export const pubDocumentSchema = z.object({
   wordCount: z.number().int().default(0),
   content: pmDocSchema,
   /** Absent means the project's default page setup (`manifest.settings`) and no headers or footers. */
-  sections: z.array(sectionSchema).optional()
+  sections: z.array(sectionSchema).optional(),
+  /**
+   * BCP-47 language tag for the whole document, e.g. `en-US` or `he`. Lives on
+   * the envelope, not in the ProseMirror content, for the same reason
+   * `sections` does: it must not be seen as body text by find/replace, word
+   * count, the diff or the mention scanner. Drives the editor's `lang`
+   * attribute, the spellchecker, and DOCX `w:lang` on export. Absent means the
+   * project's default (`manifest.publication.language`), then the OS default.
+   */
+  lang: z.string().optional()
 })
 export type PubDocument = z.infer<typeof pubDocumentSchema>
 

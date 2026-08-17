@@ -139,6 +139,7 @@ export class DocxService {
     // what makes a document's own page setup and headers/footers win over
     // the project default once an author has actually set one.
     let firstSection: Section | undefined
+    let firstLang: string | undefined
     for (const item of items) {
       if (item.kind === 'heading') {
         documents.push({
@@ -150,6 +151,7 @@ export class DocxService {
       const loaded = await this.documents.read(item.path)
       documents.push({ title: loaded.doc.title, content: loaded.doc.content })
       if (!firstSection) firstSection = loaded.doc.sections?.[0]
+      if (!firstLang) firstLang = loaded.doc.lang
     }
 
     // Images are read up front: `exportDocx` resolves them synchronously,
@@ -172,7 +174,8 @@ export class DocxService {
           },
       header: firstSection?.header,
       footer: firstSection?.footer,
-      readImage: (src) => images.get(src) ?? null
+      readImage: (src) => images.get(src) ?? null,
+      lang: firstLang ?? manifest.publication.language
     })
 
     await fs.mkdir(path.dirname(file), { recursive: true })

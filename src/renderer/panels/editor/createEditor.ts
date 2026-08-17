@@ -28,6 +28,7 @@ import { Footnote } from './extensions/footnote.js'
 import { Citation } from './extensions/citation.js'
 import { HeadingNumbers } from './extensions/headingNumbers.js'
 import { SceneHeading } from './extensions/sceneHeading.js'
+import { Lang } from './extensions/lang.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -42,6 +43,14 @@ export interface CreateEditorOptions {
   getLocations: () => StoryEntity[]
   /** Who this person is when suggesting. Empty until they have an author id. */
   authorId?: string
+  /**
+   * BCP-47 language for the whole document (`PubDocument.lang`, falling back
+   * to the project's `publication.language`). Drives the editor root's `lang`
+   * attribute, which is what makes the OS spellchecker and screen readers
+   * treat the document's own text correctly — independent of any `lang` mark
+   * a passage carries for text in a *different* language than this.
+   */
+  lang?: string
   onUpdate: () => void
 }
 
@@ -97,7 +106,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       SuggestingMode.configure({ authorId: options.authorId ?? '', enabled: false }),
       Field,
       Footnote,
-      Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId })
+      Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId }),
+      Lang
     ],
     // ProseMirror *throws* on an unknown mark type rather than degrading, so
     // without this a document containing mentions would refuse to open in any
@@ -109,7 +119,10 @@ export function createEditor(options: CreateEditorOptions): Editor {
     editorProps: {
       attributes: {
         class: 'pub-prose',
-        spellcheck: 'true'
+        spellcheck: 'true',
+        role: 'textbox',
+        'aria-multiline': 'true',
+        ...(options.lang ? { lang: options.lang } : {})
       }
     },
     // Only handlers that actually exist are passed: TipTap installs no-op

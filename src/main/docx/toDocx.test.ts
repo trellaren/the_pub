@@ -443,6 +443,32 @@ describe('round trip', () => {
     expect(back.images).toHaveLength(1)
     expect(back.images[0]!.extension).toBe('png')
   })
+
+  it('carries a lang mark on a passage out and back (Phase 14)', async () => {
+    const withForeignPassage = doc(
+      { type: 'paragraph', content: [{ type: 'text', text: 'plain English' }] },
+      para('un peu de français', undefined, [{ type: 'lang', attrs: { lang: 'fr' } }])
+    )
+    const xml = await documentXml(withForeignPassage)
+    expect(xml).toContain('w:lang w:val="fr"')
+
+    const back = importDocx(new Uint8Array(await write(withForeignPassage)))
+    const frenchNode = back.content.content
+      ?.flatMap((block) => block.content ?? [])
+      .find((node) => node.text === 'un peu de français')
+    expect(frenchNode?.marks).toEqual(expect.arrayContaining([{ type: 'lang', attrs: { lang: 'fr' } }]))
+  })
+
+  it('writes the export-wide default language onto the file styles, not individual runs', async () => {
+    const buffer = await exportDocx({
+      documents: [{ title: 'One', content: doc(para('Bonjour.')) }],
+      styles: BUILTIN_STYLES,
+      page: PAGE,
+      lang: 'fr-FR'
+    })
+    const xml = strFromU8(unzipSync(new Uint8Array(buffer))['word/styles.xml']!)
+    expect(xml).toContain('w:lang w:val="fr-FR"')
+  })
 })
 
 describe('sections: page setup, headers and footers (Phase 7)', () => {
@@ -512,6 +538,7 @@ function everythingForSchemaCheck(): PmDoc {
   return doc(
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Heading' }] },
     para('text', undefined, [{ type: 'bold' }]),
+    para('texte', undefined, [{ type: 'lang', attrs: { lang: 'fr' } }]),
     { type: 'paragraph', content: [{ type: 'image', attrs: { src: 'x' } }, { type: 'hardBreak' }] },
     {
       type: 'paragraph',

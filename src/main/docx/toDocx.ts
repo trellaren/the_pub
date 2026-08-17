@@ -74,6 +74,13 @@ export interface ExportOptions {
   authors?: Record<string, string>
   /** Resolve an image `src` to bytes. Absent images are skipped, not fatal. */
   readImage?: (src: string) => { data: Uint8Array; type: 'png' | 'jpg' | 'gif' | 'bmp' } | null
+  /**
+   * BCP-47 language for the whole export (the document's own `lang`, or the
+   * project's `publication.language`), written as the file's default run
+   * language so Word spell-checks against it. A `lang` mark on a passage
+   * overrides this locally, the same way direct formatting overrides a style.
+   */
+  lang?: string
 }
 
 const BULLET_REFERENCE = 'pub-bullet'
@@ -113,7 +120,10 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
   const footer = options.footer ? new Footer({ children: headerFooterChildren(options.footer, options, state) }) : undefined
   const file = new Document({
     title: options.documents[0]?.title,
-    styles: { paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles)) },
+    styles: {
+      ...(options.lang ? { default: { document: { run: { language: { value: options.lang } } } } } : {}),
+      paragraphStyles: options.styles.map((style) => styleToDocx(style, options.styles))
+    },
     numbering: {
       config: [
         ...numberingConfig(),
@@ -585,6 +595,11 @@ function markProperties(marks: PmMark[] | undefined): IRunStylePropertiesOptions
         if (color) properties.shading = { fill: color }
         break
       }
+      case 'lang': {
+        const lang = stringAttr(mark.attrs?.lang)
+        if (lang) properties.language = { value: lang }
+        break
+      }
       case 'textStyle': {
         const font = stringAttr(mark.attrs?.fontFamily)
         if (font) properties.font = primaryFont(font)
@@ -677,5 +692,6 @@ export const EDITOR_MARK_TYPES = new Set([
   'mention',
   // Suggested edits round-trip as Word's own tracked changes; see `runsFor`.
   'insertion',
-  'deletion'
+  'deletion',
+  'lang'
 ])

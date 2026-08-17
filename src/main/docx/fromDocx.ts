@@ -583,6 +583,9 @@ function runMarks(properties: XmlNode | undefined): PmMark[] {
   if (color) textStyle.color = color
   if (Object.keys(textStyle).length > 0) marks.push({ type: 'textStyle', attrs: textStyle })
 
+  const lang = att(child(properties, 'w:lang'), 'w:val')
+  if (lang) marks.push({ type: 'lang', attrs: { lang } })
+
   return marks
 }
 

@@ -44,7 +44,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // mark. No v6 document's own shape changes — an existing highlight has no
     // id and stays that way until collected — so this exists only to carry
     // the version forward, for the reason the steps above already record.
-    { from: 6, to: 7, up: (raw) => raw }
+    { from: 6, to: 7, up: (raw) => raw },
+    // Phase 14 adds the `lang` mark and the envelope-level `lang` field.
+    // Absent `lang` already means "the project's default language", so no
+    // existing v7 document's own shape changes — only the version, for the
+    // reason every no-op step above already records.
+    { from: 7, to: 8, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in
@@ -75,7 +80,11 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // regardless, so nothing about the value changes — only the version, so
     // an older build doesn't silently re-save a v7 manifest as v6 and drop
     // publication metadata an author just entered.
-    { from: 6, to: 7, up: (raw) => raw }
+    { from: 6, to: 7, up: (raw) => raw },
+    // Phase 13 adds the `goals` block. The schema's own `prefault({})` fills
+    // it in regardless, so nothing about the value changes — only the
+    // version, for the same reason `publication` moved it above.
+    { from: 7, to: 8, up: (raw) => raw }
   ],
   manuscript: [],
   entities: [],
@@ -115,7 +124,8 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   reviews: [],
   presence: [],
   highlights: [],
-  pdfHighlights: []
+  pdfHighlights: [],
+  stats: []
 }
 
 export interface MigrationResult {

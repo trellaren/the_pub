@@ -5,7 +5,7 @@
  */
 export const FORMAT_VERSIONS = {
   document: 6,
-  manifest: 5,
+  manifest: 7, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block
   manuscript: 1,
   entities: 1,
   beats: 1,

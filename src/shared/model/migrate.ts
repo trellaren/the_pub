@@ -69,7 +69,13 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // default (read as "no project-defined categories yet") fills in
     // regardless, so again nothing about the value changes — only the
     // version, for the same reason `entityKinds` moved it above.
-    { from: 5, to: 6, up: (raw) => raw }
+    { from: 5, to: 6, up: (raw) => raw },
+    // Phase 12 adds the `publication` block (subtitle, author display name,
+    // publisher, ISBN, etc). The schema's own `prefault({})` fills it in
+    // regardless, so nothing about the value changes — only the version, so
+    // an older build doesn't silently re-save a v7 manifest as v6 and drop
+    // publication metadata an author just entered.
+    { from: 6, to: 7, up: (raw) => raw }
   ],
   manuscript: [],
   entities: [],

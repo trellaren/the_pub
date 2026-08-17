@@ -9,6 +9,7 @@ import {
 import { migrate } from '../../shared/model/migrate.js'
 import { RESEARCH_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 import { resolvePdfHighlight, type PdfAnchorCandidate } from '../research/pdfAnchor.js'
+import { resolveCaptureHighlight } from '../../shared/research/captureAnchor.js'
 
 /**
  * Highlights made inside a research attachment, one file per attachment:
@@ -76,13 +77,15 @@ export class PdfHighlightService {
     attachmentId: string,
     fields: {
       id?: string
+      kind?: 'pdf' | 'capture'
       color: string
       categoryId?: string
       note?: string
       authorId?: string
       quote: string
-      page: number
+      page?: number
       rects?: [number, number, number, number][]
+      offset?: number
     }
   ): Promise<PdfHighlight> {
     const file = await this.loadFile(sourceId, attachmentId)
@@ -92,13 +95,15 @@ export class PdfHighlightService {
       id: existing?.id ?? fields.id ?? ulid(),
       sourceId,
       attachmentId,
+      kind: fields.kind ?? existing?.kind ?? 'pdf',
       color: fields.color,
       categoryId: fields.categoryId ?? existing?.categoryId ?? '',
       note: fields.note ?? existing?.note ?? '',
       authorId: fields.authorId ?? existing?.authorId ?? '',
       quote: fields.quote,
-      page: fields.page,
+      page: fields.page ?? existing?.page ?? 0,
       rects: fields.rects ?? existing?.rects ?? [],
+      offset: fields.offset ?? existing?.offset ?? -1,
       orphaned: false,
       created: existing?.created ?? now,
       modified: now
@@ -137,6 +142,33 @@ export class PdfHighlightService {
       if (!highlight.orphaned && resolved.page === highlight.page) return highlight
       changed = true
       return { ...highlight, orphaned: false, page: resolved.page }
+    })
+    if (!changed) return null
+    await this.flush(sourceId, attachmentId)
+    return structuredClone(file.highlights)
+  }
+
+  /**
+   * Re-resolve every capture highlight in an attachment against the
+   * capture's current stored text — quote-based only, per
+   * `captureAnchor.ts`; a capture has no page/rects to fall back on.
+   */
+  async reconcileCapture(sourceId: string, attachmentId: string, text: string): Promise<PdfHighlight[] | null> {
+    const file = await this.loadFile(sourceId, attachmentId)
+    if (file.highlights.length === 0) return null
+
+    let changed = false
+    file.highlights = file.highlights.map((highlight) => {
+      if (highlight.kind !== 'capture') return highlight
+      const resolved = resolveCaptureHighlight(highlight, text)
+      if (!resolved) {
+        if (highlight.orphaned) return highlight
+        changed = true
+        return { ...highlight, orphaned: true }
+      }
+      if (!highlight.orphaned && resolved.offset === highlight.offset) return highlight
+      changed = true
+      return { ...highlight, orphaned: false, offset: resolved.offset }
     })
     if (!changed) return null
     await this.flush(sourceId, attachmentId)

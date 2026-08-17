@@ -124,7 +124,11 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
   reviews: [],
   presence: [],
   highlights: [],
-  pdfHighlights: [],
+  // Phase 11 (capture highlighting): adds `kind` (defaults 'pdf') and `offset`
+  // (defaults -1) to each highlight. Both default harmlessly for existing PDF
+  // highlight files, so the step is a no-op — the version still moves, per
+  // this repo's rule of bumping even for additive/no-op shape changes.
+  pdfHighlights: [{ from: 1, to: 2, up: (raw) => raw }],
   stats: []
 }
 

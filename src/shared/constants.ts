@@ -19,7 +19,7 @@ export const FORMAT_VERSIONS = {
   reviews: 1,
   presence: 1,
   highlights: 1,
-  pdfHighlights: 1,
+  pdfHighlights: 2, // 2 = capture highlights (kind/offset fields)
   stats: 1
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS

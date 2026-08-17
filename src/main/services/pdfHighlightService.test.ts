@@ -77,4 +77,41 @@ describe('PdfHighlightService', () => {
     const reopened = new PdfHighlightService(adapter)
     expect(await reopened.listForAttachment('src1', 'att1')).toHaveLength(1)
   })
+
+  it('saves a capture highlight with kind/offset instead of page/rects', async () => {
+    const highlight = await service.save('src1', 'att1', {
+      kind: 'capture',
+      color: '#ffef8a',
+      quote: 'the quick brown fox',
+      offset: 4
+    })
+
+    expect(highlight.kind).toBe('capture')
+    expect(highlight.offset).toBe(4)
+    expect(highlight.page).toBe(0)
+  })
+
+  it('reconcileCapture follows the quote to its offset and clears orphaned status', async () => {
+    await service.save('src1', 'att1', { kind: 'capture', color: '#ffef8a', quote: 'lazy dog', offset: 999 })
+
+    const result = await service.reconcileCapture('src1', 'att1', 'the quick brown fox and the lazy dog')
+
+    expect(result).not.toBeNull()
+    expect(result![0]!.orphaned).toBe(false)
+    expect(result![0]!.offset).toBe('the quick brown fox and the lazy dog'.indexOf('lazy dog'))
+  })
+
+  it('reconcileCapture orphans a capture highlight whose quote is gone', async () => {
+    await service.save('src1', 'att1', { kind: 'capture', color: '#ffef8a', quote: 'gone forever', offset: 0 })
+
+    const result = await service.reconcileCapture('src1', 'att1', 'completely different text')
+
+    expect(result![0]!.orphaned).toBe(true)
+  })
+
+  it('reconcileCapture leaves pdf highlights in the same file untouched', async () => {
+    await service.save('src1', 'att1', { color: '#ffef8a', quote: 'a pdf quote', page: 1 })
+    const result = await service.reconcileCapture('src1', 'att1', 'irrelevant text')
+    expect(result).toBeNull()
+  })
 })

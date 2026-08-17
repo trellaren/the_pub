@@ -396,6 +396,126 @@ test('search indexes a project served over SFTP', async () => {
 })
 
 /**
+ * A PDF attached to a source, highlighted, then round-tripped through a
+ * project close and reopen — all against the real local SFTP test server,
+ * not a mock. Combines this file's own "document written over SFTP lands on
+ * the server and reads back" pattern with `highlights.spec.ts`'s
+ * close-and-reopen pattern, applied to `.thepub/research/` — the attachment
+ * bytes and the highlight sidecar both live there, under `VfsAdapter`, same
+ * as every other project file, so this is the practical stand-in this repo's
+ * own convention uses for "a real remote server": genuine SFTP I/O over a
+ * real `ssh2.Server`, not a substitute for OneDrive's own REST-API quirks,
+ * which a generic `VfsAdapter` test like this one cannot exercise.
+ */
+test('a research attachment and its highlight round-trip over SFTP, across a project close and reopen', async () => {
+  harness = await launch()
+  const uri = await connectedProfile('research')
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  const source = await harness.page.evaluate(async () => {
+    const created = await window.__pub.sources.getState().create('article-journal')
+    if (!created) return null
+    window.__pub.sources.getState().patch(created.id, { title: 'A Server-Side Paper' })
+    await window.__pub.sources.getState().flush()
+    return created
+  })
+  expect(source).toBeTruthy()
+  const sourceId = source!.id
+
+  const pdfPath = path.resolve(import.meta.dirname, 'fixtures/sample.pdf')
+  const bytesBase64 = (await fs.readFile(pdfPath)).toString('base64')
+
+  const attachment = await harness.page.evaluate(
+    ({ sourceId: id, bytesBase64: bytes }) =>
+      window.pub.invoke('research:attachments:addPdf', { sourceId: id, bytesBase64: bytes, label: 'sample.pdf' }),
+    { sourceId, bytesBase64 }
+  ) as { id: string; kind: string }
+  expect(attachment.kind).toBe('pdf')
+
+  // The attachment bytes really are on the server, under `.thepub/research/`
+  // — never anywhere in the project's own file tree.
+  const attachmentPath = path.join(serverRoot, 'research', '.thepub', 'research', sourceId, `${attachment.id}.pdf`)
+  await waitFor(async () => fs.stat(attachmentPath).then(() => true).catch(() => false), 'the PDF attachment to reach the server')
+  const onServer = await fs.readFile(attachmentPath)
+  expect(onServer.equals(await fs.readFile(pdfPath))).toBe(true)
+
+  const highlight = await harness.page.evaluate(
+    ({ sourceId: id, attachmentId }) =>
+      window.pub.invoke('research:highlights:save', {
+        sourceId: id,
+        attachmentId,
+        highlight: {
+          id: '',
+          sourceId: id,
+          attachmentId,
+          color: '#ffef8a',
+          categoryId: '',
+          note: '',
+          authorId: '',
+          quote: 'quick brown fox',
+          page: 1,
+          rects: [],
+          orphaned: false,
+          created: new Date().toISOString(),
+          modified: new Date().toISOString()
+        }
+      }),
+    { sourceId, attachmentId: attachment.id }
+  ) as { id: string }
+
+  const highlightsPath = path.join(
+    serverRoot,
+    'research',
+    '.thepub',
+    'research',
+    sourceId,
+    `${attachment.id}.highlights.json`
+  )
+  await waitFor(async () => fs.readFile(highlightsPath, 'utf8').then((raw) => raw.includes('quick brown fox')).catch(() => false), 'the highlight sidecar to reach the server')
+
+  const { userDataDir } = harness
+  await harness.app.close()
+
+  harness = await launch({ userDataDir })
+  await harness.page.evaluate((target) => window.__pub.project.getState().open(target), uri)
+  await harness.page.waitForFunction(() => window.__pub.project.getState().project !== null)
+
+  // Both the source's attachment index and the highlight sidecar read back
+  // correctly from the server after a full close/reopen — not just "the
+  // bytes are still there", but the app's own read path over SFTP agrees
+  // with what was written.
+  const roundTripped = await harness.page.evaluate(
+    async ({ sourceId: id, attachmentId, highlightId }) => {
+      await window.__pub.research.getState().loadAttachments(id)
+      await window.__pub.research.getState().loadHighlights(id, attachmentId)
+      const state = window.__pub.research.getState()
+      return {
+        attachments: state.attachmentsBySource[id],
+        highlights: state.highlightsByAttachment[`${id}/${attachmentId}`],
+        highlightId
+      }
+    },
+    { sourceId, attachmentId: attachment.id, highlightId: highlight.id }
+  )
+  expect(roundTripped.attachments).toHaveLength(1)
+  expect(roundTripped.attachments![0]).toMatchObject({ id: attachment.id, kind: 'pdf' })
+  expect(roundTripped.highlights).toHaveLength(1)
+  expect(roundTripped.highlights![0]).toMatchObject({
+    id: highlight.id,
+    quote: 'quick brown fox',
+    page: 1,
+    orphaned: false
+  })
+
+  const bytes = await harness.page.evaluate(
+    ({ sourceId: id, attachmentId }) => window.pub.invoke('research:attachments:readPdf', { sourceId: id, attachmentId }),
+    { sourceId, attachmentId: attachment.id }
+  ) as { bytesBase64: string }
+  expect(Buffer.from(bytes.bytesBase64, 'base64').equals(await fs.readFile(pdfPath))).toBe(true)
+})
+
+/**
  * A key path that points nowhere.
  *
  * The failure has to name the key, because everything else about the profile is

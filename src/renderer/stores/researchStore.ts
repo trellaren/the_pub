@@ -26,12 +26,14 @@ interface ResearchStore {
     attachmentId: string,
     fields: {
       id?: string
+      kind?: 'pdf' | 'capture'
       color: string
       categoryId?: string
       note?: string
       quote: string
-      page: number
+      page?: number
       rects?: [number, number, number, number][]
+      offset?: number
     }
   ) => Promise<PdfHighlight | null>
   removeHighlight: (sourceId: string, attachmentId: string, id: string) => Promise<void>
@@ -138,13 +140,15 @@ export const useResearchStore = create<ResearchStore>((set, get) => ({
       id: fields.id ?? '',
       sourceId,
       attachmentId,
+      kind: fields.kind ?? existing?.kind ?? 'pdf',
       color: fields.color,
       categoryId: fields.categoryId ?? existing?.categoryId ?? '',
       note: fields.note ?? existing?.note ?? '',
       authorId: existing?.authorId ?? '',
       quote: fields.quote,
-      page: fields.page,
+      page: fields.page ?? existing?.page ?? 0,
       rects: fields.rects ?? existing?.rects ?? [],
+      offset: fields.offset ?? existing?.offset ?? -1,
       orphaned: false,
       created: existing?.created ?? new Date().toISOString(),
       modified: new Date().toISOString()

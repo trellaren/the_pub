@@ -116,6 +116,8 @@ test('suggesting mode proposes a deletion instead of performing one', async () =
 
   // The whole point: the words are still there, struck through, waiting for a
   // verdict — a suggestion to delete that deleted anything would not be one.
-  await expect(harness.page.locator('.pub-deletion')).toHaveText('harbour ')
+  // The visible strikethrough text, not the leading screen-reader-only label
+  // this mark now also renders.
+  await expect(harness.page.locator('.pub-deletion')).toContainText('harbour')
   await expect(el).toContainText('harbour')
 })

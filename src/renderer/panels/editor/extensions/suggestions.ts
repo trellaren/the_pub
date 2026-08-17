@@ -2,7 +2,7 @@ import { Mark, Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, type Transaction, type EditorState } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { INSERTION_MARK, DELETION_MARK } from '@shared/model/suggestion.js'
-import { colorForAuthor } from '@shared/model/author.js'
+import { colorForAuthor, describeAuthor } from '@shared/model/author.js'
 
 /**
  * Suggested edits in the editor.
@@ -31,6 +31,22 @@ interface SuggestionOptions {
 function tint(attrs: Record<string, unknown>): Record<string, string> {
   const authorId = String(attrs.authorId ?? '')
   return authorId ? { style: `--pub-author-color: ${colorForAuthor(authorId)}` } : {}
+}
+
+/**
+ * A visually hidden run announcing what the mark means, spoken as part of the
+ * text a screen reader is already reading — not a separate stop, and not a
+ * name lookup against the project roster, which the schema has no reason to
+ * know about (see `tint`'s comment above).
+ *
+ * `contenteditable="false"` keeps ProseMirror's cursor mapping out of it: this
+ * is decoration around the mark's real content hole, not part of the document.
+ */
+function srLabel(kind: 'insertion' | 'deletion', attrs: Record<string, unknown>) {
+  const authorId = String(attrs.authorId ?? '')
+  const author = describeAuthor(authorId, [])
+  const text = kind === 'insertion' ? `insertion, by ${author.name}: ` : `deletion, by ${author.name}: `
+  return ['span', { class: 'pub-sr-only', contenteditable: 'false' }, text] as const
 }
 
 function attributes() {
@@ -64,7 +80,14 @@ export const Insertion = Mark.create({
     return [{ tag: 'ins[data-author]' }, { tag: 'span[data-suggestion="insertion"]' }]
   },
   renderHTML({ HTMLAttributes, mark }) {
-    return ['ins', mergeAttributes(HTMLAttributes, { class: 'pub-insertion' }, tint(mark.attrs)), 0]
+    // The content hole must be the only child of its parent, so the label sits
+    // beside it as a sibling of a wrapper rather than beside the hole itself.
+    return [
+      'ins',
+      mergeAttributes(HTMLAttributes, { class: 'pub-insertion' }, tint(mark.attrs)),
+      srLabel('insertion', mark.attrs),
+      ['span', {}, 0]
+    ]
   }
 })
 
@@ -80,7 +103,12 @@ export const Deletion = Mark.create({
     return [{ tag: 'del[data-author]' }, { tag: 'span[data-suggestion="deletion"]' }]
   },
   renderHTML({ HTMLAttributes, mark }) {
-    return ['del', mergeAttributes(HTMLAttributes, { class: 'pub-deletion' }, tint(mark.attrs)), 0]
+    return [
+      'del',
+      mergeAttributes(HTMLAttributes, { class: 'pub-deletion' }, tint(mark.attrs)),
+      srLabel('deletion', mark.attrs),
+      ['span', {}, 0]
+    ]
   }
 })
 

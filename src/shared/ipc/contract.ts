@@ -321,6 +321,16 @@ export const ipcContract = defineContract({
     'search:reindex': { req: empty, res: ok },
     'search:status': { req: empty, res: indexProgressSchema },
 
+    /**
+     * Resolve document -> project -> OS default happens in the renderer (it
+     * knows the active document's `lang` and the manifest's
+     * `publication.language`); this just hands the resolved BCP-47 tag to
+     * Electron's built-in spellchecker.
+     */
+    'spellcheck:setLanguage': { req: z.object({ lang: z.string() }), res: ok },
+    'spellcheck:listWords': { req: empty, res: z.array(z.string()) },
+    'spellcheck:addWord': { req: z.object({ word: z.string() }), res: z.array(z.string()) },
+
     /** Records and dismissals in one round trip: the panel always needs both. */
     'entities:list': { req: empty, res: entityFileSchema },
     'entities:create': { req: z.object({ kind: entityKindSchema, name: z.string() }), res: storyEntitySchema },

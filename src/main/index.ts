@@ -101,6 +101,20 @@ app.whenReady().then(async () => {
     window.on('closed', () => void sessions.close(window.id))
   })
 
+  // OS default until a project (or a document within it) says otherwise —
+  // see `spellcheck:setLanguage`, which the renderer calls once it knows the
+  // active document's resolved language.
+  try {
+    session.defaultSession.setSpellCheckerLanguages([app.getLocale()])
+  } catch {
+    // Some locales Chromium reports aren't ones its spellchecker recognises;
+    // falling through leaves whatever Electron's own default is.
+  }
+
+  windows.setSpellcheckAddWordHandler((ownerId, word) => {
+    void sessions.get(ownerId)?.dictionary.addWord(word)
+  })
+
   let menuKeybindings = JSON.stringify(appState.get().keybindings)
   appState.onChange((state) => {
     windows.broadcast('app:stateChanged', state)

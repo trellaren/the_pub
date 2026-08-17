@@ -572,3 +572,20 @@ body {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
+
+/*
+ * Visually hidden but announced: the standard clip-based technique rather than
+ * `display: none`/`visibility: hidden`, both of which remove the element from
+ * the accessibility tree along with the screen.
+ */
+.pub-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

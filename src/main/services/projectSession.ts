@@ -29,6 +29,7 @@ import { AiRunner } from '../ai/aiRunner.js'
 import { EmbeddingIndexer, type EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { MentionService } from './mentionService.js'
 import { ReviewService } from './reviewService.js'
+import { SpellcheckDictionaryService } from './spellcheckDictionaryService.js'
 import { StatsService } from './statsService.js'
 import { PresenceService } from './presenceService.js'
 import { DocxService } from './docxService.js'
@@ -89,6 +90,7 @@ export class ProjectSession {
   readonly retrieval: EmbeddingIndexer
   readonly mentions: MentionService
   readonly reviews: ReviewService
+  readonly dictionary: SpellcheckDictionaryService
   readonly presence: PresenceService
   readonly stats: StatsService
   readonly docx: DocxService
@@ -161,6 +163,7 @@ export class ProjectSession {
     this.history = new HistoryService(this.documents, this.snapshots, this.search, this.notes)
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.reviews = new ReviewService(adapter, hooks.author)
+    this.dictionary = new SpellcheckDictionaryService(adapter)
     this.presence = new PresenceService(adapter, hooks.author)
     this.stats = new StatsService(adapter, hooks.author)
     this.docx = new DocxService(adapter, this.documents, this.reviews)

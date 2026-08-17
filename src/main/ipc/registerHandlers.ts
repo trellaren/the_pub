@@ -11,6 +11,7 @@ import { ConnectionStore } from '../services/connectionStore.js'
 import { KnownHostsStore } from '../services/knownHostsStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
 import type { TemplateService } from '../services/templateService.js'
+import type { RendererServerLike } from '../print/printService.js'
 import { createAdapter, inspectDatabase, createDatabaseProject } from '../vfs/vfsRegistry.js'
 import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
@@ -52,6 +53,7 @@ import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
 import { DOC_EXT, IGNORED_DIRS, MANIFEST_FILE } from '../../shared/constants.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
+import { exportWarnings, type PublishFormat } from '../../shared/model/publish.js'
 import type { CslItem } from '../../shared/model/source.js'
 import { parseBibtex } from '../sources/fromBibtex.js'
 import { parseRis } from '../sources/fromRis.js'
@@ -172,6 +174,8 @@ export interface HandlerContext {
    */
   models: ModelStore
   engine: LlmEngine
+  /** See `SessionHooks.rendererServer` — absent in dev and in tests. */
+  rendererServer?: RendererServerLike
 }
 
 /** A host key offered during a connection test, held until the author rules on it. */
@@ -183,7 +187,7 @@ interface PendingHostKey {
 }
 
 export function registerHandlers(context: HandlerContext): void {
-  const { windows, sessions, appState, oneDrive, templates, models, engine } = context
+  const { windows, sessions, appState, oneDrive, templates, models, engine, rendererServer } = context
   // App-wide, not per project: a key belongs to the person, not the manuscript.
   const keys = new AiKeyStore()
   const connections = new ConnectionStore()
@@ -225,7 +229,8 @@ export function registerHandlers(context: HandlerContext): void {
       onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
       resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
       onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status),
-      author: () => appState.author()
+      author: () => appState.author(),
+      rendererServer
     })
     sessions.set(ownerId, session)
     // Put ourselves in the project's registry on open, so a collaborator sees a
@@ -546,6 +551,82 @@ export function registerHandlers(context: HandlerContext): void {
     if (picked.canceled || !picked.filePath) return null
     await session.epub.export(resolveExportItems(paths, items), picked.filePath, session.manifest)
     return { ok: true as const, file: picked.filePath }
+  })
+
+  /**
+   * `publish:export`/`publish:exportDialog` dispatch to the same per-format
+   * service the older, still-live `docx:export`/`epub:export`/
+   * `fountain:export` channels call — one body shared by both entry points,
+   * so a bug fixed here is fixed for every caller rather than one at a time.
+   */
+  const runPublishExport = async (
+    session: ProjectSession,
+    format: PublishFormat,
+    paths: string[],
+    items: ExportItem[],
+    sourcePath: string | undefined,
+    file: string
+  ): Promise<void> => {
+    switch (format) {
+      case 'docx':
+        return session.docx.export(resolveExportItems(paths, items), file, session.manifest)
+      case 'epub':
+        return session.epub.export(resolveExportItems(paths, items), file, session.manifest)
+      case 'fountain':
+        if (!sourcePath) throw new Error('Fountain export needs a document path')
+        return session.fountain.export(sourcePath, file)
+      case 'pdf':
+        return session.print.exportPdf(resolveExportItems(paths, items), file, session.manifest)
+      case 'print':
+        // `print` has no file to save; `publish:export`/`publish:exportDialog`
+        // reuse the same request shape for it anyway (the renderer's dialog
+        // is one control for every format) and simply ignore `file`.
+        return session.print.print(resolveExportItems(paths, items), session.manifest)
+    }
+  }
+
+  const publishExtension: Record<PublishFormat, string> = {
+    docx: 'docx',
+    epub: 'epub',
+    fountain: 'fountain',
+    pdf: 'pdf',
+    print: 'pdf'
+  }
+  const publishDialogTitle: Record<PublishFormat, string> = {
+    docx: 'Export to Word',
+    epub: 'Export to EPUB',
+    fountain: 'Export to Fountain',
+    pdf: 'Export to PDF',
+    print: 'Print'
+  }
+
+  handle('publish:export', async ({ format, path: sourcePath, paths, items, file }, event) => {
+    const session = requireSession(event)
+    await runPublishExport(session, format, paths, items, sourcePath, file)
+    return { ok: true as const, file }
+  })
+
+  handle('publish:exportDialog', async ({ format, path: sourcePath, paths, items, suggestedName }, event) => {
+    const session = requireSession(event)
+    if (format === 'print') {
+      await runPublishExport(session, format, paths, items, sourcePath, '')
+      return { ok: true as const, file: '' }
+    }
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const extension = publishExtension[format]
+    const suggested = `${suggestedName ?? defaultExportName(sourcePath ? [sourcePath] : paths)}.${extension}`
+    const picked = await dialog.showSaveDialog(window!, {
+      title: publishDialogTitle[format],
+      defaultPath: suggested,
+      filters: [{ name: publishDialogTitle[format], extensions: [extension] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await runPublishExport(session, format, paths, items, sourcePath, picked.filePath)
+    return { ok: true as const, file: picked.filePath }
+  })
+
+  handle('publish:warnings', ({ format }, event) => {
+    return exportWarnings(format, requireSession(event).manifest)
   })
 
   /** Mirrors `importDocxFiles` — see its own comment. */
@@ -912,6 +993,9 @@ export function registerHandlers(context: HandlerContext): void {
     const bytes = await requireSession(event).sources.readPdfAttachment(sourceId, attachmentId)
     return { bytesBase64: bytes.toString('base64') }
   })
+  handle('research:attachments:readCapture', ({ sourceId, attachmentId }, event) =>
+    requireSession(event).sources.readCapture(sourceId, attachmentId)
+  )
   handle('research:capture', async ({ url }, event) => {
     requireSession(event) // a project must be open, even though capture itself is project-agnostic
     return capturePage(url, (target) => fetch(target))

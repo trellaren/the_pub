@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CslItem, CslName } from '@shared/model/source.js'
+import type { Capture, ResearchAttachment } from '@shared/model/research.js'
 import { CSL_TYPES, describeSource } from '@shared/model/source.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
+import { useResearchStore } from '@renderer/stores/researchStore.js'
 import { invoke, attempt, reportNotice } from '@renderer/lib/ipc.js'
 
 /** Written to be shown verbatim: each failure calls for a different response. */
@@ -263,6 +265,169 @@ function SourceDetail({
       <ToolbarButton label="Add author" className="w-full justify-start" onClick={() => onPatch({ author: [...authors, {}] })}>
         ＋ author
       </ToolbarButton>
+
+      <AttachmentsSection source={source} />
     </div>
   )
+}
+
+/**
+ * Attachments (PDFs and web captures) for a source, stored under
+ * `.thepub/research/<sourceId>/` — see `sourceService.ts` and
+ * `docs/phase-11-plan.md`'s "Attachments live beside the source". Kept in the
+ * source's own detail view rather than a separate panel: attaching a
+ * reference is part of describing the source, the same activity as filling
+ * in its title or DOI.
+ */
+function AttachmentsSection({ source }: { source: CslItem }) {
+  const attachments = useResearchStore((store) => store.attachmentsBySource[source.id]) ?? EMPTY_ATTACHMENTS
+  const loadAttachments = useResearchStore((store) => store.loadAttachments)
+  const addPdf = useResearchStore((store) => store.addPdf)
+  const capturePage = useResearchStore((store) => store.capturePage)
+  const addCapture = useResearchStore((store) => store.addCapture)
+  const removeAttachment = useResearchStore((store) => store.removeAttachment)
+  const readCapture = useResearchStore((store) => store.readCapture)
+
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [captureUrl, setCaptureUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [viewing, setViewing] = useState<{ attachmentId: string; capture: Capture } | null>(null)
+
+  useEffect(() => {
+    void loadAttachments(source.id)
+  }, [source.id, loadAttachments])
+
+  const pickPdf = async (file: File): Promise<void> => {
+    setBusy(true)
+    const bytes = await file.arrayBuffer()
+    await addPdf(source.id, bytes, file.name)
+    setBusy(false)
+  }
+
+  const captureAndAdd = async (): Promise<void> => {
+    const url = captureUrl.trim()
+    if (!url || busy) return
+    setBusy(true)
+    const result = await capturePage(url)
+    if (!result) {
+      setBusy(false)
+      return
+    }
+    if (!result.ok) {
+      setBusy(false)
+      reportNotice(CAPTURE_FAILURES[result.reason])
+      return
+    }
+    await addCapture(source.id, result.capture, url)
+    // addCaptureAttachment also merges the capture's URL/accessed into the
+    // source's own CSL fields on disk — reload so this store's copy agrees.
+    await useSourceStore.getState().load()
+    setBusy(false)
+    setCaptureUrl('')
+  }
+
+  const openCapture = async (attachment: ResearchAttachment): Promise<void> => {
+    const capture = await readCapture(source.id, attachment.id)
+    if (capture) setViewing({ attachmentId: attachment.id, capture })
+  }
+
+  if (viewing) {
+    return (
+      <div className="mt-3 border-t border-border pt-3">
+        <div className="mb-2 flex items-center gap-1">
+          <ToolbarButton label="Back to attachments" onClick={() => setViewing(null)}>
+            ← Back
+          </ToolbarButton>
+          <p className="flex-1 truncate text-[12px] font-medium text-text">{viewing.capture.title}</p>
+        </div>
+        <p className="mb-2 truncate text-[11px] text-faint" title={viewing.capture.url}>
+          {viewing.capture.url} · captured {viewing.capture.accessed}
+        </p>
+        <div
+          data-testid="capture-text"
+          className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface-2 p-2 text-[12px] text-text"
+        >
+          {viewing.capture.text}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Attachments</p>
+
+      {attachments.length === 0 ? (
+        <p className="mb-2 text-[11px] text-faint">No PDFs or web captures attached yet.</p>
+      ) : (
+        <ul className="mb-2">
+          {attachments.map((attachment) => (
+            <li key={attachment.id} className="flex items-center gap-1 border-b border-border/60 py-1">
+              <span className="text-[12px]">{attachment.kind === 'pdf' ? '📄' : '🔗'}</span>
+              <button
+                type="button"
+                onClick={() => (attachment.kind === 'capture' ? void openCapture(attachment) : undefined)}
+                disabled={attachment.kind !== 'capture'}
+                className="flex-1 truncate text-left text-[12px] text-muted hover:text-text disabled:hover:text-muted"
+                title={attachment.label || attachment.title}
+              >
+                {attachment.label || attachment.title || '(untitled)'}
+              </button>
+              <ToolbarButton
+                label="Remove attachment"
+                onClick={() => void removeAttachment(source.id, attachment.id)}
+              >
+                ✕
+              </ToolbarButton>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (file) void pickPdf(file)
+        }}
+      />
+      <ToolbarButton
+        label="Add PDF attachment"
+        className="w-full justify-start"
+        disabled={busy}
+        onClick={() => fileInput.current?.click()}
+      >
+        ＋ PDF…
+      </ToolbarButton>
+
+      <div className="mt-1 flex items-center gap-1">
+        <TextInput
+          value={captureUrl}
+          placeholder="Capture a web page by URL"
+          aria-label="Capture a web page by URL"
+          data-testid="capture-url"
+          onChange={(event) => setCaptureUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void captureAndAdd()
+          }}
+        />
+        <ToolbarButton label="Capture" onClick={() => void captureAndAdd()} disabled={!captureUrl.trim() || busy}>
+          Capture
+        </ToolbarButton>
+      </div>
+    </div>
+  )
+}
+
+const EMPTY_ATTACHMENTS: ResearchAttachment[] = []
+
+/** Written to be shown verbatim, mirroring `LOOKUP_FAILURES` above. */
+const CAPTURE_FAILURES: Record<string, string> = {
+  offline: 'Could not reach that page. Check your connection and try again.',
+  'not-found': 'That page could not be found (404).',
+  unreadable: 'That page had no readable text to capture.'
 }

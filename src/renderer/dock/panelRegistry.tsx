@@ -14,6 +14,7 @@ import { ManuscriptPanel } from '@renderer/panels/manuscript/ManuscriptPanel.js'
 import { HistoryPanel } from '@renderer/panels/history/HistoryPanel.js'
 import { SettingsPanel } from '@renderer/panels/settings/SettingsPanel.js'
 import { NotesPanel } from '@renderer/panels/notes/NotesPanel.js'
+import { ResearchPanel } from '@renderer/panels/research/ResearchPanel.js'
 import { SourcesPanel } from '@renderer/panels/sources/SourcesPanel.js'
 import { ReviewPanel } from '@renderer/panels/review/ReviewPanel.js'
 
@@ -45,6 +46,7 @@ export const panelComponents: Record<string, FunctionComponent<IDockviewPanelPro
   history: HistoryPanel as FunctionComponent<IDockviewPanelProps>,
   settings: SettingsPanel as FunctionComponent<IDockviewPanelProps>,
   notes: NotesPanel as FunctionComponent<IDockviewPanelProps>,
+  research: ResearchPanel as FunctionComponent<IDockviewPanelProps>,
   sources: SourcesPanel as FunctionComponent<IDockviewPanelProps>,
   review: ReviewPanel as FunctionComponent<IDockviewPanelProps>
 }

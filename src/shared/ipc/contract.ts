@@ -9,6 +9,7 @@ import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { noteSchema } from '../model/note.js'
+import { highlightSchema } from '../model/highlight.js'
 import { assembledThreadSchema, reviewThreadSchema, reviewReplySchema } from '../model/review.js'
 import { authorProfileSchema } from '../model/author.js'
 import { presenceBeatSchema } from '../model/presence.js'
@@ -287,6 +288,21 @@ export const ipcContract = defineContract({
     },
     'notes:save': { req: z.object({ docId: z.string(), note: noteSchema }), res: noteSchema },
     'notes:delete': { req: z.object({ docId: z.string(), noteId: z.string() }), res: ok },
+
+    'highlights:list': { req: z.object({ docId: z.string() }), res: z.array(highlightSchema) },
+    'highlights:collect': {
+      req: z.object({
+        docId: z.string(),
+        highlightId: z.string(),
+        color: z.string(),
+        quote: z.string(),
+        blockIndex: z.number().int(),
+        categoryId: z.string().optional()
+      }),
+      res: highlightSchema
+    },
+    'highlights:save': { req: z.object({ docId: z.string(), highlight: highlightSchema }), res: highlightSchema },
+    'highlights:delete': { req: z.object({ docId: z.string(), id: z.string() }), res: ok },
 
     /**
      * Review threads, with every reviewer's replies already gathered — the
@@ -640,6 +656,7 @@ export const ipcContract = defineContract({
      * came from a notes action, but not when it came from saving the document.
      */
     'notes:changed': z.object({ docId: z.string() }),
+    'highlights:changed': z.object({ docId: z.string() }),
 
     /** A document's review threads changed, from this window or a collaborator's sync. */
     'review:changed': z.object({ docId: z.string() }),

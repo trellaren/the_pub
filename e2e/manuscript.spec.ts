@@ -341,7 +341,7 @@ test.describe('resolving against a live index', () => {
     await harness.app.evaluate(({ dialog }, file) => {
       dialog.showSaveDialog = (async () => ({ canceled: false, filePath: file })) as typeof dialog.showSaveDialog
     }, target)
-    await harness.page.getByRole('button', { name: 'Compile to Word' }).click()
+    await harness.page.getByRole('button', { name: 'Compile the manuscript' }).click()
     await waitFor(async () => fs.stat(target).then(() => true).catch(() => false), 'the incomplete compile to land')
     await expect(harness.page.getByTestId('notice-info')).toContainText('Could not find')
 
@@ -391,7 +391,7 @@ test.describe('compiling', () => {
     await harness.app.evaluate(({ dialog }, file) => {
       dialog.showSaveDialog = (async () => ({ canceled: false, filePath: file })) as typeof dialog.showSaveDialog
     }, target)
-    await harness.page.getByRole('button', { name: 'Compile to Word' }).click()
+    await harness.page.getByRole('button', { name: 'Compile the manuscript' }).click()
     await waitFor(async () => fs.stat(target).then(() => true).catch(() => false), 'the compiled file to land')
 
     const xml = documentXml(new Uint8Array(await fs.readFile(target)))

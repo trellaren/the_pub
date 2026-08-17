@@ -11,6 +11,7 @@ import type { Highlight } from '../src/shared/model/highlight.js'
 import type { OpenProject } from '../src/shared/model/manifest.js'
 import type { CslItem } from '../src/shared/model/source.js'
 import type { ResearchAttachment, PdfHighlight } from '../src/shared/model/research.js'
+import type { DayStat } from '../src/shared/model/stats.js'
 
 /** Shape of the renderer test hook installed in `src/renderer/main.tsx`. */
 interface PubTestHook {
@@ -183,6 +184,14 @@ interface PubTestHook {
         fields: { id?: string; color: string; categoryId?: string; note?: string; quote: string; page: number }
       ) => Promise<PdfHighlight | null>
       removeHighlight: (sourceId: string, attachmentId: string, id: string) => Promise<void>
+    }
+  }
+  stats: {
+    getState: () => {
+      days: DayStat[]
+      load: () => Promise<void>
+      recordChange: (docId: string, before: number, after: number, now?: number) => Promise<void>
+      flush: (now?: number) => Promise<void>
     }
   }
   confirmMention: (hit: MentionHit, entity: StoryEntity) => Promise<boolean>

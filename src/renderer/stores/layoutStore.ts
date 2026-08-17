@@ -56,6 +56,7 @@ export type PanelComponent =
   | 'research'
   | 'sources'
   | 'review'
+  | 'progress'
 
 interface ShowPanelOptions {
   /** Defaults to `component` — set for a component multiple singletons share, like `records`, so each kind gets its own panel id. */
@@ -191,7 +192,8 @@ const SIDEBAR_PANELS = new Set<PanelComponent>([
   'notes',
   'research',
   'sources',
-  'review'
+  'review',
+  'progress'
 ])
 
 /**

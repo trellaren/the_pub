@@ -54,6 +54,7 @@ export function SettingsPanel() {
     else if (storageKey === 'timelineOrientation') void store.setTimelineOrientation(value as never)
     else if (storageKey === 'aiEnabled') void store.setAiEnabled(value as boolean)
     else if (storageKey === 'embeddedIdleMinutes') void store.setEmbeddedIdleMinutes(value as number)
+    else if (storageKey === 'statsIdleTimeoutMinutes') void store.setStatsIdleTimeoutMinutes(value as number)
   }
 
   const readOnly = project?.readOnly ?? false

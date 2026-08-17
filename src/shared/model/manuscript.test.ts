@@ -9,6 +9,7 @@ import {
   rollUpWords,
   toExportItems,
   totalWords,
+  wordsForScope,
   type ManuscriptNode,
   type ResolvedNode
 } from './manuscript.js'
@@ -149,6 +150,27 @@ describe('rollUpWords', () => {
 
   it('totals the whole book', () => {
     expect(totalWords(nodes, words)).toBe(1525)
+  })
+})
+
+describe('wordsForScope', () => {
+  const nodes = [
+    doc('body-1', null, 0, { role: 'body' }),
+    doc('front-1', null, 1, { role: 'front' }),
+    doc('back-1', null, 2, { role: 'back' })
+  ]
+  const words = new Map([
+    ['body-1', 1000],
+    ['front-1', 100],
+    ['back-1', 300]
+  ])
+
+  it('"project" counts every document, including back matter', () => {
+    expect(wordsForScope(nodes, words, 'project')).toBe(1400)
+  })
+
+  it('"manuscript" excludes back matter', () => {
+    expect(wordsForScope(nodes, words, 'manuscript')).toBe(1100)
   })
 })
 

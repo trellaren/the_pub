@@ -29,6 +29,7 @@ import { AiRunner } from '../ai/aiRunner.js'
 import { EmbeddingIndexer, type EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { MentionService } from './mentionService.js'
 import { ReviewService } from './reviewService.js'
+import { StatsService } from './statsService.js'
 import { PresenceService } from './presenceService.js'
 import { DocxService } from './docxService.js'
 import { EpubService } from './epubService.js'
@@ -89,6 +90,7 @@ export class ProjectSession {
   readonly mentions: MentionService
   readonly reviews: ReviewService
   readonly presence: PresenceService
+  readonly stats: StatsService
   readonly docx: DocxService
   readonly epub: EpubService
   readonly fountain: FountainService
@@ -160,6 +162,7 @@ export class ProjectSession {
     this.mentions = new MentionService(this.documents, this.search, this.entities)
     this.reviews = new ReviewService(adapter, hooks.author)
     this.presence = new PresenceService(adapter, hooks.author)
+    this.stats = new StatsService(adapter, hooks.author)
     this.docx = new DocxService(adapter, this.documents, this.reviews)
     this.epub = new EpubService(adapter, this.documents)
     this.fountain = new FountainService(adapter, this.documents)
@@ -238,6 +241,7 @@ export class ProjectSession {
     this.retrieval.cancel()
     // Before the adapter goes: leaving needs one last write.
     await this.presence.leave()
+    await this.stats.flush()
     this.search.close()
     await this.adapter.dispose()
   }

@@ -24,7 +24,7 @@ describe('the settings registry', () => {
 
   it('lists groups in the order the defs first mention them', () => {
     expect(settingGroups('project')).toEqual(['Project', 'Page setup', 'Citations'])
-    expect(settingGroups('app')).toEqual(['Application', 'AI'])
+    expect(settingGroups('app')).toEqual(['Application', 'AI', 'Writing stats'])
   })
 
   it('finds a setting by key', () => {
@@ -91,6 +91,7 @@ describe('the schemas built from it', () => {
     expect(Object.keys(buildScopeSchema('app').shape).sort()).toEqual([
       'aiEnabled',
       'embeddedIdleMinutes',
+      'statsIdleTimeoutMinutes',
       'theme',
       'timelineOrientation'
     ])

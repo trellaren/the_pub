@@ -261,6 +261,7 @@ export function registerHandlers(context: HandlerContext): void {
     engine.setIdleMs(minutes * 60_000)
     return appState.setEmbeddedIdleMinutes(minutes)
   })
+  handle('app:setStatsIdleTimeoutMinutes', ({ minutes }) => appState.setStatsIdleTimeoutMinutes(minutes))
 
   handle('project:openDialog', async (_payload, event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -759,6 +760,25 @@ export function registerHandlers(context: HandlerContext): void {
   handle('notes:delete', async ({ docId, noteId }, event) => {
     await requireSession(event).notes.remove(docId, noteId)
     noteChanged(event, docId)
+    return { ok: true as const }
+  })
+
+  handle('stats:list', (_req, event) => requireSession(event).stats.all())
+  handle('stats:exportCsv', async ({ csv }, event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const picked = await dialog.showSaveDialog(window!, {
+      title: 'Export writing stats',
+      defaultPath: 'writing-stats.csv',
+      filters: [{ name: 'CSV', extensions: ['csv'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await fs.writeFile(picked.filePath, csv, 'utf8')
+    return { ok: true as const, file: picked.filePath }
+  })
+  handle('stats:record', async ({ date, docId, added, removed, net, minutes }, event) => {
+    const ownerId = windows.ownerWindowId(event.sender)
+    await requireSession(event).stats.record({ date, docId, added, removed, net, minutes })
+    if (ownerId !== null) windows.sendToSession(ownerId, 'stats:changed', {})
     return { ok: true as const }
   })
 

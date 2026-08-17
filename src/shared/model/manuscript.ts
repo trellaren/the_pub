@@ -192,6 +192,23 @@ export function totalWords(nodes: readonly ManuscriptNode[], words: ReadonlyMap<
 }
 
 /**
+ * Word count for a goal's `countScope` (see `shared/model/manifest.ts`'s
+ * `goalsSchema`). `'project'` is every document; `'manuscript'` excludes back
+ * matter — a thesis's target is the argument, not the appendices.
+ */
+export function wordsForScope(
+  nodes: readonly ManuscriptNode[],
+  words: ReadonlyMap<string, number>,
+  scope: 'manuscript' | 'project'
+): number {
+  return nodes.reduce((sum, node) => {
+    if (!isDocument(node)) return sum
+    if (scope === 'manuscript' && node.role === 'back') return sum
+    return sum + (words.get(node.id) ?? 0)
+  }, 0)
+}
+
+/**
  * What the exporter consumes: a linear stream of documents and headings.
  *
  * Also the shape `docx:export` and `docx:exportDialog` widen their `items`

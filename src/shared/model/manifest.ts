@@ -66,6 +66,27 @@ export const publicationSchema = z.object({
 })
 export type Publication = z.infer<typeof publicationSchema>
 
+/**
+ * A project's writing target, alongside the other project settings — a target
+ * belongs to the book, not to the person or machine writing it. See
+ * `docs/phase-13-plan.md`.
+ */
+export const goalsSchema = z.object({
+  /** Total words. Zero means no target is set. */
+  target: z.number().int().default(0),
+  /** ISO date (YYYY-MM-DD), or '' for none. */
+  deadline: z.string().default(''),
+  /** Zero means derive from `target`, the deadline, and words remaining. */
+  dailyTarget: z.number().int().default(0),
+  /**
+   * What counts toward `target`. `'manuscript'` is the body only — a thesis's
+   * target is the argument, not the appendices — via `flattenManuscript`'s
+   * part roles; `'project'` is every document in the project.
+   */
+  countScope: z.enum(['manuscript', 'project']).default('manuscript')
+})
+export type Goals = z.infer<typeof goalsSchema>
+
 export const projectManifestSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.manifest),
   id: z.string(),
@@ -93,7 +114,9 @@ export const projectManifestSchema = z.object({
    */
   highlightCategories: z.array(highlightCategoryDefSchema).optional(),
   /** Book/manuscript metadata, distinct from editor-behaviour `settings`. See `publicationSchema`. */
-  publication: publicationSchema.prefault({})
+  publication: publicationSchema.prefault({}),
+  /** Word/deadline target for the Progress panel. See `goalsSchema`. */
+  goals: goalsSchema.prefault({})
 })
 export type ProjectManifest = z.infer<typeof projectManifestSchema>
 

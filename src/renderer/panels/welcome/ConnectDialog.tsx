@@ -77,6 +77,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [secret, setSecret] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** A sign-in handed to the browser and not yet come back. */
+  const [signingIn, setSigningIn] = useState(false)
   /** The SSH identity awaiting a decision, when a test refused one. */
   const [hostKey, setHostKey] = useState<UntrustedHostKey | null>(null)
   const isOneDrive = draft.protocol === 'onedrive'
@@ -219,20 +221,33 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
    * The profile is saved first because sign-in works against a stored profile:
    * the client id and tenant it needs are exactly what is being typed here, and
    * the token it produces has to have somewhere to go.
+   *
+   * The wait is held in `signingIn` rather than `busy` deliberately. A sign-in
+   * the browser refuses — a client id with a typo, a registration missing its
+   * desktop platform — produces nothing here until the listener times out
+   * minutes later, and disabling the dialog for that whole time takes away the
+   * fields that would have fixed it.
    */
   const signIn = async (): Promise<void> => {
     setBusy(true)
     const saved = await save()
-    if (saved) {
-      setStatus('Finish signing in in your browser…')
-      const result = await invoke('connections:signIn', { id: saved.id }).catch(() => null)
-      setStatus(result ? result.message : 'The sign-in could not be started.')
-      if (result?.ok) {
-        setDraft((current) => ({ ...current, account: result.account, signedIn: true }))
-        await load()
-      }
-    }
     setBusy(false)
+    if (!saved) return
+
+    setSigningIn(true)
+    setStatus('Finish signing in in your browser…')
+    const result = await invoke('connections:signIn', { id: saved.id }).catch(() => null)
+    setSigningIn(false)
+    setStatus(result ? result.message : 'The sign-in could not be started.')
+    if (result?.ok) {
+      setDraft((current) => ({ ...current, account: result.account, signedIn: true }))
+      await load()
+    }
+  }
+
+  const cancelSignIn = async (): Promise<void> => {
+    if (!draft.id) return
+    await invoke('connections:cancelSignIn', { id: draft.id }).catch(() => {})
   }
 
   const signOut = async (): Promise<void> => {
@@ -650,7 +665,15 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               <ToolbarButton label="Save this server" disabled={busy} onClick={() => void save()}>
                 save
               </ToolbarButton>
-              {isOneDrive ? (
+              {isOneDrive && signingIn ? (
+                <ToolbarButton
+                  label="Stop waiting for the browser"
+                  data-testid="connect-cancel-signin"
+                  onClick={() => void cancelSignIn()}
+                >
+                  cancel sign-in
+                </ToolbarButton>
+              ) : isOneDrive ? (
                 <ToolbarButton
                   label="Sign in to OneDrive in your browser"
                   disabled={busy}
@@ -660,7 +683,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   {draft.signedIn ? 'sign in again' : 'sign in'}
                 </ToolbarButton>
               ) : null}
-              {isOneDrive && draft.signedIn ? (
+              {isOneDrive && draft.signedIn && !signingIn ? (
                 <ToolbarButton label="Sign out on this machine" disabled={busy} onClick={() => void signOut()}>
                   sign out
                 </ToolbarButton>

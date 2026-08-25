@@ -141,9 +141,13 @@ export function BeatInspector({
                 }
                 className={cx(
                   'rounded-full border px-2 py-px text-[11px]',
-                  on ? 'border-accent text-text' : 'border-border text-muted hover:border-faint'
+                  on ? 'border-accent text-text' : 'border-border text-muted hover:border-faint',
+                  // A draft is castable — trying it in a scene is how the writer
+                  // judges it — but it must not blend in with accepted records.
+                  entity.provisional && 'italic'
                 )}
                 style={on ? { background: `${entity.color ?? '#7aa2f7'}22` } : undefined}
+                title={entity.provisional ? 'Drafted by the assistant — not yet accepted' : undefined}
               >
                 {entity.name}
               </button>

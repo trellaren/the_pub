@@ -6,6 +6,7 @@ import {
   authorizeUrl,
   parseCallback,
   exchangeCode,
+  loopbackRedirectUri,
   type Fetcher
 } from '../onedrive/oauth.js'
 import { TokenCache } from '../onedrive/tokens.js'
@@ -19,6 +20,11 @@ const CLOSE_PAGE = `<!doctype html><meta charset="utf-8"><title>Signed in</title
 <body style="font:14px system-ui;padding:3rem;text-align:center">
 <h1 style="font-size:1.1rem">You are signed in.</h1>
 <p>You can close this tab and go back to The Pub.</p>`
+
+const REFUSED_PAGE = `<!doctype html><meta charset="utf-8"><title>Not signed in</title>
+<body style="font:14px system-ui;padding:3rem;text-align:center">
+<h1 style="font-size:1.1rem">The sign-in did not go through.</h1>
+<p>Go back to The Pub, where it says what Microsoft refused.</p>`
 
 /**
  * Signing in to OneDrive, and keeping what comes of it.
@@ -38,6 +44,8 @@ const CLOSE_PAGE = `<!doctype html><meta charset="utf-8"><title>Signed in</title
  */
 export class OneDriveAuth {
   private readonly cache: TokenCache
+  /** Sign-ins still waiting on a browser, so one can be given up on. */
+  private readonly waiting = new Map<string, Loopback>()
 
   constructor(
     private readonly store: ConnectionStore,
@@ -79,10 +87,14 @@ export class OneDriveAuth {
 
     const { verifier, challenge } = createPkcePair()
     const state = createState()
+    // Pressing sign in again after a redirect that never arrived has to start a
+    // fresh attempt rather than queue behind the one still holding a port.
+    this.cancel(profileId)
     const listener = await listen()
+    this.waiting.set(profileId, listener)
 
     try {
-      const redirectUri = `http://localhost:${listener.port}/callback`
+      const redirectUri = loopbackRedirectUri(listener.port)
       await shell.openExternal(
         authorizeUrl({
           clientId: profile.clientId,
@@ -106,12 +118,25 @@ export class OneDriveAuth {
       this.store.save({ id: profileId, account })
       return { account }
     } finally {
+      if (this.waiting.get(profileId) === listener) this.waiting.delete(profileId)
       await listener.close()
     }
   }
 
+  /**
+   * Stop waiting for a redirect that is not coming.
+   *
+   * Without this the dialog is held for the whole timeout by a sign-in that has
+   * already visibly failed in the browser, which leaves nothing to do about the
+   * client id or tenant that caused it.
+   */
+  cancel(profileId: string): void {
+    this.waiting.get(profileId)?.abort('The sign-in was cancelled.')
+  }
+
   /** Forget the tokens without forgetting the server. */
   signOut(profileId: string): void {
+    this.cancel(profileId)
     this.cache.forget(profileId)
     this.store.save({ id: profileId, account: '' }, '')
   }
@@ -132,5 +157,9 @@ export class OneDriveAuth {
 }
 
 function listen(): Promise<Loopback> {
-  return listenOnLoopback({ page: CLOSE_PAGE, timeoutMs: SIGN_IN_TIMEOUT_MS })
+  return listenOnLoopback({
+    page: CLOSE_PAGE,
+    failurePage: REFUSED_PAGE,
+    timeoutMs: SIGN_IN_TIMEOUT_MS
+  })
 }

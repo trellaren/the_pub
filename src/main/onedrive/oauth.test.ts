@@ -6,6 +6,7 @@ import {
   authorizeUrl,
   tokenUrl,
   parseCallback,
+  loopbackRedirectUri,
   exchangeCode,
   refreshTokens,
   isExpired,
@@ -48,7 +49,7 @@ describe('authorizeUrl', () => {
   const request = {
     clientId: 'app-1',
     tenant: 'common',
-    redirectUri: 'http://localhost:52111/callback',
+    redirectUri: 'http://localhost:52111',
     challenge: 'chal',
     state: 'st'
   }
@@ -84,6 +85,23 @@ describe('authorizeUrl', () => {
   })
 })
 
+describe('loopbackRedirectUri', () => {
+  it('carries no path, because only the port is ignored when matching', () => {
+    /*
+     * The bug this exists for: the documented registration is `http://localhost`,
+     * and Microsoft ignores the port when matching a loopback redirect against
+     * it — but nothing else. A request for `http://localhost:52111/callback` is
+     * refused with AADSTS50011 on the authorize URL, so the browser never
+     * redirects back and the app sees a sign-in that hangs and then times out.
+     */
+    const uri = loopbackRedirectUri(52111)
+    expect(uri).toBe('http://localhost:52111')
+    const parsed = new URL(uri)
+    expect(parsed.pathname).toBe('/')
+    expect(uri.replace(`:${parsed.port}`, '')).toBe('http://localhost')
+  })
+})
+
 describe('parseCallback', () => {
   it('reads the code out of the redirect', () => {
     expect(parseCallback('http://localhost:1/callback?code=abc&state=st', 'st')).toBe('abc')
@@ -113,7 +131,7 @@ describe('exchangeCode', () => {
   const request = {
     clientId: 'app-1',
     tenant: 'common',
-    redirectUri: 'http://localhost:52111/callback',
+    redirectUri: 'http://localhost:52111',
     code: 'the-code',
     verifier: 'the-verifier'
   }

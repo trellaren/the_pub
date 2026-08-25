@@ -5,7 +5,12 @@ import os from 'node:os'
 import { SourceService, attachmentDir, attachmentPdfPath, attachmentCapturePath } from './sourceService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
 import { SOURCES_FILE, FORMAT_VERSIONS, IGNORED_DIRS, RESEARCH_DIR } from '../../shared/constants.js'
-import { sourceFileSchema, type CslItem } from '../../shared/model/source.js'
+import {
+  sourceFileSchema,
+  isProvisional,
+  PUB_PROVISIONAL_KEY,
+  type CslItem
+} from '../../shared/model/source.js'
 import { PUB_ATTACHMENTS_KEY } from '../../shared/model/research.js'
 
 let root: string
@@ -182,5 +187,40 @@ describe('SourceService attachments', () => {
     const files = await adapter.walk('', IGNORED_DIRS)
     expect(files.some((entry) => entry.path.startsWith(RESEARCH_DIR))).toBe(false)
     expect(files.some((entry) => entry.path.endsWith('one.pubdoc'))).toBe(true)
+  })
+
+  it('stores an attributed source as provisional and clears it on accept', async () => {
+    const added = await sources.addProvisional({
+      id: '',
+      type: 'book',
+      title: 'Labour in the Estado Novo',
+      author: [{ literal: 'Rosas' }]
+    })
+    expect(isProvisional(added)).toBe(true)
+    expect(isProvisional((await onDisk())[0]!)).toBe(true)
+
+    const accepted = await sources.accept(added.id)
+    expect(isProvisional(accepted)).toBe(false)
+    // Cleared, not set to false: the key is our bookkeeping and an accepted
+    // source should look like every other source in the library.
+    expect(PUB_PROVISIONAL_KEY in (accepted as Record<string, unknown>)).toBe(false)
+  })
+
+  it('refuses a source nobody could go and check', async () => {
+    // An uncheckable citation in a bibliography is worse than a note in a chat,
+    // because it looks like it was verified.
+    await expect(sources.addProvisional({ id: '', type: 'webpage', title: 'Untraceable' })).rejects.toThrow(
+      /check/
+    )
+    expect(sources.snapshot().sources).toEqual([])
+
+    // A URL alone is enough to check something against.
+    const withUrl = await sources.addProvisional({
+      id: '',
+      type: 'webpage',
+      title: 'Untraceable',
+      URL: 'https://example.org/wages'
+    })
+    expect(withUrl.id).toBeTruthy()
   })
 })

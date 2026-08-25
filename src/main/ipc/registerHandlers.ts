@@ -47,7 +47,7 @@ import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
 import { Embedder, embedderConfig, embedderRefusal } from '../ai/embedder.js'
 import type { EmbedderResolution } from '../ai/embeddingIndexer.js'
-import type { RetrievalResult } from '../ai/tools.js'
+import { RECORD_WRITING_TOOLS, SOURCE_WRITING_TOOLS, type RetrievalResult } from '../ai/tools.js'
 import { ulid } from 'ulid'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
@@ -739,6 +739,17 @@ export function registerHandlers(context: HandlerContext): void {
     rescan(event)
     return saved
   })
+  handle('entities:accept', async ({ id }, event) => {
+    const accepted = await requireSession(event).entities.accept(id)
+    rescan(event)
+    return accepted
+  })
+  handle('entities:discard', async ({ id }, event) => {
+    const session = requireSession(event)
+    await session.entities.discard(id)
+    rescan(event)
+    return { ok: true as const }
+  })
   handle('entities:delete', async ({ id }, event) => {
     const session = requireSession(event)
     await session.entities.remove(id)
@@ -1002,6 +1013,7 @@ export function registerHandlers(context: HandlerContext): void {
     await requireSession(event).sources.remove(id)
     return { ok: true as const }
   })
+  handle('sources:accept', ({ id }, event) => requireSession(event).sources.accept(id))
   handle('sources:import', ({ files }, event) => importSourceFiles(requireSession(event), files))
   handle('sources:importDialog', async (_payload, event) => {
     const session = requireSession(event)
@@ -1356,6 +1368,18 @@ export function registerHandlers(context: HandlerContext): void {
     const ownerId = windows.ownerWindowId(event.sender)
     const onEvent = (streamEvent: StreamEvent): void => {
       if (ownerId !== null) windows.sendToSession(ownerId, 'ai:stream', streamEvent)
+      // A drafted cast the writer cannot see until they reopen the project is
+      // one they will assume failed, so the panel owning what was written is
+      // told the moment the tool call lands rather than at the end of the run.
+      if (streamEvent.type === 'tool' && ownerId !== null) {
+        if (RECORD_WRITING_TOOLS.includes(streamEvent.call.name)) {
+          windows.sendToSession(ownerId, 'entities:changed', {})
+          rescan(event)
+        }
+        if (SOURCE_WRITING_TOOLS.includes(streamEvent.call.name)) {
+          windows.sendToSession(ownerId, 'sources:changed', {})
+        }
+      }
       // A generation in progress is not an idle app, however long it runs.
       if (settings.provider === 'embedded') engine.keepAlive()
       // Persist only the finished reply: writing every delta would rewrite the
@@ -1582,6 +1606,11 @@ export function registerHandlers(context: HandlerContext): void {
 
   handle('connections:signOut', ({ id }) => {
     oneDrive.signOut(id)
+    return { ok: true as const }
+  })
+
+  handle('connections:cancelSignIn', ({ id }) => {
+    oneDrive.cancel(id)
     return { ok: true as const }
   })
 

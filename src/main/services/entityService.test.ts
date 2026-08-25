@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { EntityService } from './entityService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
-import { ENTITIES_FILE } from '../../shared/constants.js'
+import { ENTITIES_FILE, FORMAT_VERSIONS } from '../../shared/constants.js'
 
 let root: string
 let adapter: LocalAdapter
@@ -139,5 +139,66 @@ describe('EntityService', () => {
     const written = JSON.parse(await readFile()) as { entities: { name: string }[] }
     expect(written.entities[0]!.name).toBe('Three')
     expect(entities.get(harlan.id)?.name).toBe('Three')
+  })
+
+  it('drafts a record that is real, flagged, and survives a reload', async () => {
+    const drafted = await entities.draft('character', 'Aurelio', { summary: 'A dockworker.' })
+    expect(drafted.provisional).toBe(true)
+
+    const reloaded = new EntityService(adapter)
+    const file = await reloaded.load()
+    // A draft in a sidecar file is a preview; a provisional record is a draft.
+    // It has to still be one after the project closes and reopens.
+    expect(file.entities[0]!.provisional).toBe(true)
+    expect(file.formatVersion).toBe(FORMAT_VERSIONS.entities)
+  })
+
+  it('clears the flag on accept, and changes nothing else', async () => {
+    const drafted = await entities.draft('character', 'Aurelio', { summary: 'A dockworker.' })
+    const accepted = await entities.accept(drafted.id)
+
+    expect(accepted.provisional).toBe(false)
+    expect(accepted.id).toBe(drafted.id)
+    expect(accepted.name).toBe('Aurelio')
+    expect(accepted.summary).toBe('A dockworker.')
+  })
+
+  it('refuses to revise a record the writer has accepted', async () => {
+    /*
+     * The invariant the whole phase rests on: a tool may only change a record
+     * nobody has accepted. Enforced by the service refusing, not by asking the
+     * model nicely — the failure it prevents is a character the writer spent an
+     * afternoon on being quietly rewritten.
+     */
+    const drafted = await entities.draft('character', 'Aurelio', { summary: 'A dockworker.' })
+    await entities.revise(drafted.id, { summary: 'A dockworker with a debt.' })
+    expect(entities.get(drafted.id)?.summary).toBe('A dockworker with a debt.')
+
+    await entities.accept(drafted.id)
+    await expect(entities.revise(drafted.id, { summary: 'Something else' })).rejects.toThrow(/accepted/)
+    expect(entities.get(drafted.id)?.summary).toBe('A dockworker with a debt.')
+  })
+
+  it('will not let a revision accept the record it is revising', async () => {
+    // Accepting is a person's act. A revision that could clear the flag would
+    // be an accept wearing a different name.
+    const drafted = await entities.draft('character', 'Aurelio')
+    const revised = await entities.revise(drafted.id, { provisional: false, summary: 'x' })
+    expect(revised.provisional).toBe(true)
+  })
+
+  it('discards a draft but refuses to discard accepted work', async () => {
+    const kept = await entities.draft('character', 'Aurelio')
+    const thrown = await entities.draft('character', 'Benedita')
+    await entities.accept(kept.id)
+
+    await expect(entities.discard(kept.id)).rejects.toThrow(/deliberately/)
+    await entities.discard(thrown.id)
+    expect(entities.snapshot().entities.map((entity) => entity.name)).toEqual(['Aurelio'])
+  })
+
+  it('creates an ordinary record that is nobody\'s draft', async () => {
+    const harlan = await entities.create('character', 'Harlan')
+    expect(harlan.provisional).toBe(false)
   })
 })

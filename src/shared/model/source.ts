@@ -62,6 +62,42 @@ export const cslItemSchema = z
   .catchall(z.unknown())
 export type CslItem = z.infer<typeof cslItemSchema>
 
+/**
+ * The namespaced catchall key marking a source the assistant attributed and
+ * nobody has accepted, alongside `_pubAttachments`.
+ *
+ * Namespaced rather than a bare `provisional` for the reason attachments are:
+ * this is our bookkeeping riding on a CSL-JSON item, and a citation processor
+ * handed the library must ignore it rather than try to render it.
+ */
+export const PUB_PROVISIONAL_KEY = '_pubProvisional'
+
+/** Whether a source is the assistant's attribution, not yet checked by a person. */
+export function isProvisional(item: CslItem): boolean {
+  return (item as Record<string, unknown>)[PUB_PROVISIONAL_KEY] === true
+}
+
+export function withProvisional(item: CslItem, provisional: boolean): CslItem {
+  if (!provisional) {
+    const { [PUB_PROVISIONAL_KEY]: _dropped, ...rest } = item as Record<string, unknown>
+    return rest as CslItem
+  }
+  return { ...item, [PUB_PROVISIONAL_KEY]: true }
+}
+
+/**
+ * Whether a source names a work someone could go and check.
+ *
+ * The bar the assistant's `add_source` has to clear. An entry with neither a
+ * URL nor an identifiable work is not a citation, it is a sentence — and an
+ * uncheckable citation in a thesis bibliography is career damage, so it is
+ * refused rather than stored with a caveat.
+ */
+export function isCheckable(item: CslItem): boolean {
+  const hasWork = Boolean(item.title?.trim() && (authorNames(item) || item['container-title'] || item.publisher))
+  return Boolean(item.URL?.trim() || item.DOI?.trim() || item.ISBN?.trim() || hasWork)
+}
+
 export const sourceFileSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.sources),
   sources: z.array(cslItemSchema).default(() => [])

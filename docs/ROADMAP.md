@@ -8,8 +8,10 @@ serves an essay, a thesis or a research paper, without losing what makes it good
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
 meant to be shippable on its own.
 
-**Status:** Phases 0–3 have shipped. Phases 4–14 each have a build plan linked from their section
-below.
+**Status:** Phases 0–6 and 8–15 have shipped, each with a build plan linked from its section
+below. Phase 7 (pagination) is deliberately deferred: steps 1 and 2 of its sequence — per-document
+page setup, real headers and footers in exported `.docx`, and a pure `paginate()` — are built,
+because they are useful on their own; step 3, where the permanent cost starts, is not.
 
 ## Two scoping decisions
 

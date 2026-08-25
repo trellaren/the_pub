@@ -87,7 +87,14 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     { from: 7, to: 8, up: (raw) => raw }
   ],
   manuscript: [],
-  entities: [],
+  entities: [
+    // Phase 15 adds `provisional`. The schema's own `false` default fills it in
+    // regardless, so nothing about an existing record's value changes — only
+    // the version. It has to move all the same: a build that predates the flag
+    // re-saves a drafted record without it, which is a silent *accept* of work
+    // the writer never looked at, and there is nothing left to undo it by.
+    { from: 1, to: 2, up: (raw) => raw }
+  ],
   beats: [],
   maps: [],
   layouts: [],
@@ -119,7 +126,15 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     { from: 1, to: 2, up: (raw) => raw }
   ],
   notes: [],
-  sources: [],
+  sources: [
+    // Phase 15 adds the `_pubProvisional` catchall key. `cslItemSchema` is a
+    // catchall, so an older build parses such a source happily — and then
+    // re-saves it, keeping the key but showing none of the "attributed by the
+    // assistant, not verified" warning it carries. A fabricated citation that
+    // has quietly lost its caveat is the one failure this phase is most
+    // concerned with, so the version moves.
+    { from: 1, to: 2, up: (raw) => raw }
+  ],
   authors: [],
   reviews: [],
   presence: [],

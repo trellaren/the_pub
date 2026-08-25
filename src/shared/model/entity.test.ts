@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { storyEntitySchema, entityFileSchema, colorForIndex, ENTITY_COLORS } from './entity.js'
+import { FORMAT_VERSIONS } from '../constants.js'
 
 const MINIMAL = {
   id: 'e1',
@@ -61,7 +62,15 @@ describe('entityFileSchema', () => {
     const file = entityFileSchema.parse({})
     expect(file.entities).toEqual([])
     expect(file.dismissed).toEqual([])
-    expect(file.formatVersion).toBe(1)
+    expect(file.formatVersion).toBe(FORMAT_VERSIONS.entities)
+  })
+
+  it('reads a record with no provisional flag as the writer\'s own', () => {
+    // Every record written before Phase 15. The default has to be "accepted",
+    // not "draft" — the opposite would put an existing cast behind an accept
+    // button nobody asked for.
+    const entity = storyEntitySchema.parse(MINIMAL)
+    expect(entity.provisional).toBe(false)
   })
 
   it('gives each parse its own roster array', () => {

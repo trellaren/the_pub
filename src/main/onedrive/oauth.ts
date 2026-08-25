@@ -67,6 +67,21 @@ export function tokenUrl(tenant: string): string {
   return `${authority(tenant)}/oauth2/v2.0/token`
 }
 
+/**
+ * The redirect URI naming a loopback listener on `port`.
+ *
+ * Microsoft ignores the **port** when matching a loopback redirect against a
+ * registration, and nothing else about it: the path is compared exactly, and so
+ * is a trailing slash. The registration this app documents is `http://localhost`,
+ * so a request for `http://localhost:52111/callback` is rejected with AADSTS50011
+ * on the authorize URL — before the browser is ever redirected back. From inside
+ * the app that is indistinguishable from a sign-in that hangs, because the
+ * listener simply never hears anything.
+ */
+export function loopbackRedirectUri(port: number): string {
+  return `http://localhost:${port}`
+}
+
 export interface AuthorizeRequest {
   clientId: string
   tenant: string

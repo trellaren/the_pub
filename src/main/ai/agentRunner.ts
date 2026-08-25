@@ -49,6 +49,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
 
   const conversation: OutboundMessage[] = [...options.messages]
   const performed: ToolCall[] = []
+  const ensembleAttempts = new Map<string, number>()
   let answer = ''
 
   try {
@@ -93,6 +94,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
         const result = await runTool(call.name, call.args, {
           session,
           findPassages: options.findPassages,
+          ensembleAttempts,
           onProposal: (proposal) => proposals.push(proposal)
         })
 

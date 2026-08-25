@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CslItem } from '@shared/model/source.js'
-import { invoke, attempt } from '@renderer/lib/ipc.js'
+import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
 interface SourceStore {
   sources: CslItem[]
@@ -9,6 +9,8 @@ interface SourceStore {
   create: (type: string) => Promise<CslItem | null>
   /** Optimistic edit; the write is debounced behind it, the same shape `entityStore.patch` uses. */
   patch: (id: string, changes: Partial<CslItem>) => void
+  /** The writer has checked a citation the assistant attributed. */
+  accept: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
   /** Write any pending edit now. Called before the window closes. */
   flush: () => Promise<void>
@@ -49,6 +51,16 @@ export const useSourceStore = create<SourceStore>((set, get) => ({
     )
   },
 
+  accept: async (id) => {
+    const timer = pending.get(id)
+    if (timer) clearTimeout(timer)
+    pending.delete(id)
+    await saveNow(id)
+    const accepted = await attempt(invoke('sources:accept', { id }), 'Could not accept the source')
+    if (!accepted) return
+    set({ sources: get().sources.map((source) => (source.id === id ? accepted : source)) })
+  },
+
   remove: async (id) => {
     const timer = pending.get(id)
     if (timer) clearTimeout(timer)
@@ -73,6 +85,11 @@ async function saveNow(id: string): Promise<void> {
   if (!source) return
   await attempt(invoke('sources:save', { source }), 'Could not save the source')
 }
+
+/** The assistant attributed a source during a run; the library shows it now, not on reopen. */
+on('sources:changed', () => {
+  void useSourceStore.getState().load()
+})
 
 /** Sources of the open project, for editors and the citation picker created outside React. */
 export function currentSources(): CslItem[] {

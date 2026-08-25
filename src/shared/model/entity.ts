@@ -77,6 +77,18 @@ export const storyEntitySchema = z.object({
   relations: z.array(entityRelationSchema).default(() => []),
   /** Whole-record switch for name scanning; individual aliases have their own. */
   scan: z.boolean().default(true),
+  /**
+   * Written by the assistant and not yet accepted by a person.
+   *
+   * The record is real — it has an id, it is in the file, mentions resolve to
+   * it, the storyboard can cast it — but it is visibly the model's guess.
+   * Accepting clears the flag; that is the only thing accepting does.
+   *
+   * It is also the safety boundary: a tool may revise a record while this is
+   * set and never once it is clear, so a character the writer spent an
+   * afternoon on cannot be "helpfully tidied" by a model.
+   */
+  provisional: z.boolean().default(false),
   created: z.string(),
   modified: z.string()
 })

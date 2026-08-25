@@ -336,6 +336,10 @@ export const ipcContract = defineContract({
     'entities:create': { req: z.object({ kind: entityKindSchema, name: z.string() }), res: storyEntitySchema },
     'entities:save': { req: z.object({ entity: storyEntitySchema }), res: storyEntitySchema },
     'entities:delete': { req: z.object({ id: z.string() }), res: ok },
+    /** Take a record the assistant drafted as the writer's own. */
+    'entities:accept': { req: z.object({ id: z.string() }), res: storyEntitySchema },
+    /** Throw away a draft. Refuses a record that has been accepted. */
+    'entities:discard': { req: z.object({ id: z.string() }), res: ok },
 
     'mentions:forEntity': { req: mentionQuerySchema, res: z.array(mentionHitSchema) },
     'mentions:summary': { req: empty, res: z.record(z.string(), mentionCountsSchema) },
@@ -531,6 +535,8 @@ export const ipcContract = defineContract({
     'sources:create': { req: z.object({ type: z.string() }), res: cslItemSchema },
     'sources:save': { req: z.object({ source: cslItemSchema }), res: cslItemSchema },
     'sources:delete': { req: z.object({ id: z.string() }), res: ok },
+    /** The writer has checked a citation the assistant attributed. */
+    'sources:accept': { req: z.object({ id: z.string() }), res: cslItemSchema },
     /*
      * Bibliography import, split into a dialog-free half and a dialog wrapper
      * for the reason `docx:import` is: Playwright cannot operate a native
@@ -816,6 +822,14 @@ export const ipcContract = defineContract({
 
     /** A document's review threads changed, from this window or a collaborator's sync. */
     'review:changed': z.object({ docId: z.string() }),
+    /**
+     * The assistant wrote records or sources during a run.
+     *
+     * A drafted cast that does not appear until the project is reopened is one
+     * the writer will assume failed, so the panels that own them reload.
+     */
+    'entities:changed': z.object({}),
+    'sources:changed': z.object({}),
     /** Deltas, completion and failure of an in-flight reply. */
     'ai:stream': streamEventSchema,
     /** Download progress, which belongs to main and outlives the panel showing it. */

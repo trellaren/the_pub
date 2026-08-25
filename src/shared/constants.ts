@@ -7,14 +7,14 @@ export const FORMAT_VERSIONS = {
   document: 8, // 7 = Phase 11 highlightId attr (previously unbumped), 8 = Phase 14 lang mark/attr
   manifest: 8, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block, 8 = Phase 13 goals
   manuscript: 1,
-  entities: 1,
+  entities: 2, // 2 = Phase 15 provisional flag
   beats: 1,
   maps: 1,
   layouts: 1,
   chats: 4,
   connections: 2,
   notes: 1,
-  sources: 1,
+  sources: 2, // 2 = Phase 15 provisional sources
   authors: 1,
   reviews: 1,
   presence: 1,

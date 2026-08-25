@@ -86,6 +86,16 @@ slips through — because a noisy suggestion list is how a feature like this get
   they are encrypted into the app's own data directory, never the project folder, and no channel
   hands one back to the interface.
 
+- **An assistant that drafts, and never commits.** With the agent turned on it can search the
+  project, propose prose edits as suggestions, and draft story records — one character, or a whole
+  ensemble asked for as a group ("a crew of eight, no two from the same town, exactly one lying
+  about why they signed on") and checked against those constraints before any of it is written.
+  What it writes arrives as a *draft*: a real record you can search, mention and link to a beat,
+  visibly marked, that you accept or discard. Accepting is the only thing that makes it yours —
+  and once you have, the assistant cannot change it again. Researched citations come in the same
+  way and say so on the card: it cannot browse, so a reference it attributes is unverified until
+  you have checked it.
+
 - **Projects on a server.** Open a project over SFTP or FTP and everything works unchanged —
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
   credentials encrypted on this machine, outside any project folder, and an SSH server has to prove

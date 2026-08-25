@@ -34,6 +34,15 @@ interface ChatStore {
   saveSettings: (settings: AiSettings) => Promise<void>
   saveChat: (chat: Chat) => Promise<void>
   send: (chatId: string, text: string, context: string) => Promise<void>
+  /**
+   * Ask from somewhere other than the AI panel, into whichever chat is open.
+   *
+   * The Records panel's drafting actions go through here rather than a channel
+   * of their own, so what the assistant did lands in the tool-call trace Phase
+   * 10 already built. That trace is the audit surface for everything the model
+   * touched; a second one beside it would split the record in half.
+   */
+  ask: (text: string) => Promise<boolean>
   cancel: () => Promise<void>
   refreshKeys: () => Promise<void>
   setKey: (provider: AiProviderId, key: string) => Promise<string | null>
@@ -122,6 +131,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
       streaming: { requestId: started.requestId, chatId, text: '', toolCalls: [] }
     })
+  },
+
+  ask: async (text) => {
+    if (!get().loaded) await get().load()
+    const chatId = get().activeChatId ?? (await get().createChat())?.id
+    if (!chatId) return false
+    await get().send(chatId, text, '')
+    return true
   },
 
   cancel: async () => {

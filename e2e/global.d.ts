@@ -118,6 +118,7 @@ interface PubTestHook {
       deleteChat: (id: string) => Promise<void>
       saveSettings: (settings: AiSettings) => Promise<void>
       send: (chatId: string, text: string, context: string) => Promise<void>
+      ask: (text: string) => Promise<boolean>
       proposals: EditProposal[]
       llm: LlmStatus | null
       refreshLlm: () => Promise<void>

@@ -3,6 +3,8 @@ import type { VfsAdapter } from '../vfs/types.js'
 import {
   sourceFileSchema,
   cslItemSchema,
+  isCheckable,
+  withProvisional,
   EMPTY_SOURCE_FILE,
   type SourceFile,
   type CslItem
@@ -79,6 +81,38 @@ export class SourceService extends JsonCollectionService<CslItem, SourceFile> {
   async remove(id: string): Promise<void> {
     this.deleteById(id)
     await this.flush()
+  }
+
+  /**
+   * Add a source the assistant attributed a claim to.
+   *
+   * Refused outright when there is nothing to check it against. The model does
+   * not browse, so this is a citation it has *asserted*, and an assertion with
+   * no URL, no DOI and no identifiable work is a sentence dressed as a
+   * reference — worse in a bibliography than a note in a chat, because it
+   * looks like it was verified.
+   */
+  async addProvisional(incoming: CslItem): Promise<CslItem> {
+    const item = cslItemSchema.parse({ ...incoming, id: incoming.id || ulid() })
+    if (!isCheckable(item)) {
+      throw new Error(
+        'A source needs a URL, a DOI, an ISBN, or a title with an author or publisher — something a person can check.'
+      )
+    }
+    const stored = withProvisional(item, true)
+    this.upsert(stored)
+    await this.flush()
+    return structuredClone(stored)
+  }
+
+  /** The writer has checked the citation. Clearing the flag is all this does. */
+  async accept(id: string): Promise<CslItem> {
+    const existing = this.get(id)
+    if (!existing) throw new Error('That source no longer exists.')
+    const accepted = withProvisional(existing, false)
+    this.upsert(accepted)
+    await this.flush()
+    return structuredClone(accepted)
   }
 
   /**

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { StoryEntity, EntityKind, DismissedMention } from '@shared/model/entity.js'
 import type { MentionCounts } from '@shared/model/mention.js'
 import { ENTITY_SAVE_DEBOUNCE_MS } from '@shared/constants.js'
-import { invoke, attempt } from '@renderer/lib/ipc.js'
+import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 
 interface EntityStore {
   entities: StoryEntity[]
@@ -14,6 +14,10 @@ interface EntityStore {
   create: (kind: EntityKind, name: string) => Promise<StoryEntity | null>
   /** Optimistic edit; the write is debounced behind it. */
   patch: (id: string, changes: Partial<StoryEntity>) => void
+  /** Take a record the assistant drafted as the writer's own. */
+  accept: (id: string) => Promise<void>
+  /** Throw away a draft. Refused by main for a record already accepted. */
+  discard: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
   /** Write any pending edit now. Called before the window closes. */
   flush: () => Promise<void>
@@ -71,6 +75,29 @@ export const useEntityStore = create<EntityStore>((set, get) => ({
     )
   },
 
+  accept: async (id) => {
+    // Any edit still in flight is written first: accepting a draft the writer
+    // has just been retyping must not accept the version before their edit.
+    await flushOne(id)
+    const accepted = await attempt(invoke('entities:accept', { id }), 'Could not accept the draft')
+    if (!accepted) return
+    set({
+      entities: get().entities.map((entity) =>
+        entity.id === id ? { ...entity, provisional: false, modified: accepted.modified } : entity
+      )
+    })
+  },
+
+  discard: async (id) => {
+    const timer = pending.get(id)
+    if (timer) clearTimeout(timer)
+    pending.delete(id)
+    const discarded = await attempt(invoke('entities:discard', { id }), 'Could not discard the draft')
+    if (!discarded) return
+    set({ entities: get().entities.filter((entity) => entity.id !== id) })
+    await get().refreshCounts()
+  },
+
   remove: async (id) => {
     const timer = pending.get(id)
     if (timer) clearTimeout(timer)
@@ -81,15 +108,27 @@ export const useEntityStore = create<EntityStore>((set, get) => ({
   },
 
   flush: async () => {
-    const ids = [...pending.keys()]
-    for (const id of ids) {
-      const timer = pending.get(id)
-      if (timer) clearTimeout(timer)
-      pending.delete(id)
-      await saveNow(id)
-    }
+    for (const id of [...pending.keys()]) await flushOne(id)
   }
 }))
+
+async function flushOne(id: string): Promise<void> {
+  const timer = pending.get(id)
+  if (!timer) return
+  clearTimeout(timer)
+  pending.delete(id)
+  await saveNow(id)
+}
+
+/**
+ * The assistant wrote records during a run.
+ *
+ * A drafted cast that only appears when the project is reopened is one the
+ * writer will assume failed, so the panel is told rather than left to notice.
+ */
+on('entities:changed', () => {
+  void useEntityStore.getState().load()
+})
 
 async function saveNow(id: string): Promise<void> {
   const entity = useEntityStore.getState().entities.find((candidate) => candidate.id === id)

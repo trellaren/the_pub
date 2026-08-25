@@ -25,10 +25,18 @@ describe('migrate', () => {
   })
 
   it('only the kinds whose formats have actually changed carry steps', () => {
-    // `document`, `manifest`, `chats`, `connections` and `pdfHighlights` are
-    // the only formats to have changed since this machinery shipped. Any
+    // The only formats to have changed since this machinery shipped. Any
     // *other* kind showing up with a step here is a signal, not a typo.
-    const changed = new Set(['document', 'manifest', 'chats', 'connections', 'pdfHighlights'])
+    const changed = new Set([
+      'document',
+      'manifest',
+      'chats',
+      'connections',
+      'pdfHighlights',
+      // Phase 15: the provisional flag, on records and on sources.
+      'entities',
+      'sources'
+    ])
     for (const [kind, steps] of Object.entries(MIGRATIONS)) {
       if (changed.has(kind)) continue
       expect(steps).toEqual([])

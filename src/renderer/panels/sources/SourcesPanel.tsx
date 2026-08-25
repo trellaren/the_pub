@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CslItem, CslName } from '@shared/model/source.js'
 import type { Capture, ResearchAttachment } from '@shared/model/research.js'
-import { CSL_TYPES, describeSource } from '@shared/model/source.js'
+import { CSL_TYPES, describeSource, isProvisional } from '@shared/model/source.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { useResearchStore } from '@renderer/stores/researchStore.js'
@@ -40,6 +40,7 @@ export function SourcesPanel() {
   const patch = useSourceStore((store) => store.patch)
   const create = useSourceStore((store) => store.create)
   const remove = useSourceStore((store) => store.remove)
+  const accept = useSourceStore((store) => store.accept)
 
   const load = useSourceStore((store) => store.load)
 
@@ -158,6 +159,7 @@ export function SourcesPanel() {
                   selected?.id === source.id ? 'bg-surface-3 text-text' : 'text-muted hover:bg-surface-2'
                 )}
               >
+                {isProvisional(source) ? '⚠ ' : ''}
                 {describeSource(source) || '(untitled)'}
               </button>
             </li>
@@ -165,7 +167,11 @@ export function SourcesPanel() {
         </ul>
 
         {selected ? (
-          <SourceDetail source={selected} onPatch={(changes) => patch(selected.id, changes)} />
+          <SourceDetail
+            source={selected}
+            onPatch={(changes) => patch(selected.id, changes)}
+            onAccept={() => void accept(selected.id)}
+          />
         ) : (
           <EmptyState title="No sources yet" hint="Add one, then cite it by typing [ in a document." />
         )}
@@ -176,10 +182,12 @@ export function SourcesPanel() {
 
 function SourceDetail({
   source,
-  onPatch
+  onPatch,
+  onAccept
 }: {
   source: CslItem
   onPatch: (changes: Partial<CslItem>) => void
+  onAccept: () => void
 }) {
   const authors = source.author ?? []
   const year = source.issued?.['date-parts']?.[0]?.[0]
@@ -190,6 +198,31 @@ function SourceDetail({
 
   return (
     <div className="min-w-0 flex-1 overflow-y-auto p-3" data-testid="source-detail">
+      {/*
+        Said in the plainest words available, and not softened.
+        The assistant does not browse, so this citation is its own attribution
+        — and a confident fabricated reference in a thesis bibliography is
+        career damage, which is a different order of failure from a wrong
+        detail on a character card.
+      */}
+      {isProvisional(source) ? (
+        <div className="mb-3 rounded border border-danger p-2" data-testid="source-provisional">
+          <p className="text-[11px] text-danger">
+            Attributed by the assistant — not verified. It cannot browse, so this reference may not
+            exist. Check it against the work itself before citing it.
+          </p>
+          <div className="mt-2">
+            <ToolbarButton
+              label="Mark this source as checked"
+              data-testid="source-accept"
+              onClick={onAccept}
+            >
+              I have checked this
+            </ToolbarButton>
+          </div>
+        </div>
+      ) : null}
+
       <Field label="Type">
         <Select value={source.type} onChange={(event) => onPatch({ type: event.target.value })}>
           {CSL_TYPES.map((type) => (

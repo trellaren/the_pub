@@ -748,6 +748,7 @@ export const ipcContract = defineContract({
       res: z.object({ ok: z.boolean(), account: z.string(), message: z.string() })
     },
     'connections:signOut': { req: z.object({ id: z.string() }), res: ok },
+    'connections:cancelSignIn': { req: z.object({ id: z.string() }), res: ok },
 
     'layout:load': { req: empty, res: layoutFileSchema },
     'layout:saveLast': { req: z.object({ layout: dockLayoutSchema }), res: ok },

@@ -148,6 +148,7 @@ export const INVOKE_CHANNELS = [
   'connections:createDatabase',
   'connections:signIn',
   'connections:signOut',
+  'connections:cancelSignIn',
   'layout:load',
   'layout:saveLast',
   'layout:savePreset',

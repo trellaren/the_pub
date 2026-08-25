@@ -1585,6 +1585,11 @@ export function registerHandlers(context: HandlerContext): void {
     return { ok: true as const }
   })
 
+  handle('connections:cancelSignIn', ({ id }) => {
+    oneDrive.cancel(id)
+    return { ok: true as const }
+  })
+
   handle('layout:load', (_payload, event) => requireSession(event).layout.load())
   handle('layout:saveLast', async ({ layout }, event) => {
     await requireSession(event).layout.saveLast(layout)

@@ -170,7 +170,7 @@ test('a beat links to a paragraph and opens it again', async () => {
   await harness.page.evaluate(() => window.__pub.beats.getState().load())
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('A quiet morning.\nThen the storm broke.')
 

@@ -24,7 +24,7 @@ interface LayoutStore {
   api: DockviewApi | null
   presets: LayoutPreset[]
   setApi: (api: DockviewApi) => void
-  openEditor: (docId: string, path: string, title: string) => void
+  openEditor: (docId: string, path: string, title: string, options?: { activate?: boolean }) => void
   showPanel: (component: PanelComponent, title: string, options?: ShowPanelOptions) => void
   /** Every open panel, main window and popouts alike, in tab order — for the "Focus panel…" command. */
   listOpenPanels: () => { id: string; title: string }[]
@@ -78,13 +78,14 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 
   setApi: (api) => set({ api }),
 
-  openEditor: (docId, path, title) => {
+  openEditor: (docId, path, title, options) => {
     const api = get().api
     if (!api) return
+    const activate = options?.activate ?? true
     const id = `${EDITOR_PANEL_PREFIX}${docId}`
     const existing = api.getPanel(id)
     if (existing) {
-      existing.api.setActive()
+      if (activate) existing.api.setActive()
       return
     }
     const target = editorGroupPanel(api)
@@ -96,9 +97,12 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       // Open beside the documents already on screen. With nothing to reference,
       // `position` is omitted entirely — a direction with no reference panel is
       // not a valid location and dockview rejects it.
-      ...(target ? { position: { referencePanel: target.id, direction: 'within' as const } } : {})
+      ...(target ? { position: { referencePanel: target.id, direction: 'within' as const } } : {}),
+      // `activate: false` is the auto-open path arriving late: it must never
+      // pull focus off something the person has since opened themselves.
+      ...(activate ? {} : { inactive: true })
     })
-    api.getPanel(id)?.api.setActive()
+    if (activate) api.getPanel(id)?.api.setActive()
   },
 
   /** Focus a singleton panel, creating it if the layout doesn't have one. */

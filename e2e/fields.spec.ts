@@ -24,7 +24,7 @@ async function setText(text: string): Promise<void> {
 }
 
 async function setStyle(styleId: string): Promise<void> {
-  await harness.page.locator('select[title="Paragraph style"]').selectOption(styleId)
+  await harness.page.locator('select[title="Paragraph style"]:visible').selectOption(styleId)
 }
 
 /** Build a document with two headings and a paragraph, ready for TOC/reference tests. */
@@ -97,7 +97,7 @@ test('inserting a cross-reference embeds the target heading’s text, and clicki
   await harness.page.getByText('Some prose here.').click()
   await harness.page.keyboard.press('End')
 
-  const picker = harness.page.locator('select[title="Insert cross-reference"]')
+  const picker = harness.page.locator('select[title="Insert cross-reference"]:visible')
   const targetLabel = await picker.locator('option').nth(1).textContent()
   await picker.selectOption({ index: 1 })
 
@@ -126,7 +126,7 @@ test('a reference survives closing and reopening the project, still pointing at 
   await harness.page.keyboard.press('ControlOrMeta+Home')
   await harness.page.getByText('Some prose here.').click()
   await harness.page.keyboard.press('End')
-  await harness.page.locator('select[title="Insert cross-reference"]').selectOption({ index: 1 })
+  await harness.page.locator('select[title="Insert cross-reference"]:visible').selectOption({ index: 1 })
 
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
   await waitFor(async () => {

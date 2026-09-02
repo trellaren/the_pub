@@ -28,7 +28,7 @@ test('typing autosaves to disk and the file stays valid JSON', async () => {
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await expect(editor).toBeVisible()
   await editor.click()
   await harness.page.keyboard.type('The storm broke over Ashfall at dusk.')
@@ -50,7 +50,7 @@ test('global search finds typed text and reports the right block', async () => {
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('A quiet morning in the valley.')
   await harness.page.keyboard.press('Enter')
@@ -100,7 +100,7 @@ test('layout and content are restored when the project is reopened', async () =>
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('Persisted across restarts.')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
@@ -126,7 +126,7 @@ test('layout and content are restored when the project is reopened', async () =>
     return ids.some((id) => id.startsWith('editor:'))
   }, 'the editor panel to be restored')
 
-  await expect(harness.page.locator('.pub-sheet .ProseMirror')).toContainText('Persisted across restarts.')
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText('Persisted across restarts.')
 })
 
 /*
@@ -190,7 +190,7 @@ test('a document restored by id survives being renamed on disk', async () => {
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('Chapter that moves.')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
@@ -214,7 +214,7 @@ test('a document restored by id survives being renamed on disk', async () => {
   harness = await launch({ projectDir, userDataDir })
   await openProject(harness.page, projectDir)
 
-  await expect(harness.page.locator('.pub-sheet .ProseMirror')).toContainText('Chapter that moves.', {
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText('Chapter that moves.', {
     timeout: 25_000
   })
 })

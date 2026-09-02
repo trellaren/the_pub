@@ -30,13 +30,13 @@ test('the toolbar takes a size and a face that are not on its lists', async () =
    * 13.5 is on no preset list, and that is the point: the pickers used to be
    * <select>s, which made thirteen sizes and seven faces the entire offer.
    */
-  await harness.page.getByTestId('toolbar-size').fill('13.5')
-  await harness.page.getByTestId('toolbar-size').press('Enter')
+  await harness.page.locator('[data-testid="toolbar-size"]:visible').fill('13.5')
+  await harness.page.locator('[data-testid="toolbar-size"]:visible').press('Enter')
   await expect(harness.page.locator(`${EDITOR} span[style*="font-size: 13.5pt"]`)).toBeVisible()
 
   await harness.page.locator(EDITOR).press('Control+a')
-  await harness.page.getByTestId('toolbar-font').fill('Optima')
-  await harness.page.getByTestId('toolbar-font').press('Enter')
+  await harness.page.locator('[data-testid="toolbar-font"]:visible').fill('Optima')
+  await harness.page.locator('[data-testid="toolbar-font"]:visible').press('Enter')
   await expect(harness.page.locator(`${EDITOR} span[style*="Optima"]`)).toBeVisible()
 })
 
@@ -46,8 +46,8 @@ test('a nonsense size is refused rather than applied', async () => {
   await createDocument(harness.page, 'chapter-01.pubdoc')
   await typeAndSelect('Hello.')
 
-  await harness.page.getByTestId('toolbar-size').fill('0')
-  await harness.page.getByTestId('toolbar-size').press('Enter')
+  await harness.page.locator('[data-testid="toolbar-size"]:visible').fill('0')
+  await harness.page.locator('[data-testid="toolbar-size"]:visible').press('Enter')
   await expect(harness.page.locator(`${EDITOR} span[style*="font-size"]`)).toHaveCount(0)
 })
 

@@ -327,7 +327,7 @@ test('a document written over SFTP lands on the server and reads back', async ()
   })
   expect(docId).toBeTruthy()
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await expect(editor).toBeVisible()
   await editor.click()
   await harness.page.keyboard.type('Written straight to the server over SSH.')
@@ -377,7 +377,7 @@ test('search indexes a project served over SFTP', async () => {
     const state = window.__pub.documents.getState().docs[id!]!
     window.__pub.layout.getState().openEditor(id!, state.path, state.title)
   })
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('The harbourmaster kept a ledger of every tide.')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())

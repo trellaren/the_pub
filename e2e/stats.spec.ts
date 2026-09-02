@@ -68,5 +68,5 @@ test('typing persists today’s word count and the Progress panel shows it after
 
   await harness.page.evaluate(() => window.__pub.runCommand('panel.progress'))
   await expect(harness.page.getByText('Today').first()).toBeVisible()
-  await expect(harness.page.getByText(/words/).first()).toBeVisible()
+  await expect(harness.page.getByText(/words/).filter({ visible: true }).first()).toBeVisible()
 })

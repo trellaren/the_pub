@@ -42,7 +42,7 @@ async function confirmMention(hit: MentionHit): Promise<boolean> {
 }
 
 async function typeInto(text: string): Promise<void> {
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await expect(editor).toBeVisible()
   await editor.click()
   await harness.page.keyboard.type(text)
@@ -170,7 +170,7 @@ test('a backlink opens the document at the right paragraph', async () => {
     hit
   )
   expect(opened).toBe(true)
-  await expect(harness.page.locator('.pub-sheet .ProseMirror')).toBeVisible()
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
 })
 
 test('@-autocomplete inserts a mention and leaves no @ in the text', async () => {
@@ -179,7 +179,7 @@ test('@-autocomplete inserts a mention and leaves no @ in the text', async () =>
   const record = await createRecord('Harlan')
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   await harness.page.keyboard.type('Then @Har')
   await expect(harness.page.locator('[data-testid="mention-popup"]')).toBeVisible()
@@ -211,7 +211,7 @@ test('@-autocomplete works in an editor torn out into its own window', async () 
 
   const popout = harness.app.windows()[harness.app.windows().length - 1]!
   await popout.waitForLoadState('domcontentloaded')
-  const editor = popout.locator('.pub-sheet .ProseMirror')
+  const editor = popout.locator('.pub-sheet:visible .ProseMirror')
   await expect(editor).toBeVisible()
   await editor.click()
   await popout.keyboard.type('Then @Har')

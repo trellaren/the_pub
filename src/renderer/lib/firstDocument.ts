@@ -47,6 +47,17 @@ export async function ensureDocumentOpen(): Promise<void> {
   const current = useLayoutStore.getState().api
   if (!current || current.panels.some((panel) => panel.id.startsWith(EDITOR_PANEL_PREFIX))) return
 
+  // Focus is only taken from the panels the default layout parks you on. If
+  // the person has already opened something themselves — Settings, a board, a
+  // dialog over a panel — the page arrives *behind* it: this runs on a delay
+  // they cannot see, and work stolen from under someone's hands reads as the
+  // app acting up, not as a welcome.
+  const activePanel = current.activePanel?.id
+  const activate = !activePanel || PASSIVE_PANELS.has(activePanel)
+
   const state = useDocumentStore.getState().docs[docId]
-  if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+  if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title, { activate })
 }
+
+/** The default layout's own furniture — what a person is looking at only because nothing else is open. */
+const PASSIVE_PANELS = new Set(['welcome', 'explorer', 'search'])

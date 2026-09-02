@@ -43,7 +43,7 @@ test('the Explorer’s ＋ button creates a document that opens in a tab', async
         .catch(() => false),
     'the document to appear on disk'
   )
-  await expect(harness.page.locator('.pub-sheet .ProseMirror')).toBeVisible()
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
 })
 
 test('right-clicking a folder creates the document inside it', async () => {

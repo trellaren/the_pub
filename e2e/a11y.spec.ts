@@ -142,7 +142,7 @@ test('a completed save is announced in a polite live region', async () => {
   await el.click()
   await harness.page.keyboard.type('Something worth saving.')
 
-  const live = harness.page.locator('[data-testid="save-state-live"]')
+  const live = harness.page.locator('[data-testid="save-state-live"]:visible')
   await expect(live).toHaveAttribute('aria-live', 'polite')
   await expect(live).toContainText('Saved', { timeout: 10000 })
 })

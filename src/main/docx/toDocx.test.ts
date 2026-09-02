@@ -36,6 +36,19 @@ function para(text: string, attrs?: Record<string, unknown>, marks?: PmNode['mar
 }
 
 describe('exportDocx', () => {
+  it('writes each margin to its own side of w:pgMar', async () => {
+    // 90pt binding margin on the left only. 1440 twips = 72pt, 1800 = 90pt.
+    const buffer = await exportDocx({
+      documents: [{ title: 'One', content: doc(para('x')) }],
+      styles: BUILTIN_STYLES,
+      page: { ...PAGE, margins: { top: 72, bottom: 72, left: 90, right: 72 } }
+    })
+    const xml = strFromU8(unzipSync(new Uint8Array(buffer))['word/document.xml']!)
+    expect(xml).toContain('w:left="1800"')
+    expect(xml).toContain('w:right="1440"')
+    expect(xml).toContain('w:top="1440"')
+  })
+
   it('produces a real Word package, not just a zip', async () => {
     const zip = unzipSync(new Uint8Array(await write(doc(para('Hello.')))))
     // Word rejects a package missing any of these outright.

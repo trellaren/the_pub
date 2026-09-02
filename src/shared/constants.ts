@@ -4,8 +4,8 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 8, // 7 = Phase 11 highlightId attr (previously unbumped), 8 = Phase 14 lang mark/attr
-  manifest: 8, // 6 = Phase 11 highlightCategories, 7 = Phase 12 publication block, 8 = Phase 13 goals
+  document: 9, // 8 = Phase 14 lang mark/attr, 9 = per-side section margins
+  manifest: 9, // 7 = Phase 12 publication block, 8 = Phase 13 goals, 9 = per-side page margins
   manuscript: 1,
   entities: 2, // 2 = Phase 15 provisional flag
   beats: 1,
@@ -69,6 +69,14 @@ export const HIGHLIGHTS_DIR = `${PUB_DIR}/highlights`
 export const RESEARCH_DIR = `${PUB_DIR}/research`
 /** A CSL-JSON bibliography: every source the project can cite. */
 export const SOURCES_FILE = `${PUB_DIR}/sources.json`
+/**
+ * Imported font files: `fonts/<id>.<ext>`. In the project, deliberately — a
+ * font is part of how the manuscript looks, so it travels with the project to
+ * every machine (and every remote backend) the project opens on, the same way
+ * `assets/` images do. The manifest's `fonts` list is the index; the files
+ * are served to the renderer over the same asset protocol as images.
+ */
+export const FONTS_DIR = `${PUB_DIR}/fonts`
 /** Who has worked on this project: id, display name and colour. */
 export const AUTHORS_FILE = `${PUB_DIR}/authors.json`
 /**

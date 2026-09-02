@@ -5,6 +5,7 @@ import type { DocumentService } from './documentService.js'
 import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { NamedStyle } from '../../shared/model/style.js'
 import type { PmDoc, PmNode, Section } from '../../shared/model/document.js'
+import { marginsFromSettings } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
 import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
 import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
@@ -170,7 +171,8 @@ export class DocxService {
         : {
             width: manifest.settings.pageWidth,
             height: manifest.settings.pageHeight,
-            margin: manifest.settings.pageMargin
+            margin: manifest.settings.pageMarginTop,
+            margins: marginsFromSettings(manifest.settings)
           },
       header: firstSection?.header,
       footer: firstSection?.footer,

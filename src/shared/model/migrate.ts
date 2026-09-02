@@ -49,7 +49,12 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Absent `lang` already means "the project's default language", so no
     // existing v7 document's own shape changes — only the version, for the
     // reason every no-op step above already records.
-    { from: 7, to: 8, up: (raw) => raw }
+    { from: 7, to: 8, up: (raw) => raw },
+    // Per-side section margins: `margins` is optional on a section's page
+    // setup and absent means the uniform `margin` on all four sides, so no
+    // v8 document's own shape changes — only the version, so an older build
+    // doesn't re-save a v9 file and silently drop a margin someone set.
+    { from: 8, to: 9, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in
@@ -84,7 +89,31 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // Phase 13 adds the `goals` block. The schema's own `prefault({})` fills
     // it in regardless, so nothing about the value changes — only the
     // version, for the same reason `publication` moved it above.
-    { from: 7, to: 8, up: (raw) => raw }
+    { from: 7, to: 8, up: (raw) => raw },
+    // v9 carries two changes. `fonts` (imported project fonts) is additive
+    // and defaults to empty, needing nothing here. The single `pageMargin`
+    // becoming four per-side settings does need this step — the first in this
+    // table to change a value rather than only the version: the margin
+    // someone chose has to become all four sides, or a project set to 90pt
+    // margins would silently reopen at the 72pt defaults.
+    {
+      from: 8,
+      to: 9,
+      up: (raw) => {
+        if (typeof raw !== 'object' || raw === null) return raw
+        const manifest = raw as { settings?: Record<string, unknown> }
+        const settings = manifest.settings
+        if (typeof settings !== 'object' || settings === null) return raw
+        const margin = typeof settings.pageMargin === 'number' ? settings.pageMargin : 72
+        const sides = {
+          pageMarginTop: settings.pageMarginTop ?? margin,
+          pageMarginBottom: settings.pageMarginBottom ?? margin,
+          pageMarginLeft: settings.pageMarginLeft ?? margin,
+          pageMarginRight: settings.pageMarginRight ?? margin
+        }
+        return { ...manifest, settings: { ...settings, ...sides } }
+      }
+    }
   ],
   manuscript: [],
   entities: [

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildAssetUrl, parseAssetUrl, imageMimeType } from './asset.js'
+import { buildAssetUrl, parseAssetUrl, assetMimeType } from './asset.js'
 
 const TOKEN = 'a'.repeat(32)
 
@@ -59,20 +59,27 @@ describe('asset urls', () => {
   })
 })
 
-describe('imageMimeType', () => {
+describe('assetMimeType', () => {
   it('knows the formats an author will actually import', () => {
-    expect(imageMimeType('a.png')).toBe('image/png')
-    expect(imageMimeType('a.jpg')).toBe('image/jpeg')
-    expect(imageMimeType('a.JPEG')).toBe('image/jpeg')
-    expect(imageMimeType('a.gif')).toBe('image/gif')
-    expect(imageMimeType('a.webp')).toBe('image/webp')
-    expect(imageMimeType('a.avif')).toBe('image/avif')
-    expect(imageMimeType('a.bmp')).toBe('image/bmp')
-    expect(imageMimeType('a.svg')).toBe('image/svg+xml')
+    expect(assetMimeType('a.png')).toBe('image/png')
+    expect(assetMimeType('a.jpg')).toBe('image/jpeg')
+    expect(assetMimeType('a.JPEG')).toBe('image/jpeg')
+    expect(assetMimeType('a.gif')).toBe('image/gif')
+    expect(assetMimeType('a.webp')).toBe('image/webp')
+    expect(assetMimeType('a.avif')).toBe('image/avif')
+    expect(assetMimeType('a.bmp')).toBe('image/bmp')
+    expect(assetMimeType('a.svg')).toBe('image/svg+xml')
+  })
+
+  it('names font types, which the @font-face loader depends on', () => {
+    expect(assetMimeType('.thepub/fonts/x.ttf')).toBe('font/ttf')
+    expect(assetMimeType('.thepub/fonts/x.otf')).toBe('font/otf')
+    expect(assetMimeType('.thepub/fonts/x.woff')).toBe('font/woff')
+    expect(assetMimeType('.thepub/fonts/x.WOFF2')).toBe('font/woff2')
   })
 
   it('answers octet-stream for anything else', () => {
-    expect(imageMimeType('a.tiff')).toBe('application/octet-stream')
-    expect(imageMimeType('no-extension')).toBe('application/octet-stream')
+    expect(assetMimeType('a.tiff')).toBe('application/octet-stream')
+    expect(assetMimeType('no-extension')).toBe('application/octet-stream')
   })
 })

@@ -13,7 +13,7 @@ describe('buildPrintHtml', () => {
       setup,
       new Map()
     )
-    expect(html).toContain('@page { size: 612pt 792pt; margin: 72pt; }')
+    expect(html).toContain('@page { size: 612pt 792pt; margin: 72pt 72pt 72pt 72pt; }')
     expect(html).toContain('Hello')
   })
 
@@ -55,6 +55,6 @@ describe('buildPrintHtml', () => {
       landscape,
       new Map()
     )
-    expect(html).toContain('@page { size: 792pt 612pt; margin: 72pt; }')
+    expect(html).toContain('@page { size: 792pt 612pt; margin: 72pt 72pt 72pt 72pt; }')
   })
 })

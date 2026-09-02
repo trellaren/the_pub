@@ -138,7 +138,11 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   }
 
   const sheetWidth = settings?.pageWidth ?? 612
-  const sheetPadding = settings?.pageMargin ?? 72
+  // The sheet honours all four margins, so what is on screen is the shape of
+  // the page that prints.
+  const sheetPadding = settings
+    ? `${settings.pageMarginTop}pt ${settings.pageMarginRight}pt ${settings.pageMarginBottom}pt ${settings.pageMarginLeft}pt`
+    : '72pt'
 
   return (
     <PanelShell>
@@ -159,7 +163,7 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
       <div className="flex-1 overflow-auto bg-bg" onMouseDown={() => setActive(docId)}>
         <div
           className="pub-sheet"
-          style={{ width: `${sheetWidth}pt`, maxWidth: '100%', padding: `${sheetPadding}pt` }}
+          style={{ width: `${sheetWidth}pt`, maxWidth: '100%', padding: sheetPadding }}
         >
           <EditorContent editor={editor} />
         </div>

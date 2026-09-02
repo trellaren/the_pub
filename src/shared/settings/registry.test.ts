@@ -46,7 +46,10 @@ describe('the schemas built from it', () => {
       snapshotsEnabled: true,
       pageWidth: 612,
       pageHeight: 792,
-      pageMargin: 72,
+      pageMarginTop: 72,
+      pageMarginBottom: 72,
+      pageMarginLeft: 72,
+      pageMarginRight: 72,
       defaultStyleId: 'body',
       citationStyleId: 'chicago-author-date'
     })
@@ -66,7 +69,10 @@ describe('the schemas built from it', () => {
       snapshotsEnabled: false,
       pageWidth: 595,
       pageHeight: 842,
-      pageMargin: 56,
+      pageMarginTop: 56,
+      pageMarginBottom: 42,
+      pageMarginLeft: 90,
+      pageMarginRight: 56,
       defaultStyleId: 'chapter-body',
       citationStyleId: 'apa'
     }

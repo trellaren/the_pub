@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { ulid } from 'ulid'
 import { STYLE_BODY, type NamedStyle } from '@shared/model/style.js'
-import type { HighlightCategoryDef } from '@shared/model/manifest.js'
+import type { HighlightCategoryDef, ProjectFont } from '@shared/model/manifest.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { findAnchor } from '@shared/pm/anchors.js'
 import { buildToc } from '@shared/pm/toc.js'
@@ -33,6 +33,7 @@ const LINE_HEIGHTS = [1, 1.15, 1.5, 1.6, 2, 2.5]
 const HIGHLIGHTS = ['#ffe066', '#a5d8ff', '#b2f2bb', '#ffc9c9', '#eebefa']
 const NO_STYLES: NamedStyle[] = []
 const NO_CATEGORIES: HighlightCategoryDef[] = []
+const NO_FONTS: ProjectFont[] = []
 
 /**
  * Word-style formatting controls.
@@ -53,6 +54,7 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   const sources = useSourceStore((store) => store.sources)
   const highlightCategories =
     useProjectStore((store) => store.project?.manifest.highlightCategories) ?? NO_CATEGORIES
+  const projectFonts = useProjectStore((store) => store.project?.manifest.fonts) ?? NO_FONTS
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -202,41 +204,40 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
         ))}
       </Select>
 
-      <Select
-        value={currentFont}
+      <ToolbarCombo
         title="Font"
         className="w-32"
-        onChange={(event) => {
-          const value = event.target.value
+        listId={`toolbar-fonts-${docId}`}
+        value={currentFont}
+        placeholder="Style font"
+        options={fontOptions(projectFonts)}
+        testId="toolbar-font"
+        onCommit={(value) => {
           if (value) editor.chain().focus().setFontFamily(value).run()
           else editor.chain().focus().unsetFontFamily().run()
         }}
-      >
-        <option value="">Style font</option>
-        {FONTS.map((font) => (
-          <option key={font} value={font} style={{ fontFamily: font }}>
-            {font.split(',')[0]}
-          </option>
-        ))}
-      </Select>
+      />
 
-      <Select
+      <ToolbarCombo
+        title="Font size (pt)"
+        className="w-14"
+        listId={`toolbar-sizes-${docId}`}
         value={currentSize}
-        title="Font size"
-        className="w-16"
-        onChange={(event) => {
-          const value = event.target.value
-          if (value) editor.chain().focus().setFontSize(`${value}pt`).run()
-          else editor.chain().focus().unsetFontSize().run()
+        placeholder="pt"
+        options={SIZES.map((size) => ({ value: String(size) }))}
+        testId="toolbar-size"
+        onCommit={(value) => {
+          if (!value) {
+            editor.chain().focus().unsetFontSize().run()
+            return
+          }
+          const size = Number(value)
+          // Word's own bounds. A typo like "1200" would set a page-tall glyph,
+          // and zero would make the selection invisible with nothing to grab.
+          if (!Number.isFinite(size) || size < 1 || size > 1638) return
+          editor.chain().focus().setFontSize(`${size}pt`).run()
         }}
-      >
-        <option value="">pt</option>
-        {SIZES.map((size) => (
-          <option key={size} value={size}>
-            {size}
-          </option>
-        ))}
-      </Select>
+      />
 
       <Divider />
 
@@ -483,6 +484,104 @@ function parseSize(value: unknown): string {
   if (typeof value !== 'string') return ''
   const match = /^(\d+(?:\.\d+)?)/.exec(value)
   return match ? match[1]! : ''
+}
+
+/**
+ * The toolbar's font choices: the project's own imported fonts first, then the
+ * curated stacks. Any other installed face can be typed.
+ */
+function fontOptions(projectFonts: ProjectFont[]): { value: string; label?: string }[] {
+  return [
+    ...projectFonts.map((font) => ({ value: font.family })),
+    ...FONTS.map((font) => ({ value: font, label: font.split(',')[0] }))
+  ]
+}
+
+/**
+ * A text box with suggestions, where the suggestions are not the only values.
+ *
+ * The old `<select>`s meant thirteen sizes and seven faces were the whole
+ * offer, which is the "more font sizes / more font options" complaint in
+ * words. A datalist keeps the presets one click away while letting 13.5pt or
+ * any installed font be typed.
+ *
+ * Commits on Enter or blur, never per keystroke: typing "12" must not pass
+ * through a moment of 1pt text.
+ */
+function ToolbarCombo({
+  title,
+  className,
+  listId,
+  value,
+  placeholder,
+  options,
+  testId,
+  onCommit
+}: {
+  title: string
+  className?: string
+  listId: string
+  value: string
+  placeholder: string
+  options: { value: string; label?: string }[]
+  testId: string
+  onCommit: (value: string) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  // A ref, not state: Escape blurs the input, and the blur's commit runs in
+  // the same tick — before React has re-rendered with the cleared draft.
+  const abandoned = useRef(false)
+
+  const commit = (): void => {
+    if (abandoned.current) {
+      abandoned.current = false
+      setDraft(null)
+      return
+    }
+    if (draft === null) return
+    setDraft(null)
+    if (draft.trim() !== value) onCommit(draft.trim())
+  }
+
+  return (
+    <>
+      <input
+        type="text"
+        title={title}
+        aria-label={title}
+        list={listId}
+        data-testid={testId}
+        className={cx(
+          'pub-focus-ring h-7 rounded border border-border bg-surface-2 px-1.5 text-[12px] text-text',
+          'placeholder:text-faint hover:border-faint',
+          className
+        )}
+        value={draft ?? value}
+        placeholder={placeholder}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+          }
+          if (event.key === 'Escape') {
+            // Back out of a half-typed value without it landing on the prose.
+            event.preventDefault()
+            abandoned.current = true
+            event.currentTarget.blur()
+          }
+        }}
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label ?? option.value}
+          </option>
+        ))}
+      </datalist>
+    </>
+  )
 }
 
 export { cx }

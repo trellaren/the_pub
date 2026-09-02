@@ -79,9 +79,10 @@ export function parseAssetUrl(url: string): ParsedAssetUrl | null {
 /*
  * Deliberately not the rendererServer's MIME table: that one serves the app
  * bundle (scripts, styles, source maps) and has different membership rules.
- * This one answers only "what image is this file?".
+ * This one answers only for what the asset protocol serves out of a project —
+ * document images, and the imported fonts under `.thepub/fonts/`.
  */
-const IMAGE_TYPES: Record<string, string> = {
+const ASSET_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -89,11 +90,18 @@ const IMAGE_TYPES: Record<string, string> = {
   webp: 'image/webp',
   avif: 'image/avif',
   bmp: 'image/bmp',
-  svg: 'image/svg+xml'
+  svg: 'image/svg+xml',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  woff: 'font/woff',
+  woff2: 'font/woff2'
 }
 
-export function imageMimeType(relativePath: string): string {
+export function assetMimeType(relativePath: string): string {
   const dot = relativePath.lastIndexOf('.')
   const extension = dot === -1 ? '' : relativePath.slice(dot + 1).toLowerCase()
-  return IMAGE_TYPES[extension] ?? 'application/octet-stream'
+  return ASSET_TYPES[extension] ?? 'application/octet-stream'
 }
+
+/** The font extensions `fonts:import` accepts, shared with its file dialog. */
+export const FONT_EXTENSIONS = ['ttf', 'otf', 'woff', 'woff2'] as const

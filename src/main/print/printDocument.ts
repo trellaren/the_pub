@@ -1,4 +1,5 @@
 import type { PmDoc } from '../../shared/model/document.js'
+import { pageMargins } from '../../shared/model/document.js'
 import type { PageSetup } from '../../shared/model/document.js'
 import type { NamedStyle } from '../../shared/model/style.js'
 import { documentToXhtml } from '../epub/xhtml.js'
@@ -33,6 +34,7 @@ export function buildPrintHtml(
 ): string {
   const width = setup.orientation === 'landscape' ? setup.height : setup.width
   const height = setup.orientation === 'landscape' ? setup.width : setup.height
+  const margins = pageMargins(setup)
 
   const sections = documents.map((document, index) => {
     const { body } = documentToXhtml(document.content, styles, `d${index}`)
@@ -40,7 +42,7 @@ export function buildPrintHtml(
   })
 
   const css = `${buildStylesheet(styles)}
-@page { size: ${width}pt ${height}pt; margin: ${setup.margin}pt; }
+@page { size: ${width}pt ${height}pt; margin: ${margins.top}pt ${margins.right}pt ${margins.bottom}pt ${margins.left}pt; }
 body { margin: 0; }
 .pub-doc { break-inside: auto; }
 img { max-width: 100%; }`

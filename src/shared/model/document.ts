@@ -6,15 +6,57 @@ import { FORMAT_VERSIONS } from '../constants.js'
  * that field's own comment for why headers, footers and page setup are never
  * ProseMirror content.
  */
+export const pageMarginsSchema = z.object({
+  top: z.number(),
+  bottom: z.number(),
+  left: z.number(),
+  right: z.number()
+})
+export type PageMargins = z.infer<typeof pageMarginsSchema>
+
 export const pageSetupSchema = z.object({
   width: z.number(),
   height: z.number(),
-  margin: z.number(),
+  /** Uniform margin, used when `margins` is absent. */
+  margin: z.number().default(72),
+  /**
+   * Per-side margins. Optional so every section written before these existed
+   * — and any writer who only ever wants one number — keeps meaning what it
+   * meant; read through `pageMargins()`, never directly.
+   */
+  margins: pageMarginsSchema.optional(),
   orientation: z.enum(['portrait', 'landscape']).default('portrait'),
   /** Stored for a future pagination pass to read; export does not lay out columns yet. */
   columns: z.number().int().min(1).default(1)
 })
 export type PageSetup = z.infer<typeof pageSetupSchema>
+
+/** The project settings' page margins as a `PageSetup`-shaped block. Structural, to stay import-free of the manifest. */
+export function marginsFromSettings(settings: {
+  pageMarginTop: number
+  pageMarginBottom: number
+  pageMarginLeft: number
+  pageMarginRight: number
+}): PageMargins {
+  return {
+    top: settings.pageMarginTop,
+    bottom: settings.pageMarginBottom,
+    left: settings.pageMarginLeft,
+    right: settings.pageMarginRight
+  }
+}
+
+/** The four margins a page actually has, whichever way this setup states them. */
+export function pageMargins(setup: Pick<PageSetup, 'margin' | 'margins'>): PageMargins {
+  return (
+    setup.margins ?? {
+      top: setup.margin,
+      bottom: setup.margin,
+      left: setup.margin,
+      right: setup.margin
+    }
+  )
+}
 
 /**
  * ProseMirror document JSON. Kept structurally loose on purpose: the editor's

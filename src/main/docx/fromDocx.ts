@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate'
 import type { PmDoc, PmNode, PmMark } from '../../shared/model/document.js'
+import type { PageMargins } from '../../shared/model/document.js'
 import type { NamedStyle, TextStyleAttrs, ParagraphStyleAttrs } from '../../shared/model/style.js'
 import {
   toggleValue,
@@ -61,7 +62,7 @@ export interface DocxImport {
   authors: AuthorProfile[]
   warnings: string[]
   /** Page setup, reported to the author but never applied project-wide. */
-  page: { width: number; height: number; margin: number } | null
+  page: { width: number; height: number; margin: number; margins: PageMargins } | null
 }
 
 /**
@@ -697,18 +698,34 @@ function readTable(table: XmlNode, context: Context): PmNode | null {
 
 /* ------------------------------------------------------------------- page */
 
-function readSectionSetup(body: XmlNode): { width: number; height: number; margin: number } | null {
+function readSectionSetup(
+  body: XmlNode
+): { width: number; height: number; margin: number; margins: PageMargins } | null {
   const section = child(body, 'w:sectPr')
   if (!section) return null
   const size = child(section, 'w:pgSz')
-  const margins = child(section, 'w:pgMar')
+  const pgMar = child(section, 'w:pgMar')
   const width = numAtt(size, 'w:w')
   const height = numAtt(size, 'w:h')
-  const left = numAtt(margins, 'w:left')
   if (width === null || height === null) return null
+
+  // All four sides, not `w:left` for all of them: a Word document with a
+  // wider binding margin used to come in with the same margin everywhere and
+  // go back out that way, silently reformatting the file on a round trip.
+  const side = (name: string): number => {
+    const value = numAtt(pgMar, name)
+    return value === null ? 72 : twipsToPoints(value)
+  }
+  const margins = {
+    top: side('w:top'),
+    bottom: side('w:bottom'),
+    left: side('w:left'),
+    right: side('w:right')
+  }
   return {
     width: twipsToPoints(width),
     height: twipsToPoints(height),
-    margin: left === null ? 72 : twipsToPoints(left)
+    margin: margins.left,
+    margins
   }
 }

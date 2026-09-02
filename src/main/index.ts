@@ -21,6 +21,19 @@ import { LlmEngine } from './llm/engine.js'
 registerAssetSchemePrivileges()
 
 /*
+ * A development run keeps its own `userData`, on every platform.
+ *
+ * Electron names that directory after the app, which is `quoth` from
+ * package.json in a dev run and `Quoth` from the packaged build's
+ * `productName` — the same folder on macOS and Windows, a different one on
+ * Linux. Before the rename the two names differed by more than case and the
+ * separation came free; naming it here buys it back rather than leaving a dev
+ * run sharing recent projects, keys and window state with an installed copy on
+ * two platforms out of three.
+ */
+if (!app.isPackaged) app.setName('Quoth (dev)')
+
+/*
  * A second copy of the app hands its arguments to the first and stops here.
  *
  * `app.quit()` alone is not enough: it is asynchronous, so this module would
@@ -151,7 +164,7 @@ app.whenReady().then(
   () => undefined,
   (error: unknown) => {
     const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
-    dialog.showErrorBox('The Pub could not start', detail)
+    dialog.showErrorBox('Quoth could not start', detail)
     app.exit(1)
   }
 )

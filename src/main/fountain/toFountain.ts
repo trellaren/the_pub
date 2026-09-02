@@ -12,7 +12,7 @@ import {
  * Writing a `.fountain`.
  *
  * Fountain is plain text with a handful of formatting rules, so this is a
- * serialiser The Pub owns outright rather than a wrapper around a library —
+ * serialiser Quoth owns outright rather than a wrapper around a library —
  * the same asymmetry `docx/` keeps: export goes through code proven by this
  * app's own conventions, import (`fromFountain.ts`) is checked against
  * fixtures modelled on what other tools actually write.

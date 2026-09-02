@@ -1,5 +1,5 @@
 /**
- * Format version stamped into every file The Pub writes, one counter per kind
+ * Format version stamped into every file Quoth writes, one counter per kind
  * of file so a breaking change to the manifest doesn't force a bump — and a
  * migration — on every `.pubdoc` that never touched the changed part.
  */
@@ -27,7 +27,17 @@ export type FileKind = keyof typeof FORMAT_VERSIONS
 /** @deprecated Use `FORMAT_VERSIONS.document`. Kept so existing call sites need no churn. */
 export const FORMAT_VERSION = FORMAT_VERSIONS.document
 
-/** Project-relative directory holding all app-managed data. */
+/**
+ * Project-relative directory holding all app-managed data.
+ *
+ * Still `.thepub`, and still `.pubdoc`, after the app was renamed to Quoth.
+ * These two are not branding: they are the on-disk format. Every project folder
+ * that exists — including ones sitting in OneDrive, on an SFTP host or in a
+ * database — is addressed by these names, and nothing here is a migration:
+ * `MIGRATIONS` moves a file's *contents* forward, it cannot rename a directory
+ * out from under a folder someone else is syncing. Renaming them would cost
+ * every existing project its notes to buy consistency in a path no one reads.
+ */
 export const PUB_DIR = '.thepub'
 /** Extension for manuscript documents (ProseMirror JSON envelopes). */
 export const DOC_EXT = '.pubdoc'

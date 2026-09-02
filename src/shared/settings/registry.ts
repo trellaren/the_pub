@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '../constants.js'
 
 /**
- * Every preference The Pub has, in one flat list.
+ * Every preference Quoth has, in one flat list.
  *
  * Before this, a setting existed in four places that had to be kept in step by
  * hand: a field on a zod schema, a control in `SettingsPanel`, a default
@@ -28,7 +28,12 @@ export type SettingControl =
   | { kind: 'number'; step?: number }
   | { kind: 'boolean' }
   | { kind: 'text' }
-  | { kind: 'select'; options: ReadonlyArray<{ value: string; label: string }> }
+  /**
+   * `group` is optional and, where present, only headings the panel draws over
+   * runs of adjacent options — the order in the array is still the order shown.
+   * A setting with twenty values (the theme picker) is a wall without them.
+   */
+  | { kind: 'select'; options: ReadonlyArray<{ value: string; label: string; group?: string }> }
   | { kind: 'select'; optionsFrom: 'projectStyles' }
   /**
    * Named suggestions that are not the only allowed values — a text field with
@@ -53,41 +58,66 @@ export interface SettingDef {
 /**
  * Selectable themes, and the single place they are listed.
  *
- * `THEMES` in `shared/themes.ts` and the app-state enum are both derived from
- * this: a theme used to have to be added to both, and one that reached only
- * the enum was selectable by nothing.
+ * `THEMES` in `shared/themes.ts`, the theme submenu, the picker's groups and
+ * the app-state enum are all derived from this: a theme used to have to be
+ * added to two lists, and one that reached only the enum was selectable by
+ * nothing.
+ *
+ * `scheme` is what the theme is *made of*, not a second palette: it becomes the
+ * document's `color-scheme`, which is what paints form controls, native
+ * scrollbars and the window's own background between paints. It cannot be
+ * guessed from the id.
+ *
+ * `contrast: 'aaa'` marks a theme that promises more than the usual AA floor —
+ * `shared/themes.test.ts` holds those to 7:1 text and a visible border, so a
+ * high-contrast theme cannot quietly drift back down to ordinary.
  */
 export const THEME_OPTIONS = [
-  { value: 'dark', label: 'Regular Dark' },
-  { value: 'light', label: 'Regular Light' },
-  { value: 'blue', label: 'Blue' },
-  { value: 'dark-purple', label: 'Dark Purple' },
-  { value: 'edinburgh-cafe', label: 'Edinburgh Café' },
-  { value: 'gloomy-castle', label: 'Gloomy Castle' },
-  { value: 'gritty-philadelphia', label: 'Gritty Philadelphia' },
-  { value: 'hokkaido', label: 'Hokkaido' },
-  { value: 'ocean', label: 'Ocean' },
-  { value: 'red', label: 'Red' },
-  { value: 'scottish-highlands', label: 'Scottish Highlands' },
-  { value: 'tokyo', label: 'Tokyo' },
-  { value: 'high-contrast', label: 'High Contrast' }
+  { value: 'raven', label: 'Raven', group: 'Raven', scheme: 'dark' },
+  { value: 'raven-light', label: 'Raven Light', group: 'Raven', scheme: 'light' },
+  { value: 'slate', label: 'Slate', group: 'Professional', scheme: 'dark' },
+  { value: 'oxford', label: 'Oxford', group: 'Professional', scheme: 'dark' },
+  { value: 'broadsheet', label: 'Broadsheet', group: 'Professional', scheme: 'light' },
+  { value: 'manuscript', label: 'Manuscript', group: 'Professional', scheme: 'light' },
+  {
+    value: 'high-contrast',
+    label: 'High Contrast Dark',
+    group: 'High contrast',
+    scheme: 'dark',
+    contrast: 'aaa'
+  },
+  {
+    value: 'high-contrast-light',
+    label: 'High Contrast Light',
+    group: 'High contrast',
+    scheme: 'light',
+    contrast: 'aaa'
+  },
+  { value: 'dark', label: 'Regular Dark', group: 'Classic', scheme: 'dark' },
+  { value: 'light', label: 'Regular Light', group: 'Classic', scheme: 'light' },
+  { value: 'blue', label: 'Blue', group: 'Classic', scheme: 'dark' },
+  { value: 'dark-purple', label: 'Dark Purple', group: 'Atmospheric', scheme: 'dark' },
+  { value: 'edinburgh-cafe', label: 'Edinburgh Café', group: 'Atmospheric', scheme: 'dark' },
+  { value: 'gloomy-castle', label: 'Gloomy Castle', group: 'Atmospheric', scheme: 'dark' },
+  {
+    value: 'gritty-philadelphia',
+    label: 'Gritty Philadelphia',
+    group: 'Atmospheric',
+    scheme: 'dark'
+  },
+  { value: 'hokkaido', label: 'Hokkaido', group: 'Atmospheric', scheme: 'light' },
+  { value: 'ocean', label: 'Ocean', group: 'Atmospheric', scheme: 'dark' },
+  { value: 'red', label: 'Red', group: 'Atmospheric', scheme: 'dark' },
+  {
+    value: 'scottish-highlands',
+    label: 'Scottish Highlands',
+    group: 'Atmospheric',
+    scheme: 'dark'
+  },
+  { value: 'tokyo', label: 'Tokyo', group: 'Atmospheric', scheme: 'dark' }
 ] as const
 
-const THEME_IDS = [
-  'dark',
-  'light',
-  'blue',
-  'dark-purple',
-  'edinburgh-cafe',
-  'gloomy-castle',
-  'gritty-philadelphia',
-  'hokkaido',
-  'ocean',
-  'red',
-  'scottish-highlands',
-  'tokyo',
-  'high-contrast'
-] as const
+const THEME_IDS = THEME_OPTIONS.map((option) => option.value)
 
 const CITATION_STYLE_OPTIONS = [
   { value: 'chicago-author-date', label: 'Chicago (author-date)' },
@@ -103,7 +133,7 @@ export const SETTING_DEFS = [
     scope: 'app',
     group: 'Application',
     title: 'Theme',
-    schema: z.enum(THEME_IDS).default('dark'),
+    schema: z.enum(THEME_IDS).default('raven'),
     control: { kind: 'select', options: THEME_OPTIONS }
   },
   {

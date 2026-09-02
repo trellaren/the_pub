@@ -3,6 +3,7 @@ import type { RecentProject } from '@shared/model/app.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
 import { PanelShell } from '@renderer/ui/primitives.js'
+import { RavenMark } from '@renderer/ui/RavenMark.js'
 import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
 import { invoke } from '@renderer/lib/ipc.js'
@@ -23,7 +24,10 @@ export function WelcomePanel() {
     <PanelShell className="bg-bg">
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 p-10">
         <div>
-          <h1 className="font-[var(--font-read)] text-3xl text-text">The Pub</h1>
+          <div className="flex items-center gap-3">
+            <RavenMark size={34} className="shrink-0 text-text" />
+            <h1 className="font-[var(--font-read)] text-3xl text-text">Quoth</h1>
+          </div>
           <p className="mt-1 text-[13px] text-muted" data-testid="welcome-project-root">
             {project ? project.root : 'A workshop for long stories.'}
           </p>
@@ -54,7 +58,7 @@ export function WelcomePanel() {
             Connect to a server…
           </button>
           <p className="text-[12px] text-faint">
-            Any folder becomes a project — on this machine, in OneDrive, or over SFTP or FTP. The Pub
+            Any folder becomes a project — on this machine, in OneDrive, or over SFTP or FTP. Quoth
             keeps its notes in <code>.thepub</code> beside your work.
           </p>
         </div>

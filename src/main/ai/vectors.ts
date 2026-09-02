@@ -46,7 +46,7 @@ export function dot(a: Float32Array, b: Float32Array): number {
 /**
  * Pack a vector for storage.
  *
- * Little-endian float32, which is what every platform The Pub ships on uses
+ * Little-endian float32, which is what every platform Quoth ships on uses
  * natively, so `fromBlob` is a view rather than a conversion. The index is a
  * rebuildable cache, so this format has no compatibility burden beyond the
  * `SCHEMA_VERSION` that guards it.

@@ -94,7 +94,7 @@ describe('retryWhileLocked', () => {
 
   it('succeeds once the other process lets go', async () => {
     // On Windows this is antivirus, the Search Indexer, or the OneDrive sync
-    // client holding the file The Pub just wrote. Without the retry it surfaces
+    // client holding the file Quoth just wrote. Without the retry it surfaces
     // as a save error on a perfectly healthy document.
     let attempts = 0
     await retryWhileLocked(async () => {

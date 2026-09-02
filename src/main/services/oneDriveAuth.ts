@@ -19,12 +19,12 @@ const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000
 const CLOSE_PAGE = `<!doctype html><meta charset="utf-8"><title>Signed in</title>
 <body style="font:14px system-ui;padding:3rem;text-align:center">
 <h1 style="font-size:1.1rem">You are signed in.</h1>
-<p>You can close this tab and go back to The Pub.</p>`
+<p>You can close this tab and go back to Quoth.</p>`
 
 const REFUSED_PAGE = `<!doctype html><meta charset="utf-8"><title>Not signed in</title>
 <body style="font:14px system-ui;padding:3rem;text-align:center">
 <h1 style="font-size:1.1rem">The sign-in did not go through.</h1>
-<p>Go back to The Pub, where it says what Microsoft refused.</p>`
+<p>Go back to Quoth, where it says what Microsoft refused.</p>`
 
 /**
  * Signing in to OneDrive, and keeping what comes of it.

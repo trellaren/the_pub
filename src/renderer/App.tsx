@@ -284,7 +284,7 @@ export function App() {
 }
 
 /**
- * This project's manifest was written by a newer version of The Pub.
+ * This project's manifest was written by a newer version of Quoth.
  *
  * It still opened — refusing outright would strand someone who only wants to
  * read — but nothing here may write the manifest back, since this build's
@@ -294,7 +294,7 @@ function ReadOnlyProjectBar() {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[12px]">
       <span className="text-danger">
-        This project was last saved by a newer version of The Pub. It's open read-only until you
+        This project was last saved by a newer version of Quoth. It's open read-only until you
         upgrade — styles and settings can't be changed here.
       </span>
     </div>

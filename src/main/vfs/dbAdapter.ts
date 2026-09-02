@@ -97,7 +97,7 @@ export class DbAdapter implements VfsAdapter {
   private async writable(): Promise<DbStore> {
     const store = await this.open()
     if (this.readOnly) {
-      throw new Error('This project was written by a newer version of The Pub, so it is read-only.')
+      throw new Error('This project was written by a newer version of Quoth, so it is read-only.')
     }
     return store
   }

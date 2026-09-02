@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { THEME_OPTIONS } from './settings/registry.js'
+import { AAA_THEMES, DEFAULT_THEME } from './themes.js'
 
 /**
  * WCAG 2.1 contrast checking over every theme's actual CSS tokens.
@@ -16,8 +18,10 @@ const CSS_PATH = fileURLToPath(new URL('../renderer/styles.css', import.meta.url
 function parseThemeBlocks(css: string): Map<string, Record<string, string>> {
   const themes = new Map<string, Record<string, string>>()
 
+  // The default theme has no [data-theme] block: it is `@theme` itself, which
+  // is what an unstamped document paints.
   const defaultBlock = css.match(/@theme\s*\{([^}]*)\}/)
-  if (defaultBlock) themes.set('dark', parseTokens(defaultBlock[1]))
+  if (defaultBlock) themes.set(DEFAULT_THEME, parseTokens(defaultBlock[1]))
 
   const blockPattern = /\[data-theme=(['"])([\w-]+)\1\]\s*\{([^}]*)\}/g
   let match: RegExpExecArray | null
@@ -84,12 +88,28 @@ const UI_PAIRS: Array<[string, string]> = [
   ['accent', 'surface']
 ]
 
+/**
+ * A theme the registry marks `contrast: 'aaa'` promises more than the AA floor,
+ * and this is where that promise is kept: AAA text, AA-sized accent, and a
+ * border that is a line rather than a shade — which is the difference someone
+ * who reaches for a high-contrast theme is actually reaching for.
+ */
+const AAA_PAIRS: Array<[string, string]> = [...TEXT_PAIRS, ['border', 'surface'], ['border', 'bg']]
+
 describe('theme contrast (WCAG AA)', () => {
-  it('found every themed data-theme block plus the default', () => {
-    expect(themes.size).toBeGreaterThanOrEqual(13)
+  /*
+   * Every registered theme has a palette, and every palette is a registered
+   * theme. A block left in the stylesheet after its id was renamed is dead
+   * paint no one can select; a theme registered without one silently falls back
+   * to the default's colours while claiming to be its own.
+   */
+  it('paints exactly the themes the registry offers', () => {
+    expect([...themes.keys()].sort()).toEqual(THEME_OPTIONS.map((option) => option.value).sort())
   })
 
   for (const [id, tokens] of themes) {
+    const aaa = AAA_THEMES.has(id as (typeof THEME_OPTIONS)[number]['value'])
+
     describe(`theme "${id}"`, () => {
       for (const [fg, bg] of TEXT_PAIRS) {
         it(`${fg} on ${bg} is at least 4.5:1`, () => {
@@ -109,6 +129,18 @@ describe('theme contrast (WCAG AA)', () => {
           expect(bgHex, `missing --color-${bg}`).toBeDefined()
           const ratio = contrastRatio(fgHex, bgHex)
           expect(ratio).toBeGreaterThanOrEqual(3)
+        })
+      }
+
+      if (!aaa) return
+      for (const [fg, bg] of AAA_PAIRS) {
+        it(`${fg} on ${bg} reaches AAA (7:1)`, () => {
+          expect(contrastRatio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(7)
+        })
+      }
+      for (const [fg, bg] of UI_PAIRS) {
+        it(`${fg} on ${bg} reaches 4.5:1`, () => {
+          expect(contrastRatio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(4.5)
         })
       }
     })

@@ -1,9 +1,9 @@
 {
-  "name": "the-pub",
+  "name": "quoth",
   "version": "0.1.0",
   "description": "An IDE-fashioned story planning and editing tool",
   "main": "./out/main/index.js",
-  "author": "The Pub",
+  "author": "Quoth",
   "license": "MIT",
   "private": true,
   "type": "module",

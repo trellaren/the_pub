@@ -88,6 +88,25 @@ test('changing the theme in Settings updates app state and applies immediately',
   expect(state.theme).toBe('ocean')
 })
 
+test('a fresh install opens on Raven, and the picker groups the themes it offers', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  // Nothing has chosen a theme here: this is what a first run paints.
+  await expect(harness.page.locator('html')).toHaveAttribute('data-theme', 'raven')
+  await expect(harness.page.locator('html')).toHaveCSS('color-scheme', 'dark')
+
+  await openSettings(harness.page)
+  const groups = harness.page.getByLabel('Theme').locator('optgroup')
+  await expect(groups).toHaveCount(5)
+  await expect(groups.first()).toHaveAttribute('label', 'Raven')
+
+  // The scheme follows the theme, not its id — a light theme has to reach
+  // `color-scheme`, or its form controls and scrollbars stay dark.
+  await harness.page.getByLabel('Theme').selectOption('high-contrast-light')
+  await expect(harness.page.locator('html')).toHaveCSS('color-scheme', 'light')
+})
+
 test('the Keyboard shortcuts section lists menu commands with their defaults', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

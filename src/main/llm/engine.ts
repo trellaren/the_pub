@@ -245,7 +245,7 @@ export class LlmEngine {
    * Restart the idle countdown.
    *
    * Gigabytes of memory held by an app the writer has tabbed away from is how
-   * The Pub gets blamed for a slow machine.
+   * Quoth gets blamed for a slow machine.
    */
   private touch(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer)

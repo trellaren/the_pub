@@ -118,7 +118,7 @@ per-document from the Review panel, through the ordinary editor command path so 
 
 ## Part 4 — The Word round-trip
 
-The payoff feature: **a reviewer who does not have The Pub reviews in Word, and their work comes
+The payoff feature: **a reviewer who does not have Quoth reviews in Word, and their work comes
 back as first-class suggestions and comments.**
 
 - Export: `insertion`/`deletion` become real `w:ins`/`w:del` with author and date;

@@ -128,5 +128,5 @@ where the permanent cost starts. Deciding to stop after step 2 is a legitimate o
   re-measures a bounded number of blocks, not all of them.
 - E2E: page view on, type at the top of a long document, confirm later breaks stay put; export and
   confirm the printed breaks match the on-screen ones.
-- Manual, and non-negotiable: the same document in The Pub's page view and in Word, side by side,
+- Manual, and non-negotiable: the same document in Quoth's page view and in Word, side by side,
   at several page sizes. Page fidelity is judged by eye or not at all.

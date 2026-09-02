@@ -234,7 +234,7 @@ export async function createDatabaseProject(profileId: string, schemaOverride = 
   try {
     const { exists, tooNew } = await store.inspect()
     if (tooNew) {
-      throw new Error('That database holds a project written by a newer version of The Pub.')
+      throw new Error('That database holds a project written by a newer version of Quoth.')
     }
     if (!exists) await store.create()
   } finally {

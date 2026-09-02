@@ -219,7 +219,7 @@ describe('exportDocx', () => {
 
     const stylesXml = strFromU8(zip['word/styles.xml']!)
     // The heading-1 style itself points at the numbering definition — Word,
-    // not The Pub, computes the number an instance of it displays.
+    // not Quoth, computes the number an instance of it displays.
     expect(stylesXml).toMatch(/w:numId/)
   })
 

@@ -88,7 +88,7 @@ export function validateRelativePath(path: string): NameCheck {
 /**
  * Make a name safe rather than rejecting it.
  *
- * Only for names The Pub generates from data it did not choose — a chapter
+ * Only for names Quoth generates from data it did not choose — a chapter
  * title lifted out of an imported document, say. Anything an author typed is
  * validated and refused instead, because quietly renaming their file is how you
  * lose their trust.

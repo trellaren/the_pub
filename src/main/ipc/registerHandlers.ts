@@ -251,7 +251,7 @@ export function registerHandlers(context: HandlerContext): void {
     }
     appState.addRecent(uri, session.manifest.name)
     for (const window of windows.windowsForSession(ownerId)) {
-      window.setTitle(`${session.manifest.name} — The Pub`)
+      window.setTitle(`${session.manifest.name} — Quoth`)
     }
     return session
   }
@@ -1535,7 +1535,7 @@ export function registerHandlers(context: HandlerContext): void {
         if (tooNew) {
           return {
             ok: false,
-            message: 'That database holds a project written by a newer version of The Pub.',
+            message: 'That database holds a project written by a newer version of Quoth.',
             entries: 0,
             hostKey: null,
             needsCreate: false

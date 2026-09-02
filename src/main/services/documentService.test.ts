@@ -65,7 +65,7 @@ describe('DocumentService', () => {
     expect(result).toMatchObject({ ok: false, reason: 'conflict' })
   })
 
-  it('refuses to overwrite a file written by a newer version of The Pub, and leaves it untouched', async () => {
+  it('refuses to overwrite a file written by a newer version of Quoth, and leaves it untouched', async () => {
     const docPath = `newer${DOC_EXT}`
     const tooNew = envelope({ docId: 'doc-1', formatVersion: FORMAT_VERSIONS.document + 1, title: 'From the future' })
     await adapter.writeFileAtomic(docPath, Buffer.from(`${JSON.stringify(tooNew, null, 2)}\n`, 'utf8'))

@@ -1,4 +1,4 @@
-# The Pub
+# Quoth
 
 An IDE-fashioned story planning and editing tool: VS Code's shell ergonomics, Word-grade
 formatting, and the notes a long story needs, in one desktop app.
@@ -14,7 +14,7 @@ footnotes are shipped; templates, citations, and non-fiction project types are s
 - **Dockable panes.** Tabs, splits and drag-to-dock, with any group tearable into its own OS
   window that docks independently. Torn-off panes share the main window's editor instances and
   undo history, so nothing is lost by moving a document to a second monitor.
-- **Projects are folders.** Open any folder; The Pub keeps its own data in `.thepub/` beside
+- **Projects are folders.** Open any folder; Quoth keeps its own data in `.thepub/` beside
   your manuscript and never takes the files hostage.
 - **File tree** with lazy loading, live updates when files change outside the app, and
   create/rename/reveal/move-to-trash.
@@ -54,7 +54,7 @@ footnotes are shipped; templates, citations, and non-fiction project types are s
   windows included, and named presets can be saved and reapplied.
 - **Character and location records**, with aliases, a colour, free-form details you name
   yourself, and notes. Both kinds are the same record and share one panel.
-- **Mentions.** Type `@` to link a name to a record, or let The Pub *suggest* the links by
+- **Mentions.** Type `@` to link a name to a record, or let Quoth *suggest* the links by
   finding names in the prose. A suggestion is only ever an index entry — it never edits your
   document. Confirming one writes a mark that carries the record's id, so renaming a character
   never touches a single manuscript file, and the name in the prose stays ordinary text that
@@ -107,7 +107,7 @@ slips through — because a noisy suggestion list is how a feature like this get
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their
   credentials encrypted on this machine, outside any project folder, and an SSH server has to prove
   its identity before anything is sent to it: you accept its fingerprint once, and if it ever
-  changes, The Pub stops and tells you rather than carrying on.
+  changes, Quoth stops and tells you rather than carrying on.
 
 - **Projects in OneDrive.** The same, over Microsoft Graph: sign in once in your own browser and a
   folder in your drive becomes a project. Changes made on another device arrive through Graph's
@@ -144,7 +144,7 @@ Windows' sake is also what keeps a name from being rejected by the drive after i
 
 ## Setting up OneDrive
 
-OneDrive needs an app registration of your own — The Pub does not ship one. A client id baked into
+OneDrive needs an app registration of your own — Quoth does not ship one. A client id baked into
 a desktop binary is a public value that anyone can lift and spend someone else's tenant quota with,
 and it cannot be rotated without shipping a new build; it is the same reasoning as the AI keys, and
 the same answer.
@@ -155,7 +155,7 @@ In the [Azure portal](https://portal.azure.com), under **App registrations**:
 2. **Authentication → Add a platform → Mobile and desktop applications**, redirect URI
    `http://localhost`. Any port on loopback is then accepted, which is what lets the sign-in come
    back to the app without a fixed port.
-3. Copy the **Application (client) ID** into The Pub's connect dialog, then press *sign in*.
+3. Copy the **Application (client) ID** into Quoth's connect dialog, then press *sign in*.
 
 The app asks for `Files.ReadWrite`, `offline_access` and `User.Read` — your drive, a refresh token
 so you are not signing in every hour, and your account name to show back to you. No client secret is
@@ -178,7 +178,7 @@ npm run package    # an unpacked app in release/, for this platform
 npm run dist       # the installers configured for this platform
 ```
 
-`--dir` packing works on any host, including cross-platform: a Windows `The Pub.exe` builds
+`--dir` packing works on any host, including cross-platform: a Windows `Quoth.exe` builds
 correctly from Linux. **Installers do not cross platforms.** The NSIS installer shells out to Wine
 when built anywhere but Windows, the macOS DMG can only be built on macOS, and neither is
 code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an unsigned macOS
@@ -355,7 +355,7 @@ who goes looking in a wastebasket that was never involved finds out too late.
 
 **A packaged app is a different program, and is tested as one.** Main and preload move inside
 `app.asar`, the six runtime dependencies the main bundle imports by name come from a pruned
-production `node_modules` inside that archive, and `userData` moves from `the-pub` to `The Pub`.
+production `node_modules` inside that archive, and `userData` moves from `Quoth (dev)` to `Quoth`.
 That last one surprises people: saved servers, AI keys and recent projects from a development run do
 not appear in a packaged one, and secrets encrypted by one binary cannot be decrypted by the other,
 because `safeStorage` is keyed to the application's identity with the OS keychain. Both stores

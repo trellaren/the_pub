@@ -22,7 +22,7 @@ const WATCH_BATCH_MS = 120
  * Errors that mean "someone else has this file open, briefly".
  *
  * On Windows a rename fails outright when any other process holds a handle to
- * the destination — an antivirus scanner reading the file The Pub just wrote,
+ * the destination — an antivirus scanner reading the file Quoth just wrote,
  * the Search Indexer, or the OneDrive sync client, which is exactly where a lot
  * of writers keep their manuscripts. POSIX has no equivalent, so this is a
  * Windows fix that costs nothing anywhere else.

@@ -2,12 +2,135 @@
 @import 'dockview-react/dist/styles/dockview.css';
 
 /*
- * "Regular Dark" (the Pub brand spec) is the default palette; every other
- * theme, including "Regular Light", overrides the same tokens via
- * [data-theme='<id>'], so every utility class re-themes without any
- * component knowing about themes. Theme ids/labels: src/shared/themes.ts.
+ * "Raven" — the brand palette, black feathers and the cold blue that comes off
+ * them — is the default, so it lives in `@theme` rather than in a
+ * [data-theme] block: a window paints it before app state has been read, and a
+ * popout that opens faster than its stamp still opens in the right colours.
+ * Every other theme overrides the same tokens via [data-theme='<id>'], so every
+ * utility class re-themes without any component knowing about themes.
+ *
+ * Theme ids, labels, groups and light/dark: src/shared/settings/registry.ts.
+ * `shared/themes.test.ts` reads this file and holds every block to WCAG AA —
+ * and the two marked `contrast: 'aaa'` to AAA — so a palette cannot be added
+ * here that no one can read.
  */
 @theme {
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-2: #1c2027;
+  --color-surface-3: #262c35;
+  --color-border: #333a45;
+  --color-text: #e9edf3;
+  --color-muted: #9aa6b6;
+  --color-faint: #6b7788;
+  --color-accent: #8fb3d9;
+  --color-accent-soft: #17222e;
+  --color-danger: #e0776c;
+  --color-paper: #f7f3ea;
+  --color-paper-ink: #1f1b18;
+
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Iowan Old Style', Georgia, 'Palatino Linotype', serif;
+}
+
+[data-theme='raven-light'] {
+  --color-bg: #f2f1ee;
+  --color-surface: #ffffff;
+  --color-surface-2: #e8e7e3;
+  --color-surface-3: #dcdbd6;
+  --color-border: #c6c5bf;
+  --color-text: #17191c;
+  --color-muted: #565b63;
+  --color-faint: #7d838c;
+  --color-accent: #3c5a80;
+  --color-accent-soft: #dfe6ef;
+  --color-danger: #a3312a;
+  --color-paper: #ffffff;
+  --color-paper-ink: #1b1815;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Iowan Old Style', Georgia, 'Palatino Linotype', serif;
+}
+
+/* Neutral grey, one restrained blue: the palette to work in all day. */
+[data-theme='slate'] {
+  --color-bg: #14171a;
+  --color-surface: #1c2024;
+  --color-surface-2: #24292e;
+  --color-surface-3: #2e343b;
+  --color-border: #3a4148;
+  --color-text: #e6e9ec;
+  --color-muted: #9ba5ae;
+  --color-faint: #6d7780;
+  --color-accent: #7fb0d8;
+  --color-accent-soft: #1c2b38;
+  --color-danger: #d9736a;
+  --color-paper: #f6f1e7;
+  --color-paper-ink: #241f1b;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='oxford'] {
+  --color-bg: #0d1526;
+  --color-surface: #142033;
+  --color-surface-2: #1b2a42;
+  --color-surface-3: #24374f;
+  --color-border: #2e405a;
+  --color-text: #eaf0f8;
+  --color-muted: #a3b4c9;
+  --color-faint: #6f8098;
+  --color-accent: #d0a92f;
+  --color-accent-soft: #2a2413;
+  --color-danger: #e07a70;
+  --color-paper: #f7f4ec;
+  --color-paper-ink: #221e1a;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Palatino Linotype', Georgia, 'Iowan Old Style', serif;
+}
+
+[data-theme='broadsheet'] {
+  --color-bg: #f4f5f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #e9ebee;
+  --color-surface-3: #dde0e4;
+  --color-border: #c4c9cf;
+  --color-text: #16181b;
+  --color-muted: #52585f;
+  --color-faint: #7b828a;
+  --color-accent: #1f5c8b;
+  --color-accent-soft: #dceaf4;
+  --color-danger: #a02c22;
+  --color-paper: #ffffff;
+  --color-paper-ink: #16181b;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='manuscript'] {
+  --color-bg: #f6f3ec;
+  --color-surface: #fffdf8;
+  --color-surface-2: #efeade;
+  --color-surface-3: #e5dfd0;
+  --color-border: #d0c8b5;
+  --color-text: #22201c;
+  --color-muted: #5c564c;
+  --color-faint: #857e70;
+  --color-accent: #7a5c2e;
+  --color-accent-soft: #ece2cd;
+  --color-danger: #9c3225;
+  --color-paper: #fffdf8;
+  --color-paper-ink: #22201c;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: 'Iowan Old Style', Georgia, 'Palatino Linotype', serif;
+}
+
+[data-theme='dark'] {
   --color-bg: #111315;
   --color-surface: #1a1d21;
   --color-surface-2: #232830;
@@ -236,6 +359,12 @@
   --font-read: 'Yu Mincho', Georgia, 'Iowan Old Style', serif;
 }
 
+/*
+ * The two high-contrast palettes. Both hold every text pair to WCAG AAA (7:1)
+ * and — unlike every other theme, where a border is a hint — draw borders in
+ * the text colour, because at this setting a panel edge has to be a line
+ * someone can actually see rather than a shade of the surface behind it.
+ */
 [data-theme='high-contrast'] {
   --color-bg: #000000;
   --color-surface: #000000;
@@ -248,6 +377,25 @@
   --color-accent: #ffd60a;
   --color-accent-soft: #3a2f00;
   --color-danger: #ff6b6b;
+  --color-paper: #ffffff;
+  --color-paper-ink: #000000;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-read: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+[data-theme='high-contrast-light'] {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f2f2f2;
+  --color-surface-3: #e0e0e0;
+  --color-border: #000000;
+  --color-text: #000000;
+  --color-muted: #1a1a1a;
+  --color-faint: #404040;
+  --color-accent: #0033a0;
+  --color-accent-soft: #dde5f7;
+  --color-danger: #a80000;
   --color-paper: #ffffff;
   --color-paper-ink: #000000;
 
@@ -564,7 +712,9 @@ body {
 }
 .pub-find-match-current {
   background: var(--color-accent);
-  color: #1a1512;
+  /* The page's own background, not a fixed ink: every theme's accent is held to
+     a readable ratio against it, which a hard-coded brown was on none of them. */
+  color: var(--color-bg);
   border-radius: 2px;
 }
 

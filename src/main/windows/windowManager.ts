@@ -9,7 +9,11 @@ const PRELOAD = path.join(dirname, '../preload/index.cjs')
 /** Grace period for a renderer to flush unsaved work before its window closes anyway. */
 const CLOSE_FLUSH_TIMEOUT_MS = 4000
 
-const BACKGROUND = '#12100e'
+/**
+ * The Raven theme's own background, so a window opens in the app's colour
+ * rather than flashing something else before the renderer paints.
+ */
+const BACKGROUND = '#0b0d10'
 
 interface WindowRecord {
   window: BrowserWindow
@@ -71,7 +75,7 @@ export class WindowManager {
       minWidth: 720,
       minHeight: 480,
       backgroundColor: BACKGROUND,
-      title: 'The Pub',
+      title: 'Quoth',
       show: false,
       webPreferences: {
         preload: PRELOAD,

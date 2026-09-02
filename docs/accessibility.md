@@ -48,8 +48,13 @@ supported, how it was verified, and what still needs a human with assistive tech
 ## Colour, motion and text size
 
 - **Contrast is checked, not asserted.** `shared/themes.test.ts` computes WCAG contrast ratios
-  over every theme's token pairs and fails below AA, for all thirteen themes (twelve plus the
-  high-contrast theme added in an earlier pass of this phase).
+  over every theme's token pairs and fails below AA, for all twenty themes. The test reads
+  `renderer/styles.css` and the theme registry together, so a theme cannot be added to one
+  without the other, and a palette nobody can read cannot ship.
+- **Two high-contrast themes**, dark and light, marked `contrast: 'aaa'` in the theme registry.
+  That marker is not a label: the same test holds those two to AAA (7:1) text, 4.5:1 accents and
+  a border drawn in the text colour rather than a shade of the surface — so a panel edge at that
+  setting is a line, not a hint.
 - **200% UI scaling** is covered by an e2e test (`e2e/a11y.spec.ts`) that zooms the real Chromium
   page via `webContents.setZoomFactor(2)` and asserts the file tree and editor stay visible with
   non-trivial size — a smoke test for "does the layout collapse," not a pixel-perfect audit.

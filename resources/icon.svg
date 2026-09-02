@@ -1,23 +1,22 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='1024' height='1024' viewBox='0 0 1024 1024'>
+  <!--
+    Quoth's app icon: the perched raven from src/renderer/ui/ravenMarks.ts,
+    scaled off its 64-unit grid onto the Raven theme's own colours. The paths
+    are duplicated here because electron-builder needs the icon as a file on
+    disk rather than as something the renderer draws; `ravenMarks.test.ts`
+    asserts they are still the same bird.
+  -->
   <defs>
-    <linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#2c333d'/><stop offset='1' stop-color='#171b21'/>
+    <linearGradient id='ground' x1='0' y1='0' x2='0' y2='1'>
+      <stop offset='0' stop-color='#1c2027'/><stop offset='1' stop-color='#08090b'/>
     </linearGradient>
   </defs>
-  <rect width='1024' height='1024' rx='224' fill='url(#g)'/>
-  <rect x='236' y='196' width='424' height='632' rx='26' fill='#f2ede3'/>
-  <rect x='236' y='196' width='58' height='632' rx='26' fill='#d8cfbe'/>
-  <g fill='#8d949d'>
-    <rect x='352' y='300' width='250' height='22' rx='11'/>
-    <rect x='352' y='372' width='226' height='22' rx='11'/>
-    <rect x='352' y='444' width='250' height='22' rx='11'/>
-    <rect x='352' y='516' width='180' height='22' rx='11'/>
-    <rect x='352' y='588' width='236' height='22' rx='11'/>
-    <rect x='352' y='660' width='140' height='22' rx='11'/>
+  <rect width='1024' height='1024' rx='224' fill='url(#ground)'/>
+  <g transform='translate(112 112) scale(12.5)' fill='#e9edf3'>
+    <path d='M6.2 21.4 L17 17.8 C19 14 24 12.4 28 14.2 C31.4 15.8 33 18.8 33 21.8 C37.6 26.4 42.4 31.2 47 36.8 L60.5 55.8 L41.5 44.3 C36.5 45.8 31.5 46 27.5 44.4 C23.8 42.8 21.6 39.6 20.8 36.2 C20 32.6 19 29.2 18 26.4 C17.6 25 17.2 24 17 23.2 L6.2 21.4 Z'/>
+    <path d='M25 44.3 L27.6 44.3 L27.6 53.7 L22.2 56.1 L22.2 54.2 L25 52.5 Z'/>
+    <path d='M31 44.8 L33.4 44.8 L33.4 53.4 L28.2 55.7 L28.2 53.8 L31 52.1 Z'/>
   </g>
-  <g transform='rotate(38 700 640)'>
-    <rect x='676' y='300' width='58' height='400' rx='16' fill='#c8873f'/>
-    <rect x='676' y='300' width='58' height='96' rx='16' fill='#e0a45c'/>
-    <path d='M676 700 L705 782 L734 700 Z' fill='#2b3038'/>
-  </g>
+  <!-- Perch and text line at once: the bird stands on the writing. -->
+  <rect x='176' y='820' width='672' height='26' rx='13' fill='#8fb3d9'/>
 </svg>

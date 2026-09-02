@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef, ReactNode } from 'react'
+import { RavenMark } from './RavenMark.js'
 
 export function cx(...values: (string | false | null | undefined)[]): string {
   return values.filter(Boolean).join(' ')
@@ -208,6 +209,10 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+      {/* An empty panel is the one place with room for the bird. Faint on
+          purpose: it marks the emptiness, it does not compete with the way out
+          of it. */}
+      <RavenMark variant="flight" size={26} className="mb-1 text-faint opacity-60" />
       <p className="text-[13px] text-muted">{title}</p>
       {hint ? <p className="text-[12px] text-faint">{hint}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}

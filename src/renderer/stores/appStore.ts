@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AppState } from '@shared/model/app.js'
+import { DEFAULT_THEME, THEME_SCHEMES } from '@shared/themes.js'
 import { invoke, on } from '@renderer/lib/ipc.js'
 import { applyToAllDocuments, registerDocumentEffect } from '@renderer/lib/documents.js'
 
@@ -64,19 +65,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
   }
 }))
 
+function stampTheme(target: Document, theme: AppState['theme']): void {
+  target.documentElement.setAttribute('data-theme', theme)
+  // The scheme, not the id: `color-scheme` understands 'light' and 'dark' and
+  // ignores everything else, so naming the theme here left every palette but
+  // two with form controls and scrollbars from the wrong side of the fence.
+  target.documentElement.style.colorScheme = THEME_SCHEMES[theme]
+}
+
 function applyTheme(theme: AppState['theme']): void {
-  applyToAllDocuments((target) => {
-    target.documentElement.setAttribute('data-theme', theme)
-    target.documentElement.style.colorScheme = theme
-  })
+  applyToAllDocuments((target) => stampTheme(target, theme))
 }
 
 // Popout windows open with a fresh <html>, so the theme has to be stamped on
 // each one as it appears, not just on the main document.
 registerDocumentEffect((target) => {
-  const theme = useAppStore.getState().state?.theme ?? 'dark'
-  target.documentElement.setAttribute('data-theme', theme)
-  target.documentElement.style.colorScheme = theme
+  stampTheme(target, useAppStore.getState().state?.theme ?? DEFAULT_THEME)
 })
 
 on('app:stateChanged', (state) => useAppStore.getState().setState(state))

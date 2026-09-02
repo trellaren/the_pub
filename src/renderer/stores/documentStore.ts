@@ -19,7 +19,7 @@ export interface OpenDocument {
   /** Set when the file changed underneath us; the editor shows a keep/reload bar. */
   conflict: boolean
   /**
-   * The file on disk was written by a newer version of The Pub. Autosave has
+   * The file on disk was written by a newer version of Quoth. Autosave has
    * stopped trying — this build cannot rewrite it without a chance of losing
    * whatever it doesn't yet understand — and the editor goes read-only.
    */

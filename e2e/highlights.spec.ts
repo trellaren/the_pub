@@ -47,11 +47,11 @@ test('a document highlight can be collected, categorised, and survives closing a
 
   // Colour the selection, then collect it into the Research panel — mirroring
   // what a click on the toolbar's yellow swatch and its "Collect…" select do.
-  const highlightButton = harness.page.locator('button[title^="Highlight #ffe066"]')
+  const highlightButton = harness.page.locator('button[title^="Highlight #ffe066"]:visible')
   await highlightButton.click()
   await expect(harness.page.locator('.ProseMirror mark')).toBeVisible()
 
-  const collectSelect = harness.page.getByTitle('Collect highlight into the Research panel')
+  const collectSelect = harness.page.locator('[title="Collect highlight into the Research panel"]:visible')
   await expect(collectSelect).toBeEnabled()
   await collectSelect.selectOption({ label: 'No category' })
 

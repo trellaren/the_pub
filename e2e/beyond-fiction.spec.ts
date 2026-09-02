@@ -19,11 +19,11 @@ async function editor() {
 }
 
 async function setStyle(styleId: string): Promise<void> {
-  await harness.page.locator('select[title="Paragraph style"]').selectOption(styleId)
+  await harness.page.locator('select[title="Paragraph style"]:visible').selectOption(styleId)
 }
 
 async function currentStyle(): Promise<string> {
-  return harness.page.locator('select[title="Paragraph style"]').inputValue()
+  return harness.page.locator('select[title="Paragraph style"]:visible').inputValue()
 }
 
 test('a numbered heading style shows its number on screen and again after reopening the project', async () => {

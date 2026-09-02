@@ -123,7 +123,7 @@ test('an exported document comes back in with its text and headings intact', asy
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const editor = harness.page.locator('.pub-sheet .ProseMirror')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
   await editor.click()
   // "# " is the editor's own shortcut for a level-1 heading, so this drives the
   // same path a writer would rather than reaching past the UI.
@@ -341,7 +341,7 @@ test('an image inserted into a document survives the round trip to Word', async 
   await harness.page.getByRole('button', { name: 'Insert image' }).click()
   await (await chooser).setFiles(imagePath)
 
-  await expect(harness.page.locator('.pub-sheet .ProseMirror img')).toBeVisible()
+  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror img')).toBeVisible()
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
 
   const target = path.join(scratch, 'with-image.docx')

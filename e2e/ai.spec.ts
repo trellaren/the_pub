@@ -112,7 +112,7 @@ test('the reply streams into the panel and can be inserted into the manuscript',
   })
   expect(docId).toBeTruthy()
 
-  await harness.page.locator('.pub-sheet .ProseMirror').click()
+  await harness.page.locator('.pub-sheet:visible .ProseMirror').click()
 
   // The panel and the document share a group by default, so opening the
   // document put it in front of the chat. Bring the chat back to click Insert —

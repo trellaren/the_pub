@@ -138,6 +138,7 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   }
 
   const sheetWidth = settings?.pageWidth ?? 612
+  const sheetHeight = settings?.pageHeight ?? 792
   // The sheet honours all four margins, so what is on screen is the shape of
   // the page that prints.
   const sheetPadding = settings
@@ -163,7 +164,20 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
       <div className="flex-1 overflow-auto bg-bg" onMouseDown={() => setActive(docId)}>
         <div
           className="pub-sheet"
-          style={{ width: `${sheetWidth}pt`, maxWidth: '100%', padding: sheetPadding }}
+          style={{
+            width: `${sheetWidth}pt`,
+            maxWidth: '100%',
+            padding: sheetPadding,
+            // A fresh document is a page, not a strip the height of its one
+            // paragraph — the sheet holds the project's page height and grows
+            // past it, so there is always somewhere to write *into*.
+            minHeight: `${sheetHeight}pt`
+          }}
+          onClick={(event) => {
+            // The blank expanse below the prose is still the page: clicking it
+            // puts the cursor at the end, instead of doing visibly nothing.
+            if (event.target === event.currentTarget) editor.chain().focus('end').run()
+          }}
         >
           <EditorContent editor={editor} />
         </div>

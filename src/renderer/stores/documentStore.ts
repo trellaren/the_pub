@@ -55,6 +55,8 @@ interface DocumentStore {
   openPath: (path: string) => Promise<string | null>
   openDocId: (docId: string, fallbackPath?: string) => Promise<string | null>
   create: (path: string, title?: string) => Promise<string | null>
+  /** Retitle a document — the envelope's `title`, not its filename. */
+  renameTitle: (docId: string, title: string) => Promise<void>
   close: (docId: string) => void
   save: (docId: string) => Promise<void>
   saveAll: () => Promise<void>
@@ -169,6 +171,17 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       const created = await attempt(invoke('doc:create', { path, title }), `Could not create ${path}`)
       if (!created) return null
       return attach(created)
+    },
+
+    renameTitle: async (docId, title) => {
+      const trimmed = title.trim()
+      const state = get().docs[docId]
+      if (!state || !trimmed || trimmed === state.title) return
+      // The title lives in the envelope, so the change rides the ordinary save
+      // path — conflict detection, too-new refusal and all — rather than a
+      // write of its own that could race an autosave on the same file.
+      patch(docId, { title: trimmed, envelope: { ...state.envelope, title: trimmed } })
+      await get().save(docId)
     },
 
     close: (docId) => {

@@ -7,6 +7,8 @@ import {
   type IWatermarkPanelProps
 } from 'dockview-react'
 import { panelComponents } from './panelRegistry.js'
+import { DockTab } from './DockTab.js'
+import { ensureDocumentOpen } from '@renderer/lib/firstDocument.js'
 import {
   useLayoutStore,
   restoreLayout,
@@ -76,6 +78,9 @@ export function DockRoot() {
       if (cancelled || !api) return
       useLayoutStore.setState({ presets: file?.presets ?? [] })
       restoreLayout(api, file?.lastLayout ?? null)
+      // Whatever the layout brought back, the writer should be looking at a
+      // page: open the first document, or make the first document.
+      await ensureDocumentOpen()
     })()
     return () => {
       cancelled = true
@@ -222,6 +227,7 @@ export function DockRoot() {
   return (
     <DockviewReact
       components={panelComponents}
+      defaultTabComponent={DockTab}
       watermarkComponent={Watermark}
       rightHeaderActionsComponent={GroupActions}
       onReady={onReady}

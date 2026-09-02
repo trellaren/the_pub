@@ -1,6 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { ipcMain, dialog, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, ipcMain, dialog, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ipcContract, type IpcInvokeChannel, type IpcReq, type IpcRes } from '../../shared/ipc/contract.js'
 import type { WindowManager } from '../windows/windowManager.js'
 import type { AppStateService } from '../services/appState.js'
@@ -16,6 +16,7 @@ import { createAdapter, inspectDatabase, createDatabaseProject } from '../vfs/vf
 import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey } from '../vfs/hostKeys.js'
 import type { VfsAdapter } from '../vfs/types.js'
 import { projectUri, defaultPort } from '../../shared/model/connection.js'
+import type { MenuItemRole } from '../../shared/menu/menuRoles.js'
 import os from 'node:os'
 import { streamCompletion } from '../ai/aiRunner.js'
 import {
@@ -251,7 +252,7 @@ export function registerHandlers(context: HandlerContext): void {
     }
     appState.addRecent(uri, session.manifest.name)
     for (const window of windows.windowsForSession(ownerId)) {
-      window.setTitle(`${session.manifest.name} — The Pub`)
+      window.setTitle(`${session.manifest.name} — Quoth`)
     }
     return session
   }
@@ -1535,7 +1536,7 @@ export function registerHandlers(context: HandlerContext): void {
         if (tooNew) {
           return {
             ok: false,
-            message: 'That database holds a project written by a newer version of The Pub.',
+            message: 'That database holds a project written by a newer version of Quoth.',
             entries: 0,
             hostKey: null,
             needsCreate: false
@@ -1731,6 +1732,61 @@ export function registerHandlers(context: HandlerContext): void {
     windows.confirmClose(event.sender)
     return { ok: true as const }
   })
+
+  handle('window:minimize', (_payload, event) => {
+    windows.minimize(event.sender)
+    return { ok: true as const }
+  })
+
+  handle('window:toggleMaximize', (_payload, event) => windows.toggleMaximize(event.sender))
+
+  handle('window:close', (_payload, event) => {
+    windows.requestClose(event.sender)
+    return { ok: true as const }
+  })
+
+  handle('window:chromeState', (_payload, event) => windows.chromeState(event.sender))
+
+  handle('window:menuRole', ({ role }, event) => {
+    runMenuRole(role, event.sender)
+    return { ok: true as const }
+  })
+}
+
+/**
+ * The action behind a built-in menu role, for the menu the app draws itself.
+ *
+ * Electron only performs these when *it* drew the item, so an in-window menu
+ * has to ask for them by name. The editing roles go to the web contents the
+ * click came from rather than to the focused window, for the same reason the
+ * window buttons do — and because a popout is a web contents of its own with
+ * its own selection to cut.
+ */
+function runMenuRole(role: MenuItemRole, contents: Electron.WebContents): void {
+  const window = BrowserWindow.fromWebContents(contents)
+  switch (role) {
+    case 'undo': return contents.undo()
+    case 'redo': return contents.redo()
+    case 'cut': return contents.cut()
+    case 'copy': return contents.copy()
+    case 'paste': return contents.paste()
+    case 'selectAll': return contents.selectAll()
+    case 'reload': return contents.reload()
+    case 'toggleDevTools': return contents.toggleDevTools()
+    // Zoom is per web contents, and the steps match Electron's own roles.
+    case 'resetZoom': return contents.setZoomLevel(0)
+    case 'zoomIn': return contents.setZoomLevel(contents.getZoomLevel() + 0.5)
+    case 'zoomOut': return contents.setZoomLevel(contents.getZoomLevel() - 0.5)
+    case 'togglefullscreen':
+      window?.setFullScreen(!window.isFullScreen())
+      return
+    case 'close':
+      window?.close()
+      return
+    case 'quit':
+      app.quit()
+      return
+  }
 }
 
 /** Human-readable project name for a folder path, used before a manifest exists. */

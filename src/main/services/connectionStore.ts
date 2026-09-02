@@ -70,7 +70,7 @@ export class ConnectionStore {
     // and for good.
     if (this.readOnly()) {
       throw new Error(
-        'Your saved servers were written by a newer version of The Pub, so they cannot be changed here.'
+        'Your saved servers were written by a newer version of Quoth, so they cannot be changed here.'
       )
     }
     fs.mkdirSync(path.dirname(this.file()), { recursive: true })

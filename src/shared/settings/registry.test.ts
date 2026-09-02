@@ -81,7 +81,7 @@ describe('the schemas built from it', () => {
 
   it('leaves app state carrying its non-setting fields alongside the settings', () => {
     const state = appStateSchema.parse({ version: '0.1.0', platform: 'linux' })
-    expect(state.theme).toBe('dark')
+    expect(state.theme).toBe('raven')
     expect(state.timelineOrientation).toBe('horizontal')
     expect(state.recentProjects).toEqual([])
     expect(state.keybindings).toEqual({})

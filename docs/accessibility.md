@@ -24,6 +24,13 @@ supported, how it was verified, and what still needs a human with assistive tech
 
 - **The dock's tab strip** is a real `tablist`/`tab`/`tabpanel` structure. This comes from
   `dockview-core` itself, confirmed by the axe-core sweep — no code in this app builds it.
+- **The title bar** is a `menubar` of `menuitem` buttons, each saying whether its menu is open,
+  with the window buttons named rather than left as bare glyphs. Two things a frameless window
+  owes back: the menus are still reachable by their accelerators, because the native menu stays
+  registered (hidden) and is what serves them; and Escape closes an open menu, asserted in
+  `e2e/chrome.spec.ts`. Full keyboard *navigation within* the menu bar — Alt to focus it, arrows
+  between menus — is not built yet; every command it lists is reachable from the Command Palette
+  and its own shortcut, which is what the keyboard path relies on today.
 - **The file tree** is a `tree`/`treeitem` structure (`src/renderer/panels/explorer/FileTree.tsx`)
   with `aria-expanded` on directories, `aria-selected` on the current row, and `aria-level`
   reflecting depth.
@@ -48,8 +55,13 @@ supported, how it was verified, and what still needs a human with assistive tech
 ## Colour, motion and text size
 
 - **Contrast is checked, not asserted.** `shared/themes.test.ts` computes WCAG contrast ratios
-  over every theme's token pairs and fails below AA, for all thirteen themes (twelve plus the
-  high-contrast theme added in an earlier pass of this phase).
+  over every theme's token pairs and fails below AA, for all twenty themes. The test reads
+  `renderer/styles.css` and the theme registry together, so a theme cannot be added to one
+  without the other, and a palette nobody can read cannot ship.
+- **Two high-contrast themes**, dark and light, marked `contrast: 'aaa'` in the theme registry.
+  That marker is not a label: the same test holds those two to AAA (7:1) text, 4.5:1 accents and
+  a border drawn in the text colour rather than a shade of the surface — so a panel edge at that
+  setting is a line, not a hint.
 - **200% UI scaling** is covered by an e2e test (`e2e/a11y.spec.ts`) that zooms the real Chromium
   page via `webContents.setZoomFactor(2)` and asserts the file tree and editor stay visible with
   non-trivial size — a smoke test for "does the layout collapse," not a pixel-perfect audit.
@@ -82,7 +94,11 @@ supported, how it was verified, and what still needs a human with assistive tech
 - `shared/themes.test.ts` — WCAG contrast ratios for every theme.
 - `e2e/axe.spec.ts` — an axe-core sweep of the shell with every panel opened in turn, failing the
   build on any violation. One violation is disabled and documented in that file: `nested-interactive`
-  inside `dockview-core`'s own tab markup, which is that library's DOM, not this codebase's.
+  inside `dockview-core`'s own tab markup, which is that library's DOM, not this codebase's. The
+  same file sweeps the app's own title bar, with a menu open as well as closed — the window
+  buttons and the in-window menu bar replaced things the OS used to make accessible, so they are
+  swept rather than assumed: `menubar`/`menu`/`menuitem` roles, `aria-expanded` on what opens, and
+  a name on every button that is only an icon.
 - `e2e/a11y.spec.ts` — the keyboard-only flows (Escape-then-Tab, panel focus, modal traps), the
   file tree's tree/treeitem roles, the live regions, and the 200% zoom smoke test.
 

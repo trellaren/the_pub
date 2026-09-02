@@ -2,7 +2,7 @@ import type { NamedStyle } from '../../shared/model/style.js'
 import { STYLE_BODY } from '../../shared/model/style.js'
 
 /**
- * Word style names ↔ The Pub's style ids.
+ * Word style names ↔ Quoth's style ids.
  *
  * Both applications have the same idea — a named bundle of formatting that a
  * paragraph refers to rather than copies — so the mapping is mostly a matter of
@@ -12,7 +12,7 @@ import { STYLE_BODY } from '../../shared/model/style.js'
  * the project's Heading 1 afterwards would leave the imported chapters alone.
  */
 
-/** Word style name (lower-cased, spaces stripped) → built-in Pub style id. */
+/** Word style name (lower-cased, spaces stripped) → built-in Quoth style id. */
 const WORD_TO_PUB: Record<string, string> = {
   normal: STYLE_BODY,
   bodytext: STYLE_BODY,
@@ -39,7 +39,7 @@ const WORD_TO_PUB: Record<string, string> = {
   blocktext: 'block-quote'
 }
 
-/** Pub style id → the Word style id and name to emit for it. */
+/** Quoth style id → the Word style id and name to emit for it. */
 const PUB_TO_WORD: Record<string, { id: string; name: string }> = {
   [STYLE_BODY]: { id: 'Normal', name: 'Normal' },
   'first-paragraph': { id: 'FirstParagraph', name: 'First Paragraph' },
@@ -69,7 +69,7 @@ export function builtinForWordStyle(nameOrId: string): string | null {
   return WORD_TO_PUB[normalizeStyleKey(nameOrId)] ?? null
 }
 
-/** What to call a Pub style in the exported file. */
+/** What to call a Quoth style in the exported file. */
 export function wordStyleFor(styleId: string, name: string): { id: string; name: string } {
   const known = PUB_TO_WORD[styleId]
   if (known) return known
@@ -83,7 +83,7 @@ function slugToWordId(styleId: string): string {
 }
 
 /**
- * Turn a Word style name into a Pub style id.
+ * Turn a Word style name into a Quoth style id.
  *
  * Deliberately *not* `style-${Date.now().toString(36)}`, the convention the
  * styles panel uses for a hand-made style: importing a document mints a dozen
@@ -145,7 +145,7 @@ export function reconcileStyles(
   }
 
   // `basedOn` and `nextStyle` still point at Word ids; re-point them now that
-  // every incoming style has a Pub id, and drop any that led nowhere.
+  // every incoming style has a Quoth id, and drop any that led nowhere.
   for (const style of added) {
     style.basedOn = resolveRef(style.basedOn, mapping, taken)
     style.nextStyle = resolveRef(style.nextStyle, mapping, taken)

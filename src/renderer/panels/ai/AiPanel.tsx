@@ -20,6 +20,7 @@ import {
   SectionTitle,
   cx
 } from '@renderer/ui/primitives.js'
+import { RavenMark } from '@renderer/ui/RavenMark.js'
 
 /**
  * Conversations about the manuscript.
@@ -93,6 +94,7 @@ export function AiPanel() {
   return (
     <PanelShell>
       <PanelHeader>
+        <RavenMark variant="bust" size={14} className="shrink-0 text-faint" />
         <span className="flex-1">AI</span>
         <Select
           value={activeChatId ?? ''}

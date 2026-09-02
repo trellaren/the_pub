@@ -1,8 +1,8 @@
-# The Pub — roadmap
+# Quoth — roadmap
 
 The original brief is complete: Phases 1–8 built the editing shell, story records, the two
 planning views, maps, AI assistance, remote projects, Word round-trip and OneDrive. This document
-covers what comes next — growing The Pub from a story-planning tool into something that also
+covers what comes next — growing Quoth from a story-planning tool into something that also
 serves an essay, a thesis or a research paper, without losing what makes it good at a novel.
 
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
@@ -40,7 +40,7 @@ its considerable price.
 
 *Prerequisite for everything below. Detailed build plan: [`phase-0-plan.md`](./phase-0-plan.md).*
 
-**The bug this fixes is live today.** `formatVersion` is stamped into every file The Pub writes
+**The bug this fixes is live today.** `formatVersion` is stamped into every file Quoth writes
 (`src/shared/model/document.ts`, and nine sibling models) but is never read anywhere.
 `DocumentService.write` re-stamps `FORMAT_VERSION` unconditionally. `pmNodeSchema` is permissive
 by design, so an older build opens a newer `.pubdoc` without complaint — but `createEditor` runs
@@ -196,7 +196,7 @@ Only if page-accurate on-screen layout is later judged worth its cost. If it is 
 
 *Detailed build plan: [`phase-8-plan.md`](./phase-8-plan.md).*
 
-Three postures, the writer's pick: **AI off** — no panel, no menu items, no processes, The Pub
+Three postures, the writer's pick: **AI off** — no panel, no menu items, no processes, Quoth
 as a plain writing tool; **an embedded model** chosen from a small curated catalogue, running
 inside the app as the project's routine agent, with nothing leaving the machine; or **hosted
 providers** exactly as today.
@@ -244,7 +244,7 @@ built to merge with no conflict at all.
   document as-if-accepted, implemented once in `extractText.ts`'s single text walker.
 - **The Word round-trip is the payoff**: suggestions export as real `w:ins`/`w:del`, threads as
   real Word comments, and Word tracked changes import back as first-class suggestions — a
-  reviewer without The Pub reviews in Word.
+  reviewer without Quoth reviews in Word.
 - **Presence is advisory, never a lock**; `DocumentService`'s mtime check stays the backstop,
   and the `ConflictBar` gains a mine-vs-disk diff.
 

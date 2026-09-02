@@ -7,7 +7,7 @@ beyond what has shipped; it builds on the AI layer from the original brief
 The phase delivers three postures, and a writer picks one:
 
 1. **AI off.** Not "AI ignored" — off. No panel, no menu items, no presets, no processes, no
-   network calls. The Pub as a plain writing tool.
+   network calls. Quoth as a plain writing tool.
 2. **An embedded model** — the writer's pick from a small curated catalogue, downloaded once,
    running inside the app as the project's routine agent: the model that answers whenever a
    feature asks for AI. No key, no account, no network, and not a word of the manuscript leaves
@@ -150,7 +150,7 @@ A small state machine — `absent → downloading → ready → starting → run
   than the one running triggers a graceful stop and a fresh start, surfaced as the same warming
   state. Running two models at once is explicitly not offered.
 - **Idle shutdown** after a configurable interval (default 10 minutes) — gigabytes of RAM held
-  by a tabbed-away app is how The Pub gets blamed for a slow machine.
+  by a tabbed-away app is how Quoth gets blamed for a slow machine.
 - **Killed on quit**, unconditionally. **Crash →** an error event on the in-flight request
   through the existing `StreamEvent` error path, engine back to `ready`, no automatic restart
   loop.

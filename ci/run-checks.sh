@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The Pub — pre-merge check gate.
+# Quoth — pre-merge check gate.
 #
 # Runs the full suite against a *fresh full clone* of committed history in a
 # throwaway directory. Running in place would reuse the existing node_modules/

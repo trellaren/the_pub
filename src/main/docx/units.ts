@@ -1,5 +1,5 @@
 /**
- * The unit systems OOXML uses, and the ones The Pub uses.
+ * The unit systems OOXML uses, and the ones Quoth uses.
  *
  * Word measures nothing in points. Paragraph spacing and indents are in twips
  * (a twentieth of a point), font sizes are in half-points, and line spacing is

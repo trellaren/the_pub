@@ -51,7 +51,7 @@ import { wordStyleFor } from './styleMap.js'
  *
  * The named styles go into the file's own style part, which is what makes an
  * exported manuscript editable in Word the way it was here: changing "Chapter
- * Title" there restyles every chapter, exactly as it does in The Pub.
+ * Title" there restyles every chapter, exactly as it does in Quoth.
  */
 
 export interface ExportDocument {
@@ -235,7 +235,7 @@ function paragraphProperties(style: NamedStyle): IParagraphStylePropertiesOption
   if (headingLevel !== undefined) properties.outlineLevel = headingLevel - 1
   // Word owns the actual numbers once a paragraph points at a numbering
   // definition — this is what makes inserting a heading above renumber
-  // everything below it inside Word itself, not just on The Pub's screen.
+  // everything below it inside Word itself, not just on Quoth's screen.
   const numberedLevel = style.outlineLevel ?? style.headingLevel
   if (style.numbering && numberedLevel !== undefined) {
     properties.numbering = { reference: HEADING_NUMBERING_REFERENCE, level: numberedLevel - 1 }
@@ -529,7 +529,7 @@ function inlineToDocx(nodes: PmNode[], options: ExportOptions, state: WalkState)
         const link = node.marks?.find((mark) => mark.type === 'link')
         // A suggested edit becomes Word's own tracked change, not a coloured
         // run that looks like one: the payoff of this whole phase is that a
-        // reviewer without The Pub sees these in Word's review pane and can
+        // reviewer without Quoth sees these in Word's review pane and can
         // accept them there.
         const suggestion = node.marks?.find(
           (mark) => mark.type === 'insertion' || mark.type === 'deletion'

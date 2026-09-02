@@ -291,7 +291,7 @@ async function readManifest(source: VfsAdapter): Promise<Record<string, unknown>
   const raw = await source.readFile(MANIFEST_FILE)
   const { value, tooNew } = migrate('manifest', JSON.parse(raw.toString('utf8')))
   if (tooNew) {
-    throw new Error('This template was saved by a newer version of The Pub.')
+    throw new Error('This template was saved by a newer version of Quoth.')
   }
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }

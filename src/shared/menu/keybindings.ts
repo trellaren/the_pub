@@ -178,6 +178,33 @@ export function resolveAccelerator(
 }
 
 /**
+ * An accelerator as a menu shows it: the keys someone actually presses.
+ *
+ * `CmdOrCtrl` is a *storage* spelling — one binding that means two different
+ * keys — and printing it in a menu asks the reader to do the translation. The
+ * keybindings editor still shows the canonical form, because that is the thing
+ * being edited; a menu item is not being edited, it is being read.
+ */
+export function acceleratorLabel(accelerator: string, platform: string): string {
+  const mac = platform === 'darwin'
+  const parts = accelerator.split('+').map((part) => {
+    switch (part) {
+      case 'CmdOrCtrl':
+        return mac ? '⌘' : 'Ctrl'
+      case 'Alt':
+        return mac ? '⌥' : 'Alt'
+      case 'Shift':
+        return mac ? '⇧' : 'Shift'
+      default:
+        return part
+    }
+  })
+  // A Mac menu runs the symbols together; everywhere else keeps the pluses,
+  // because "CtrlShiftP" is not how anyone writes it.
+  return mac ? parts.join('') : parts.join('+')
+}
+
+/**
  * Which command, if any, already answers to an accelerator.
  *
  * Two menu items sharing a shortcut is not a warning in Electron: the second

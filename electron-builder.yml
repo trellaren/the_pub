@@ -1,5 +1,5 @@
-appId: com.thepub.app
-productName: The Pub
+appId: com.quoth.app
+productName: Quoth
 directories:
   output: release
   buildResources: resources

@@ -163,7 +163,12 @@ export const INVOKE_CHANNELS = [
   'snapshot:read',
   'snapshot:restore',
   'window:newProject',
-  'window:closeConfirmed'
+  'window:closeConfirmed',
+  'window:minimize',
+  'window:toggleMaximize',
+  'window:close',
+  'window:chromeState',
+  'window:menuRole'
 ] as const
 
 export const EVENT_CHANNELS = [
@@ -182,7 +187,8 @@ export const EVENT_CHANNELS = [
   'ai:retrievalProgress',
   'app:stateChanged',
   'command:invoke',
-  'window:requestClose'
+  'window:requestClose',
+  'window:chromeChanged'
 ] as const
 
 export type InvokeChannelName = (typeof INVOKE_CHANNELS)[number]

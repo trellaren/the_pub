@@ -1,4 +1,4 @@
-import { THEMES } from '../themes.js'
+import { THEME_GROUPS } from '../themes.js'
 import type { CommandBinding, KeybindingOverrides } from './keybindings.js'
 import { resolveAccelerator } from './keybindings.js'
 
@@ -189,12 +189,17 @@ export const MENU_MODEL: MenuTopLevel[] = [
       {
         kind: 'submenu',
         label: 'Theme',
-        items: THEMES.map(({ id, label }) => ({
-          kind: 'command' as const,
-          commandId: `app.setTheme.${id}`,
-          label,
-          bindable: false as const
-        }))
+        // Separated by group rather than listed flat: a native submenu of
+        // twenty is a scroll, and the groups are the reason to pick one.
+        items: THEME_GROUPS.flatMap((group, index) => [
+          ...(index === 0 ? [] : [{ kind: 'separator' as const }]),
+          ...group.themes.map(({ id, label }) => ({
+            kind: 'command' as const,
+            commandId: `app.setTheme.${id}`,
+            label,
+            bindable: false as const
+          }))
+        ])
       },
       { kind: 'role', role: 'toggleDevTools' },
       { kind: 'role', role: 'reload' },

@@ -6,7 +6,7 @@ later phases something to point at.
 
 ## Why now
 
-`formatVersion` is stamped into every file The Pub writes — `src/shared/model/document.ts` and
+`formatVersion` is stamped into every file Quoth writes — `src/shared/model/document.ts` and
 nine sibling models — and read by nothing. `DocumentService.write` re-stamps `FORMAT_VERSION`
 unconditionally.
 
@@ -56,7 +56,7 @@ lockstep; the `_InvokeChannelsMatch` compile-time guard catches it if they do no
 ### `src/renderer/panels/editor/EditorPanel.tsx`
 
 The existing `ConflictBar` — keep-mine / reload — gains a third state: read-only, "this file was
-written by a newer version of The Pub". Unlike a conflict, this one offers no overwrite.
+written by a newer version of Quoth". Unlike a conflict, this one offers no overwrite.
 
 ### `src/main/services/projectSession.ts`
 

@@ -4,7 +4,7 @@ Guidance for Claude Code (and other coding agents) working in this repository.
 
 ## What this is
 
-The Pub — an Electron desktop app for writing and planning long fiction (and, per
+Quoth — an Electron desktop app for writing and planning long fiction (and, per
 `docs/ROADMAP.md`, growing to serve essays/theses/papers too): a dockable IDE-style shell, a
 Word-grade rich text editor, story records, a storyboard/timeline, maps, AI assistance, and
 Word/OneDrive/SFTP/FTP interop. Read `README.md` first — it is long, narrative, and answers most
@@ -50,7 +50,7 @@ src/
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
-└─ renderer/   React UI: dock shell, panels, editor, stores
+└─ renderer/   React UI: window chrome, dock shell, panels, editor, stores
 ```
 
 `docs/ROADMAP.md` is the forward plan (phases, in dependency order, each meant to ship on its

@@ -116,7 +116,7 @@ export class ProjectSession {
     readonly adapter: VfsAdapter,
     public manifest: ProjectManifest,
     /**
-     * The manifest on disk was written by a newer version of The Pub. Reading
+     * The manifest on disk was written by a newer version of Quoth. Reading
      * it worked because the schema drops fields it doesn't know rather than
      * rejecting them, but writing it back would make that drop permanent —
      * so nothing in this session may save the manifest until the project is
@@ -228,7 +228,7 @@ export class ProjectSession {
 
   async saveManifest(manifest: ProjectManifest): Promise<ProjectManifest> {
     if (this.readOnly) {
-      throw new Error('This project is read-only — its manifest was written by a newer version of The Pub.')
+      throw new Error('This project is read-only — its manifest was written by a newer version of Quoth.')
     }
     const next: ProjectManifest = { ...manifest, modified: new Date().toISOString() }
     await writeManifest(this.adapter, next)

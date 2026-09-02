@@ -5,6 +5,7 @@ import { appStateSchema, type AppState, type RecentProject } from '../../shared/
 import { keybindableCommands } from '../../shared/menu/menuModel.js'
 import { findConflict, normalizeAccelerator } from '../../shared/menu/keybindings.js'
 import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
+import { DEFAULT_THEME } from '../../shared/themes.js'
 import { ulid } from 'ulid'
 import type { DailyPrompt } from '../../shared/model/writingPrompt.js'
 
@@ -26,7 +27,7 @@ export class AppStateService {
       version: app.getVersion(),
       platform: process.platform,
       recentProjects: [] as RecentProject[],
-      theme: 'dark' as const
+      theme: DEFAULT_THEME
     }
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))

@@ -1,6 +1,6 @@
 # Phase 6 — Beyond fiction
 
-The build plan for [`ROADMAP.md`](./ROADMAP.md)'s Phase 6 — the phase where The Pub actually
+The build plan for [`ROADMAP.md`](./ROADMAP.md)'s Phase 6 — the phase where Quoth actually
 serves a thesis, an essay or a screenplay rather than merely being capable of it. Depends on
 Phase 4 (templates) for the delivery mechanism and Phase 5 (citations) for the academic templates
 to have something to cite with.

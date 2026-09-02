@@ -164,7 +164,7 @@ export const openProjectSchema = z.object({
   isLocal: z.boolean(),
   manifest: projectManifestSchema,
   /**
-   * The manifest on disk was written by a newer version of The Pub than this
+   * The manifest on disk was written by a newer version of Quoth than this
    * one. The project still opens — refusing outright would strand someone who
    * only wants to read — but nothing may write back, since this build's
    * schema cannot be trusted to round-trip a shape it doesn't fully know.

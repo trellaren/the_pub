@@ -18,6 +18,7 @@ import {
   type SettingDef,
   type SettingScope
 } from '@shared/settings/registry.js'
+import { groupAdjacent } from '@shared/adjacentGroups.js'
 import { keybindableCommands } from '@shared/menu/menuModel.js'
 import { resolveAccelerator } from '@shared/menu/keybindings.js'
 import { ShortcutField } from './ShortcutField.js'
@@ -133,7 +134,7 @@ export function SettingsPanel() {
       )
     }
 
-    const options =
+    const options: ReadonlyArray<{ value: string; label: string; group?: string }> =
       'options' in def.control
         ? def.control.options
         : (project?.manifest.styles ?? []).map((style) => ({ value: style.id, label: style.name }))
@@ -141,11 +142,23 @@ export function SettingsPanel() {
     return (
       <Field key={def.key} label={def.title}>
         <Select value={value as string} onChange={(event) => commit(event.target.value)}>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
+          {groupAdjacent(options, (option) => option.group).map((run, index) =>
+            run.group === undefined ? (
+              run.items.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))
+            ) : (
+              <optgroup key={`${run.group}-${index}`} label={run.group}>
+                {run.items.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </optgroup>
+            )
+          )}
         </Select>
       </Field>
     )
@@ -176,7 +189,7 @@ export function SettingsPanel() {
           <>
             {readOnly ? (
               <p className="mt-4 rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">
-                This project is read-only — it was last saved by a newer version of The Pub, so
+                This project is read-only — it was last saved by a newer version of Quoth, so
                 these can&apos;t be changed here.
               </p>
             ) : null}

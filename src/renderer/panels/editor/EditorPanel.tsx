@@ -194,7 +194,7 @@ function TooNewBar() {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[12px]">
       <span className="flex-1 text-danger">
-        This file was written by a newer version of The Pub. It's open read-only until you
+        This file was written by a newer version of Quoth. It's open read-only until you
         upgrade — your changes are kept here, but nothing can be saved.
       </span>
     </div>
@@ -222,7 +222,7 @@ function ConflictBar({ docId }: { docId: string }) {
     <div className="shrink-0 border-b border-danger/40 bg-danger/10">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
         <span className="flex-1 text-danger">
-          This file changed outside The Pub. Your unsaved edits are still here.
+          This file changed outside Quoth. Your unsaved edits are still here.
         </span>
         <button
           type="button"

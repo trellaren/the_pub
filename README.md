@@ -265,6 +265,18 @@ A few decisions worth knowing before changing things:
 the file rather than deriving identity from its path, so renaming or moving a chapter in Finder
 doesn't break the layout that references it, its snapshots, or anything else pointing at it.
 
+**The window has no frame, and draws its own.** The title bar is the app's: the raven, the File /
+Edit / View menus, a search field in the middle that goes to any document, and the minimize,
+maximize and close buttons on the right. The middle of a title bar is the best real estate in the
+window and a frame spends it on a filename the tab strip already shows. Three consequences worth
+knowing: the buttons act on the window the click came from rather than "the focused window",
+because a popout can be in front when one lands and a close aimed at the wrong window takes
+unsaved work with it; the native application menu is still registered on every platform, hidden
+rather than removed, because it is what makes the accelerators work and what the keybindings
+editor is written against — the in-window bar is a second *view* of `MENU_MODEL`, never a second
+copy; and macOS keeps both its traffic lights and its system menu bar, so there the title bar
+leaves room on the left and draws no buttons of its own.
+
 **The renderer is served over loopback HTTP, not `file://`.** Pages loaded from `file://` have an
 opaque origin, and a torn-off pane must be able to share the opener's JS context. Serving the
 built renderer from `127.0.0.1` on an OS-assigned port behind a per-launch path token gives the

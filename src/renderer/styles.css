@@ -437,6 +437,20 @@ body {
   background: transparent;
 }
 
+/*
+ * Window dragging, for the title bar the app draws instead of a frame.
+ *
+ * A drag region swallows every pointer event inside it, so anything clickable
+ * in the bar has to opt back out — which is why these come in pairs rather than
+ * as one class on the bar.
+ */
+.pub-drag {
+  -webkit-app-region: drag;
+}
+.pub-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* Map dockview's chrome onto the app palette. */
 .dockview-theme-pub {
   --dv-background-color: var(--color-bg);

@@ -42,10 +42,16 @@ import {
 import { layoutFileSchema, layoutPresetSchema, dockLayoutSchema } from '../model/layout.js'
 import { snapshotSchema } from '../model/snapshot.js'
 import { appStateSchema } from '../model/app.js'
+import { ROLE_ITEMS, type MenuItemRole } from '../menu/menuRoles.js'
 
 const empty = z.object({})
 const ok = z.object({ ok: z.literal(true) })
 const projectPath = z.object({ path: z.string() })
+
+/** What the app's own title bar has to know about the window drawing it. */
+const chromeStateSchema = z.object({ maximized: z.boolean(), fullScreen: z.boolean() })
+
+const MENU_ITEM_ROLES = Object.keys(ROLE_ITEMS) as [MenuItemRole, ...MenuItemRole[]]
 
 /** What an import did, and everything it could not bring across. */
 const docxImportResultSchema = z.object({
@@ -805,7 +811,31 @@ export const ipcContract = defineContract({
 
     'window:newProject': { req: z.object({ uri: z.string().optional() }), res: ok },
     /** Renderer's answer to `window:requestClose` once pending saves have flushed. */
-    'window:closeConfirmed': { req: empty, res: ok }
+    'window:closeConfirmed': { req: empty, res: ok },
+
+    /*
+     * The window's own chrome, which the app draws itself.
+     *
+     * The frame is off so the title bar can hold the menu, the search field and
+     * the window buttons the way an IDE does — which means the buttons that
+     * came with the frame have to be wired back up by hand. Each acts on the
+     * window the request came from rather than on "the focused window": a
+     * popout can be in front while a click lands, and a close that took the
+     * wrong window would take unsaved work with it.
+     */
+    'window:minimize': { req: empty, res: ok },
+    'window:toggleMaximize': { req: empty, res: chromeStateSchema },
+    /** Asks the window to close — the same path the frame's × took, flush and all. */
+    'window:close': { req: empty, res: ok },
+    'window:chromeState': { req: empty, res: chromeStateSchema },
+    /**
+     * Run one of Electron's built-in menu roles for this window.
+     *
+     * The in-window menu draws role items itself, but the actions behind them —
+     * undo, paste, the zoom levels — belong to the window and the web contents,
+     * not to the renderer's command registry.
+     */
+    'window:menuRole': { req: z.object({ role: z.enum(MENU_ITEM_ROLES) }), res: ok }
   },
   events: {
     'vfs:changed': z.array(fileChangeEventSchema),
@@ -852,7 +882,14 @@ export const ipcContract = defineContract({
     /** Native menu / accelerator dispatch into the renderer command registry. */
     'command:invoke': z.object({ commandId: z.string() }),
     /** Close was requested; flush unsaved documents, then confirm. */
-    'window:requestClose': z.object({})
+    'window:requestClose': z.object({}),
+    /**
+     * The window was maximized, restored, or went full screen — including by
+     * ways the title bar's own buttons know nothing about (a double-click on
+     * the drag area, the window manager, a keyboard shortcut), which is why the
+     * button's icon follows this rather than what it last did.
+     */
+    'window:chromeChanged': chromeStateSchema
   }
 } satisfies ContractShape)
 

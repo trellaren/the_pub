@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DockRoot } from './dock/DockRoot.js'
+import { TitleBar } from './chrome/TitleBar.js'
 import { cx } from './ui/primitives.js'
 import { CommandPalette } from './commands/CommandPalette.js'
 import { useAppStore } from './stores/appStore.js'
@@ -251,6 +252,7 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col">
+      <TitleBar onSearch={() => setPalette('files')} />
       {project?.readOnly ? <ReadOnlyProjectBar /> : null}
       <div className="min-h-0 flex-1">
         <DockRoot />

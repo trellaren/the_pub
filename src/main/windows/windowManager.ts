@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Menu, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
@@ -14,6 +15,37 @@ const CLOSE_FLUSH_TIMEOUT_MS = 4000
  * rather than flashing something else before the renderer paints.
  */
 const BACKGROUND = '#0b0d10'
+
+/**
+ * The window icon, for the places a platform reads one off a running process
+ * rather than off the installed application: a development run, and Linux.
+ *
+ * Absent from a packaged build, where `resources/` is build input rather than
+ * shipped content — there the icon is already inside the executable (Windows,
+ * macOS) or in the `.desktop` entry (Linux), both put there by
+ * electron-builder from this same file.
+ */
+const ICON = ((): string | null => {
+  const candidate = path.join(dirname, '../../resources/icon.png')
+  return fs.existsSync(candidate) ? candidate : null
+})()
+
+/**
+ * No frame: the title bar is the app's own, holding the menu, the search field
+ * and the window buttons the way an IDE does.
+ *
+ * macOS keeps its traffic lights, inset, because they are what a Mac user
+ * reaches for and nothing about them belongs to the app; the title bar leaves
+ * room for them instead of drawing buttons of its own. Popouts are not given
+ * this — they carry no title bar of their own, so a frameless one would have
+ * nothing to drag.
+ */
+const CHROME_OPTIONS: Electron.BrowserWindowConstructorOptions =
+  process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { frame: false }
+
+function chromeStateOf(window: BrowserWindow): { maximized: boolean; fullScreen: boolean } {
+  return { maximized: window.isMaximized(), fullScreen: window.isFullScreen() }
+}
 
 interface WindowRecord {
   window: BrowserWindow
@@ -77,6 +109,8 @@ export class WindowManager {
       backgroundColor: BACKGROUND,
       title: 'Quoth',
       show: false,
+      ...CHROME_OPTIONS,
+      ...(ICON ? { icon: ICON } : {}),
       webPreferences: {
         preload: PRELOAD,
         contextIsolation: true,
@@ -86,11 +120,29 @@ export class WindowManager {
       }
     })
 
+    /*
+     * The application menu stays registered — it is what makes the accelerators
+     * work, and the keybindings editor is written against it — but on the
+     * platforms where it would be drawn inside the window it is not shown,
+     * because the title bar draws that menu itself now.
+     */
+    if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
+
     this.records.set(window.id, { window, ownerId: window.id, closeConfirmed: false })
     this.hardenWebContents(window.webContents, window.id)
     window.once('ready-to-show', () => window.show())
     window.on('close', (event) => this.handleClose(window, event))
     window.on('closed', () => this.records.delete(window.id))
+    // The buttons follow the window, not the other way round: it can be
+    // maximized or unmaximized by the window manager, a double-click on the
+    // drag area, or a keyboard shortcut, none of which go through the title bar.
+    const announceChrome = (): void => {
+      this.send(window.webContents, 'window:chromeChanged', chromeStateOf(window))
+    }
+    window.on('maximize', announceChrome)
+    window.on('unmaximize', announceChrome)
+    window.on('enter-full-screen', announceChrome)
+    window.on('leave-full-screen', announceChrome)
 
     void this.loadRenderer(window)
     this.onCreateProject?.(window)
@@ -192,6 +244,40 @@ export class WindowManager {
   /** The project-owning window for any webContents, resolving popouts to their opener. */
   ownerWindowId(contents: WebContents): number | null {
     return this.recordFor(contents)?.ownerId ?? null
+  }
+
+  /*
+   * The window buttons the frame used to draw.
+   *
+   * Each acts on the window the click came from, not on the focused one: a
+   * request can arrive while another window is in front, and a close aimed at
+   * the wrong window would take unsaved work with it. A window this manager has
+   * forgotten (already closed) is a no-op rather than a crash, because a click
+   * can land in the gap between the close and the window going away.
+   */
+  minimize(contents: WebContents): void {
+    this.recordFor(contents)?.window.minimize()
+  }
+
+  toggleMaximize(contents: WebContents): { maximized: boolean; fullScreen: boolean } {
+    const window = this.recordFor(contents)?.window
+    if (!window || window.isDestroyed()) return { maximized: false, fullScreen: false }
+    if (window.isMaximized()) window.unmaximize()
+    else window.maximize()
+    return chromeStateOf(window)
+  }
+
+  /** The × — the same path the frame's took, unsaved-work flush and all. */
+  requestClose(contents: WebContents): void {
+    const window = this.recordFor(contents)?.window
+    if (window && !window.isDestroyed()) window.close()
+  }
+
+  chromeState(contents: WebContents): { maximized: boolean; fullScreen: boolean } {
+    const window = this.recordFor(contents)?.window
+    return window && !window.isDestroyed()
+      ? chromeStateOf(window)
+      : { maximized: false, fullScreen: false }
   }
 
   private recordFor(contents: WebContents): WindowRecord | undefined {

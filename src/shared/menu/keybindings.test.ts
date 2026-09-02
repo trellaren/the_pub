@@ -5,6 +5,7 @@ import {
   parseAccelerator,
   acceleratorFromEvent,
   resolveAccelerator,
+  acceleratorLabel,
   findConflict,
   type CommandBinding
 } from './keybindings.js'
@@ -172,5 +173,22 @@ describe('findConflict', () => {
   it('reports nothing for a free combination or an invalid one', () => {
     expect(findConflict('CmdOrCtrl+J', 'folder.new', bindings, {})).toBeNull()
     expect(findConflict('nonsense', 'folder.new', bindings, {})).toBeNull()
+  })
+})
+
+describe('acceleratorLabel', () => {
+  it('names the key a Windows or Linux reader would press', () => {
+    expect(acceleratorLabel('CmdOrCtrl+Shift+P', 'linux')).toBe('Ctrl+Shift+P')
+    expect(acceleratorLabel('CmdOrCtrl+Alt+S', 'win32')).toBe('Ctrl+Alt+S')
+  })
+
+  it('uses the Mac symbols, run together, on a Mac', () => {
+    expect(acceleratorLabel('CmdOrCtrl+Shift+P', 'darwin')).toBe('⌘⇧P')
+    expect(acceleratorLabel('CmdOrCtrl+Alt+S', 'darwin')).toBe('⌘⌥S')
+  })
+
+  it('leaves a key it has no symbol for alone', () => {
+    expect(acceleratorLabel('CmdOrCtrl+,', 'linux')).toBe('Ctrl+,')
+    expect(acceleratorLabel('F5', 'darwin')).toBe('F5')
   })
 })

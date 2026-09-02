@@ -50,7 +50,7 @@ src/
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
-└─ renderer/   React UI: dock shell, panels, editor, stores
+└─ renderer/   React UI: window chrome, dock shell, panels, editor, stores
 ```
 
 `docs/ROADMAP.md` is the forward plan (phases, in dependency order, each meant to ship on its

@@ -116,3 +116,23 @@ test('the dock has no axe violations with each panel open', async () => {
 
   expect(violationsByPanel, JSON.stringify(violationsByPanel, null, 2)).toEqual({})
 })
+
+/*
+ * The title bar is the app's own chrome — a menubar, a search field and the
+ * window buttons where the frame used to be — so it is the app's to get right.
+ * Swept with a menu open as well as closed: an unlabelled item or a menubar
+ * whose children are not menu items is only visible once something is showing.
+ */
+test('the title bar has no axe violations, open menu included', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+
+  const closed = await runAxe(harness.page, '[data-testid="title-bar"]')
+  expect(closed.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([])
+
+  await harness.page.getByTestId('menu-view').click()
+  await expect(harness.page.getByTestId('menu-dropdown')).toBeVisible()
+
+  const open = await runAxe(harness.page, '[data-testid="title-bar"]')
+  expect(open.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([])
+})

@@ -2,11 +2,11 @@ import { z } from 'zod'
 import { defineContract } from './defineContract.js'
 import type { ContractShape, InvokeChannel, InvokeReq, InvokeRes, EventChannel, EventPayload } from './defineContract.js'
 import type { InvokeChannelName, EventChannelName } from './channels.js'
-import { openProjectSchema, projectManifestSchema } from '../model/manifest.js'
+import { openProjectSchema, projectManifestSchema, projectFontSchema } from '../model/manifest.js'
 import { templateSummarySchema, saveTemplateOptionsSchema } from '../model/template.js'
 import { namedStyleSchema } from '../model/style.js'
 import { vfsEntrySchema, fileChangeEventSchema } from '../model/vfs.js'
-import { loadedDocumentSchema, pubDocumentSchema } from '../model/document.js'
+import { loadedDocumentSchema, pubDocumentSchema, pageMarginsSchema } from '../model/document.js'
 import { searchQuerySchema, searchHitSchema, indexProgressSchema } from '../model/search.js'
 import { entityFileSchema, storyEntitySchema, entityKindSchema } from '../model/entity.js'
 import { noteSchema } from '../model/note.js'
@@ -158,9 +158,21 @@ export const ipcContract = defineContract({
       req: z.object({ templateId: z.string() }),
       res: z.object({
         styles: z.array(namedStyleSchema),
-        page: z.object({ width: z.number(), height: z.number(), margin: z.number() })
+        page: z.object({ width: z.number(), height: z.number(), margins: pageMarginsSchema })
       })
     },
+
+    /**
+     * Copy a font file into the project and answer with its manifest entry.
+     * The renderer merges the entry into `manifest.fonts` and saves through
+     * `project:updateManifest`, the same division `templates:applyPreset`
+     * draws — this channel touches font files, never the manifest.
+     */
+    'fonts:import': { req: z.object({ file: z.string() }), res: z.object({ font: projectFontSchema }) },
+    /** The same through a native file dialog; null when it is cancelled. */
+    'fonts:importDialog': { req: empty, res: z.object({ font: projectFontSchema }).nullable() },
+    /** Delete an imported font's file. Only paths under `.thepub/fonts/` are accepted. */
+    'fonts:delete': { req: z.object({ file: z.string() }), res: ok },
 
     'vfs:list': { req: projectPath, res: z.array(vfsEntrySchema) },
     'vfs:stat': { req: projectPath, res: vfsEntrySchema.nullable() },

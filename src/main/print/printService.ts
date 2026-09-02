@@ -5,6 +5,7 @@ import type { VfsAdapter } from '../vfs/types.js'
 import type { DocumentService } from '../services/documentService.js'
 import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { PageSetup, PmNode, Section } from '../../shared/model/document.js'
+import { marginsFromSettings } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
 import { ASSETS_DIR, ASSET_PROTOCOL } from '../../shared/constants.js'
 import { parseAssetUrl } from '../../shared/model/asset.js'
@@ -89,7 +90,8 @@ export class PrintService {
       : {
           width: manifest.settings.pageWidth,
           height: manifest.settings.pageHeight,
-          margin: manifest.settings.pageMargin,
+          margin: manifest.settings.pageMarginTop,
+          margins: marginsFromSettings(manifest.settings),
           orientation: 'portrait',
           columns: 1
         }

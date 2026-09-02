@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { NamedStyle } from '@shared/model/style.js'
+import type { ProjectFont } from '@shared/model/manifest.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import {
   PanelShell,
@@ -47,6 +48,7 @@ export function StylesPanel() {
   const project = useProjectStore((store) => store.project)
   const updateManifest = useProjectStore((store) => store.updateManifest)
   const styles = project?.manifest.styles ?? []
+  const fonts = project?.manifest.fonts ?? []
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = styles.find((style) => style.id === selectedId) ?? styles[0]
 
@@ -89,6 +91,25 @@ export function StylesPanel() {
     setSelectedId(id)
   }
 
+  const importFont = async (): Promise<void> => {
+    const result = await attempt(invoke('fonts:importDialog', {}), 'Could not import the font')
+    // Null is the file dialog being cancelled, which is not a failure.
+    if (!result) return
+    await updateManifest((manifest) => ({ ...manifest, fonts: [...manifest.fonts, result.font] }))
+  }
+
+  const removeFont = async (font: ProjectFont): Promise<void> => {
+    if (!window.confirm(`Remove ${font.family}? Text set in it falls back to another face.`)) return
+    // The manifest entry goes first: a file that outlives its entry is dead
+    // weight, but an entry that outlives its file is a font that renders as a
+    // fallback with nothing in the panel explaining why.
+    await updateManifest((manifest) => ({
+      ...manifest,
+      fonts: manifest.fonts.filter((candidate) => candidate.id !== font.id)
+    }))
+    await invoke('fonts:delete', { file: font.file }).catch(() => {})
+  }
+
   const removeStyle = (): void => {
     if (!selected || selected.builtin) return
     void updateManifest((manifest) => ({
@@ -126,7 +147,10 @@ export function StylesPanel() {
         ...manifest.settings,
         pageWidth: result.page.width,
         pageHeight: result.page.height,
-        pageMargin: result.page.margin
+        pageMarginTop: result.page.margins.top,
+        pageMarginBottom: result.page.margins.bottom,
+        pageMarginLeft: result.page.margins.left,
+        pageMarginRight: result.page.margins.right
       }
     }))
     reportNotice('Preset applied.')
@@ -225,18 +249,30 @@ export function StylesPanel() {
             </Field>
 
             <SectionTitle>Text</SectionTitle>
+            {/*
+              Suggestions, not the ceiling: the datalist offers the safe
+              cross-platform stacks and the project's own imported fonts, and
+              any installed face can be typed by name — the old select made
+              ten stacks the whole offer.
+            */}
             <Field label="Font">
-              <Select
+              <TextInput
                 value={selected.text.fontFamily ?? ''}
+                placeholder="(inherit)"
+                list="style-font-options"
+                data-testid="style-font"
                 onChange={(event) => patchText({ fontFamily: event.target.value || undefined })}
-              >
-                <option value="">(inherit)</option>
+              />
+              <datalist id="style-font-options">
+                {fonts.map((font) => (
+                  <option key={font.id} value={font.family} />
+                ))}
                 {FONTS.map((font) => (
                   <option key={font} value={font}>
                     {font.split(',')[0]}
                   </option>
                 ))}
-              </Select>
+              </datalist>
             </Field>
             <NumberField
               label="Size (pt)"
@@ -302,6 +338,35 @@ export function StylesPanel() {
               value={selected.paragraph.firstLineIndent}
               onChange={(value) => patchParagraph({ firstLineIndent: value })}
             />
+
+            <SectionTitle>Project fonts</SectionTitle>
+            <p className="mb-2 text-[11px] text-muted">
+              An imported font is copied into the project, so it travels with it — to other
+              machines, servers and OneDrive alike. Word export names the font but cannot embed
+              the file; a reader without it installed sees a substitute.
+            </p>
+            {fonts.map((font) => (
+              <div key={font.id} className="mb-1 flex items-center gap-2" data-testid="project-font">
+                <span
+                  className="min-w-0 flex-1 truncate text-[12px] text-text"
+                  style={{ fontFamily: `"${font.family.replace(/["\\]/g, '')}"` }}
+                  title={font.file}
+                >
+                  {font.family}
+                </span>
+                <ToolbarButton label={`Remove ${font.family}`} onClick={() => void removeFont(font)}>
+                  ✕
+                </ToolbarButton>
+              </div>
+            ))}
+            <ToolbarButton
+              label="Import a font file"
+              className="mb-2 w-full justify-start"
+              data-testid="import-font"
+              onClick={() => void importFont()}
+            >
+              ＋ import font…
+            </ToolbarButton>
           </div>
         ) : (
           <EmptyState title="Select a style" />

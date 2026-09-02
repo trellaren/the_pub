@@ -61,6 +61,24 @@ describe('migrate', () => {
     expect(result.migrated).toBe(false)
   })
 
+  it('materialises the single pageMargin into all four sides at v9', () => {
+    /*
+     * The first migration step that changes a value rather than only the
+     * version. A project set to 90pt margins must not reopen at the 72pt
+     * defaults because the setting it used was renamed out from under it.
+     */
+    const result = migrate('manifest', {
+      formatVersion: 8,
+      settings: { pageWidth: 612, pageHeight: 792, pageMargin: 90 }
+    })
+    expect(result.migrated).toBe(true)
+    const settings = (result.value as { settings: Record<string, unknown> }).settings
+    expect(settings.pageMarginTop).toBe(90)
+    expect(settings.pageMarginBottom).toBe(90)
+    expect(settings.pageMarginLeft).toBe(90)
+    expect(settings.pageMarginRight).toBe(90)
+  })
+
   it('carries a v1 manifest forward to current unchanged, since its one step is a no-op', () => {
     const raw = { formatVersion: 1, name: 'x' }
     const result = migrate('manifest', raw)

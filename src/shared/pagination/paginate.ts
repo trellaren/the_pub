@@ -1,4 +1,5 @@
 import type { PmDoc, PmNode, PageSetup } from '../model/document.js'
+import { pageMargins } from '../model/document.js'
 import type { NamedStyle } from '../model/style.js'
 import { resolveStyle } from '../model/style.js'
 
@@ -57,8 +58,9 @@ export interface PageBreak {
  */
 export function paginate(doc: PmDoc, styles: NamedStyle[], setup: PageSetup, measure: Measurer): PageBreak[] {
   const blocks = doc.content ?? []
-  const contentWidth = setup.width - setup.margin * 2
-  const contentHeight = setup.height - setup.margin * 2
+  const margins = pageMargins(setup)
+  const contentWidth = setup.width - margins.left - margins.right
+  const contentHeight = setup.height - margins.top - margins.bottom
 
   if (blocks.length === 0) return [{ page: 1, startBlockIndex: 0 }]
 

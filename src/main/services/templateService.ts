@@ -9,6 +9,7 @@ import {
   type TemplateSummary
 } from '../../shared/model/template.js'
 import { projectManifestSchema, type ProjectManifest } from '../../shared/model/manifest.js'
+import { marginsFromSettings } from '../../shared/model/document.js'
 import { migrate } from '../../shared/model/migrate.js'
 import {
   MANIFEST_FILE,
@@ -190,7 +191,11 @@ export class TemplateService {
    */
   async presetStylesAndPage(templateId: string): Promise<{
     styles: ProjectManifest['styles']
-    page: { width: number; height: number; margin: number }
+    page: {
+      width: number
+      height: number
+      margins: { top: number; bottom: number; left: number; right: number }
+    }
   }> {
     const found = await this.find(templateId)
     if (!found) throw new Error(`No such template: ${templateId}`)
@@ -208,7 +213,7 @@ export class TemplateService {
       page: {
         width: manifest.settings.pageWidth,
         height: manifest.settings.pageHeight,
-        margin: manifest.settings.pageMargin
+        margins: marginsFromSettings(manifest.settings)
       }
     }
   }

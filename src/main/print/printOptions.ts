@@ -1,5 +1,6 @@
 import type { PrintToPDFOptions } from 'electron'
 import type { PageSetup } from '../../shared/model/document.js'
+import { pageMargins } from '../../shared/model/document.js'
 
 /** Points per inch, the unit `pageSetupSchema` stores lengths in. */
 const POINTS_PER_INCH = 72
@@ -20,12 +21,13 @@ function pointsToInches(points: number): number {
  * actual one.
  */
 export function buildPdfOptions(setup: PageSetup, headerFooter?: { header?: string; footer?: string }): PrintToPDFOptions {
+  const sides = pageMargins(setup)
   const margins = {
     marginType: 'custom' as const,
-    top: pointsToInches(setup.margin),
-    bottom: pointsToInches(setup.margin),
-    left: pointsToInches(setup.margin),
-    right: pointsToInches(setup.margin)
+    top: pointsToInches(sides.top),
+    bottom: pointsToInches(sides.bottom),
+    left: pointsToInches(sides.left),
+    right: pointsToInches(sides.right)
   }
   const width = pointsToInches(setup.orientation === 'landscape' ? setup.height : setup.width)
   const height = pointsToInches(setup.orientation === 'landscape' ? setup.width : setup.height)

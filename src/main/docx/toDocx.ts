@@ -29,6 +29,7 @@ import {
   type FileChild
 } from 'docx'
 import type { PmDoc, PmNode, PmMark } from '../../shared/model/document.js'
+import { pageMargins } from '../../shared/model/document.js'
 import type { NamedStyle, Numbering, TextStyleAttrs } from '../../shared/model/style.js'
 import {
   pointsToTwips,
@@ -61,7 +62,13 @@ export interface ExportDocument {
 export interface ExportOptions {
   documents: ExportDocument[]
   styles: NamedStyle[]
-  page: { width: number; height: number; margin: number; orientation?: 'portrait' | 'landscape' }
+  page: {
+    width: number
+    height: number
+    margin: number
+    margins?: { top: number; bottom: number; left: number; right: number }
+    orientation?: 'portrait' | 'landscape'
+  }
   /** From the first document's first section (Phase 7), when it has one. */
   header?: PmDoc
   footer?: PmDoc
@@ -116,6 +123,7 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
 
   const headingLevels = headingNumberingLevels(options.styles)
   const orientation = options.page.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT
+  const margins = pageMargins(options.page)
   const header = options.header ? new Header({ children: headerFooterChildren(options.header, options, state) }) : undefined
   const footer = options.footer ? new Footer({ children: headerFooterChildren(options.footer, options, state) }) : undefined
   const file = new Document({
@@ -143,10 +151,10 @@ export async function exportDocx(options: ExportOptions): Promise<Buffer> {
               orientation
             },
             margin: {
-              top: pointsToTwips(options.page.margin),
-              right: pointsToTwips(options.page.margin),
-              bottom: pointsToTwips(options.page.margin),
-              left: pointsToTwips(options.page.margin)
+              top: pointsToTwips(margins.top),
+              right: pointsToTwips(margins.right),
+              bottom: pointsToTwips(margins.bottom),
+              left: pointsToTwips(margins.left)
             }
           }
         },

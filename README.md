@@ -20,7 +20,14 @@ footnotes are shipped; templates, citations, and non-fiction project types are s
   create/rename/reveal/move-to-trash.
 - **Rich text editor** on TipTap: fonts, sizes, colour, highlight, bold/italic/underline/strike,
   super/subscript, alignment, indentation, line and paragraph spacing, lists, tables, images,
-  and find/replace within a document.
+  and find/replace within a document. The toolbar's font and size boxes suggest presets but take
+  anything — any installed face by name, any size down to the half-point — and page margins are
+  set per side, Word-fashion.
+- **Fonts you import.** A `.ttf`/`.otf`/`.woff`/`.woff2` dropped into the project (Styles panel →
+  *import font…*) is copied into `.thepub/fonts/`, so it travels with the project to other
+  machines, servers and OneDrive, and loads there over the same protocol as images. Word export
+  names the family — it cannot embed the file, so a reader without the font installed sees a
+  substitute, and the panel says so.
 - **Named styles**, Word-style. Documents store a style id, not a copy of its formatting, so
   editing "Chapter Title" restyles the whole manuscript at once. Styles inherit through a
   `based on` chain and set the style of the following paragraph.

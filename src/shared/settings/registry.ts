@@ -203,13 +203,44 @@ export const SETTING_DEFS = [
     schema: z.number().default(792),
     control: { kind: 'number' }
   },
+  // Four sides rather than one number, the way Word states them. The old
+  // single `pageMargin` is materialised into these by the manifest's 8→9
+  // migration, so a project that had chosen a margin keeps it on every side.
   {
-    key: 'project.page.margin',
-    storageKey: 'pageMargin',
+    key: 'project.page.marginTop',
+    storageKey: 'pageMarginTop',
     scope: 'project',
     group: 'Page setup',
-    title: 'Margin (pt)',
-    schema: z.number().default(72),
+    title: 'Top margin (pt)',
+    description: '72pt is one inch.',
+    schema: z.number().min(0).default(72),
+    control: { kind: 'number' }
+  },
+  {
+    key: 'project.page.marginBottom',
+    storageKey: 'pageMarginBottom',
+    scope: 'project',
+    group: 'Page setup',
+    title: 'Bottom margin (pt)',
+    schema: z.number().min(0).default(72),
+    control: { kind: 'number' }
+  },
+  {
+    key: 'project.page.marginLeft',
+    storageKey: 'pageMarginLeft',
+    scope: 'project',
+    group: 'Page setup',
+    title: 'Left margin (pt)',
+    schema: z.number().min(0).default(72),
+    control: { kind: 'number' }
+  },
+  {
+    key: 'project.page.marginRight',
+    storageKey: 'pageMarginRight',
+    scope: 'project',
+    group: 'Page setup',
+    title: 'Right margin (pt)',
+    schema: z.number().min(0).default(72),
     control: { kind: 'number' }
   },
   {

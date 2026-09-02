@@ -49,6 +49,10 @@ import { Embedder, embedderConfig, embedderRefusal } from '../ai/embedder.js'
 import type { EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { RECORD_WRITING_TOOLS, SOURCE_WRITING_TOOLS, type RetrievalResult } from '../ai/tools.js'
 import { ulid } from 'ulid'
+import { FONTS_DIR } from '../../shared/constants.js'
+import { FONT_EXTENSIONS } from '../../shared/model/asset.js'
+import type { ProjectFont } from '../../shared/model/manifest.js'
+import { normalizeRelative } from '../vfs/paths.js'
 import { resolveInRoot } from '../vfs/paths.js'
 import { validateRelativePath } from '../../shared/model/filename.js'
 import { DOC_EXT, IGNORED_DIRS, MANIFEST_FILE } from '../../shared/constants.js'
@@ -348,6 +352,62 @@ export function registerHandlers(context: HandlerContext): void {
   })
 
   handle('templates:applyPreset', ({ templateId }) => templates.presetStylesAndPage(templateId))
+
+  /**
+   * Copy one font file into `.thepub/fonts/` through the project's adapter,
+   * so it lands on remote projects too. The manifest entry is returned, not
+   * written: `manifest.fonts` is saved by the renderer through
+   * `project:updateManifest`, the same division `templates:applyPreset` draws.
+   */
+  async function importFontFile(session: ProjectSession, file: string): Promise<{ font: ProjectFont }> {
+    const extension = path.extname(file).slice(1).toLowerCase()
+    if (!(FONT_EXTENSIONS as readonly string[]).includes(extension)) {
+      throw new Error('Only .ttf, .otf, .woff and .woff2 fonts can be imported.')
+    }
+    const bytes = await fs.readFile(file)
+    // Whole CJK families run to tens of megabytes; a "font" beyond that is a
+    // mistake, and it would be copied to every machine the project opens on.
+    if (bytes.length > 64 * 1024 * 1024) throw new Error('That file is too large to be a font.')
+
+    const id = ulid()
+    const relative = `${FONTS_DIR}/${id}.${extension}`
+    await session.adapter.mkdir(FONTS_DIR).catch(() => {})
+    await session.adapter.writeFileAtomic(relative, bytes)
+
+    // The filename, cleaned, is the family name. Reading the real one out of
+    // the binary would mean carrying a font parser for a single string; the
+    // filename is nearly always the family anyway, and it is visible before
+    // the import, so a surprise here is at least not a mystery.
+    const family =
+      path
+        .basename(file, path.extname(file))
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || 'Imported font'
+    return { font: { id, family, file: relative } }
+  }
+
+  handle('fonts:import', ({ file }, event) => importFontFile(requireSession(event), file))
+  handle('fonts:importDialog', async (_payload, event) => {
+    const session = requireSession(event)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const picked = await dialog.showOpenDialog(window!, {
+      title: 'Import a font',
+      filters: [{ name: 'Fonts', extensions: [...FONT_EXTENSIONS] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return null
+    return importFontFile(session, picked.filePaths[0]!)
+  })
+  handle('fonts:delete', async ({ file }, event) => {
+    const session = requireSession(event)
+    const relative = normalizeRelative(file)
+    // Only what fonts:import wrote. This channel must not become a generic
+    // delete-anything-in-the-project with a friendlier name.
+    if (!relative.startsWith(`${FONTS_DIR}/`)) throw new Error('That is not an imported font.')
+    await session.adapter.delete(relative).catch(() => {})
+    return { ok: true as const }
+  })
 
   handle('vfs:list', ({ path: target }, event) => requireSession(event).adapter.list(target))
   handle('vfs:stat', ({ path: target }, event) => requireSession(event).adapter.stat(target))

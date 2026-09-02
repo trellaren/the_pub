@@ -87,6 +87,26 @@ export const goalsSchema = z.object({
 })
 export type Goals = z.infer<typeof goalsSchema>
 
+/**
+ * A font imported into the project.
+ *
+ * `family` is the name styles and direct formatting refer to it by — derived
+ * from the filename at import, since reading the real name out of the binary
+ * would mean carrying a font parser for one string. `file` is project-relative
+ * under `.thepub/fonts/`, so the face travels with the project and loads over
+ * the asset protocol on every backend.
+ *
+ * What this deliberately does not promise: DOCX export names the family, it
+ * cannot embed the file — a reader without the font installed sees Word's
+ * fallback. The Fonts section in the Styles panel says so.
+ */
+export const projectFontSchema = z.object({
+  id: z.string(),
+  family: z.string(),
+  file: z.string()
+})
+export type ProjectFont = z.infer<typeof projectFontSchema>
+
 export const projectManifestSchema = z.object({
   formatVersion: z.number().int().default(FORMAT_VERSIONS.manifest),
   id: z.string(),
@@ -113,6 +133,8 @@ export const projectManifestSchema = z.object({
    * field existed opens with an empty list, not a crash.
    */
   highlightCategories: z.array(highlightCategoryDefSchema).optional(),
+  /** Fonts imported into this project. See `projectFontSchema`. */
+  fonts: z.array(projectFontSchema).default(() => []),
   /** Book/manuscript metadata, distinct from editor-behaviour `settings`. See `publicationSchema`. */
   publication: publicationSchema.prefault({}),
   /** Word/deadline target for the Progress panel. See `goalsSchema`. */

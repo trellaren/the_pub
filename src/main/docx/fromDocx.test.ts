@@ -357,11 +357,17 @@ describe('page setup', () => {
       buildDocx({
         body:
           paragraph(run('x')) +
-          '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:left="1440" w:right="1440"/></w:sectPr>'
+          '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:bottom="1077" w:left="2160" w:right="1440"/></w:sectPr>'
       })
     )
-    // A4, in points, rounded.
-    expect(result.page).toEqual({ width: 595.3, height: 841.9, margin: 72 })
+    // A4, in points, rounded — and all four margins, not w:left stamped onto
+    // every side: a wider binding margin used to be lost on a round trip.
+    expect(result.page).toEqual({
+      width: 595.3,
+      height: 841.9,
+      margin: 108,
+      margins: { top: 72, bottom: 53.85, left: 108, right: 72 }
+    })
   })
 
   it('is null when the document says nothing about pages', () => {

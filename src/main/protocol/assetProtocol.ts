@@ -2,7 +2,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { protocol, net } from 'electron'
 import { ASSET_PROTOCOL } from '../../shared/constants.js'
-import { buildAssetUrl, parseAssetUrl, imageMimeType } from '../../shared/model/asset.js'
+import { buildAssetUrl, parseAssetUrl, assetMimeType } from '../../shared/model/asset.js'
 import { resolveInRoot, normalizeRelative } from '../vfs/paths.js'
 import type { VfsAdapter } from '../vfs/types.js'
 
@@ -76,7 +76,7 @@ export function registerAssetProtocol(lookup: AssetLookup): void {
           headers: {
             // net.fetch inferred this on the local branch; a byte Response
             // carries no type unless it says so.
-            'Content-Type': imageMimeType(relative),
+            'Content-Type': assetMimeType(relative),
             'Content-Length': String(bytes.length),
             'Cache-Control': 'no-cache'
           }

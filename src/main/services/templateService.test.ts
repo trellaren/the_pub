@@ -371,7 +371,7 @@ describe('TemplateService.presetStylesAndPage', () => {
   it('returns only the styles and page setup, never a project the caller could mistake for content', async () => {
     await writeTemplate(path.join(builtinDir, 'submission'), 'builtin-submission', {
       manifest: {
-        settings: { pageWidth: 612, pageHeight: 792, pageMargin: 72 },
+        settings: { pageWidth: 612, pageHeight: 792, pageMarginTop: 72, pageMarginBottom: 72, pageMarginLeft: 90, pageMarginRight: 72 },
         styles: BUILTIN_STYLES.map((style) =>
           style.id === 'body' ? { ...style, text: { ...style.text, fontSize: 12 }, paragraph: { ...style.paragraph, lineHeight: 2 } } : style
         )
@@ -379,7 +379,7 @@ describe('TemplateService.presetStylesAndPage', () => {
     })
 
     const preset = await templates.presetStylesAndPage('builtin-submission')
-    expect(preset.page).toEqual({ width: 612, height: 792, margin: 72 })
+    expect(preset.page).toEqual({ width: 612, height: 792, margins: { top: 72, bottom: 72, left: 90, right: 72 } })
     const body = preset.styles.find((style) => style.id === 'body')
     expect(body?.paragraph.lineHeight).toBe(2)
   })

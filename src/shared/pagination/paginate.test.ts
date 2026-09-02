@@ -25,6 +25,23 @@ function styleWith(id: string, paragraph: NamedStyle['paragraph']): NamedStyle {
 }
 
 describe('paginate', () => {
+  it('sizes the content area from all four margins, not one number doubled', () => {
+    /*
+     * 792pt page, 72pt top + 120pt bottom = 600pt of content height: two
+     * 300pt blocks fit exactly, a third starts page 2. With the old
+     * margin*2 arithmetic the bottom margin would have been silently 72.
+     */
+    const asymmetric: PageSetup = {
+      ...PAGE,
+      margins: { top: 72, bottom: 120, left: 90, right: 72 }
+    }
+    const content = doc(block(300), block(300), block(300))
+    expect(paginate(content, BUILTIN_STYLES, asymmetric, syntheticMeasurer)).toEqual([
+      { page: 1, startBlockIndex: 0 },
+      { page: 2, startBlockIndex: 2 }
+    ])
+  })
+
   it('keeps everything on one page when it all fits', () => {
     const content = doc(block(100), block(100), block(100))
     expect(paginate(content, BUILTIN_STYLES, PAGE, syntheticMeasurer)).toEqual([{ page: 1, startBlockIndex: 0 }])

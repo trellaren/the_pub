@@ -18,6 +18,7 @@ import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
 import { validateFileName } from '@shared/model/filename.js'
 import { registerDocumentEffect, setStyleElement } from './lib/documents.js'
+import { generateFontFaceSheet } from './lib/projectFonts.js'
 import { generateStyleSheet } from './panels/editor/extensions/namedStyles.js'
 import { generateMentionStyleSheet } from './panels/editor/extensions/mention.js'
 import { DOC_EXT } from '@shared/constants.js'
@@ -27,6 +28,7 @@ import { SaveAsTemplateDialog } from './panels/welcome/SaveAsTemplateDialog.js'
 
 const STYLE_ELEMENT_ID = 'pub-named-styles'
 const MENTION_STYLE_ELEMENT_ID = 'pub-mention-colors'
+const FONT_STYLE_ELEMENT_ID = 'pub-project-fonts'
 
 export function App() {
   const loadAppState = useAppStore((store) => store.load)
@@ -36,6 +38,8 @@ export function App() {
   const styles = useProjectStore((store) => store.project?.manifest.styles)
   const defaultStyleId = useProjectStore((store) => store.project?.manifest.settings.defaultStyleId)
   const entities = useEntityStore((store) => store.entities)
+  const projectFonts = useProjectStore((store) => store.project?.manifest.fonts)
+  const assetToken = useProjectStore((store) => store.project?.assetToken)
   const [palette, setPalette] = useState<'hidden' | 'commands' | 'files' | 'panels'>('hidden')
   // Here rather than in the Welcome panel, because a project can be created
   // from the menu and the palette with no Welcome panel on screen at all.
@@ -88,6 +92,12 @@ export function App() {
     const css = generateMentionStyleSheet(entities)
     return registerDocumentEffect((target) => setStyleElement(target, MENTION_STYLE_ELEMENT_ID, css))
   }, [entities])
+
+  /* Imported fonts too: a face has to exist in the window that renders it. */
+  useEffect(() => {
+    const css = projectFonts && assetToken ? generateFontFaceSheet(projectFonts, assetToken) : ''
+    return registerDocumentEffect((target) => setStyleElement(target, FONT_STYLE_ELEMENT_ID, css))
+  }, [projectFonts, assetToken])
 
   useEffect(() => {
     const unregister = [

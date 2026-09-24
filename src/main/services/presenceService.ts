@@ -30,13 +30,20 @@ export class PresenceService {
   ) {}
 
   /** Start beating for a document, replacing whatever we were beating for. */
-  enter(docId: string): void {
+  /**
+   * Resolves once the first beat is on disk — so a caller that needs to know
+   * the writer is visible can wait for exactly that, rather than for a guess at
+   * how long a write takes. The interval behind it is fire-and-forget.
+   */
+  enter(docId: string): Promise<void> {
     this.docId = docId
-    void this.beat()
-    if (this.timer) return
-    this.timer = setInterval(() => void this.beat(), PRESENCE_BEAT_MS)
-    // Presence must never be the reason the app stays alive.
-    this.timer.unref?.()
+    const first = this.beat()
+    if (!this.timer) {
+      this.timer = setInterval(() => void this.beat(), PRESENCE_BEAT_MS)
+      // Presence must never be the reason the app stays alive.
+      this.timer.unref?.()
+    }
+    return first
   }
 
   async leave(): Promise<void> {

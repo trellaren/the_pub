@@ -147,8 +147,9 @@ describe('PresenceService', () => {
   it('reports a collaborator but never yourself', async () => {
     const mine = new PresenceService(adapter, () => MARTA)
     const theirs = new PresenceService(adapter, () => SAM)
-    theirs.enter('doc-1')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Awaited, not slept for: a fixed wait is a bet on how loaded the machine
+    // is, and this test lost that bet under a concurrent build.
+    await theirs.enter('doc-1')
 
     expect((await mine.list('doc-1')).map((beat) => beat.authorId)).toEqual(['sam'])
     expect(await theirs.list('doc-1')).toEqual([])
@@ -157,16 +158,14 @@ describe('PresenceService', () => {
 
   it('does not report someone reading a different document', async () => {
     const theirs = new PresenceService(adapter, () => SAM)
-    theirs.enter('doc-2')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await theirs.enter('doc-2')
     expect(await new PresenceService(adapter, () => MARTA).list('doc-1')).toEqual([])
     theirs.stop()
   })
 
   it('clears the beat on leaving rather than waiting out the TTL', async () => {
     const theirs = new PresenceService(adapter, () => SAM)
-    theirs.enter('doc-1')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await theirs.enter('doc-1')
     await theirs.leave()
     expect(await new PresenceService(adapter, () => MARTA).list('doc-1')).toEqual([])
   })

@@ -180,8 +180,9 @@ npm run dist       # the installers configured for this platform
 
 `--dir` packing works on any host, including cross-platform: a Windows `Quoth.exe` builds
 correctly from Linux. **Installers do not cross platforms.** The NSIS installer shells out to Wine
-when built anywhere but Windows, the macOS DMG can only be built on macOS, and neither is
-code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an unsigned macOS
+when built anywhere but Windows, the `.msi` (for Intune, SCCM and Group Policy, which will not take
+an NSIS exe) needs the WiX toolset and so a Windows host, the macOS DMG can only be built on macOS,
+and none of them is code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an unsigned macOS
 build has to be opened from the context menu the first time. Signing needs certificates that only
 whoever ships the app can hold.
 
@@ -192,6 +193,7 @@ for the Windows one.
 |---|---|---|
 | Windows app (`--dir`) | any host | — |
 | Windows NSIS installer | Windows, or Linux with Wine | Wine off-Windows; a certificate to sign |
+| Windows `.msi` | Windows only | WiX (fetched by electron-builder); a certificate to sign |
 | macOS `.dmg` / `.zip` | macOS only | a Developer ID to sign and notarise |
 | Linux AppImage / deb | Linux | — |
 

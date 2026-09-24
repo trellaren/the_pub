@@ -63,8 +63,14 @@ mac:
     - dmg
     - zip
 win:
+  # Two installers from one build. NSIS is the one to hand to a person: a
+  # per-user setup with an uninstaller. MSI is for deployment tooling —
+  # Intune, SCCM, Group Policy — which will not take an NSIS exe. Both are
+  # Windows-host-only to build (NSIS needs Wine elsewhere; MSI needs WiX,
+  # which electron-builder fetches on Windows and nowhere else).
   target:
     - nsis
+    - msi
 linux:
   category: Office
   target:

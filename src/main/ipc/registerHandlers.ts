@@ -975,7 +975,9 @@ export function registerHandlers(context: HandlerContext): void {
   })
   handle('review:presence', ({ docId }, event) => requireSession(event).presence.list(docId))
   handle('review:enter', ({ docId }, event) => {
-    requireSession(event).presence.enter(docId)
+    // Fire-and-forget here: the window is told it is present the moment it
+    // asks, and the beat lands on its own. Only tests await the first one.
+    void requireSession(event).presence.enter(docId)
     return { ok: true as const }
   })
 

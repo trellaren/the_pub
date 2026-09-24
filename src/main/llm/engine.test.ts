@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -163,18 +163,30 @@ describe('LlmEngine', () => {
   })
 
   it('unloads after the idle interval, and a generation keeps it alive', async () => {
-    const { engine, children } = harness({ idleMs: 40 })
+    // Started under real timers (readiness polling sleeps), then the idle
+    // countdown is armed under fake ones. The previous version raced real
+    // 25/40/60ms timers with ~15ms of slack, which a concurrent build on the
+    // same machine was enough to lose.
+    const { engine, children } = harness()
     await engine.ensure({ ...request, modelPath })
 
-    // Streaming a long reply must not be mistaken for an idle app.
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    engine.keepAlive()
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    expect(engine.status().state).toBe('running')
+    vi.useFakeTimers()
+    try {
+      engine.setIdleMs(40)
+      engine.keepAlive()
 
-    await new Promise((resolve) => setTimeout(resolve, 60))
-    expect(engine.status().state).toBe('stopped')
-    expect(children[0]!.killed.length).toBeGreaterThan(0)
+      // Streaming a long reply must not be mistaken for an idle app.
+      await vi.advanceTimersByTimeAsync(25)
+      engine.keepAlive()
+      await vi.advanceTimersByTimeAsync(25)
+      expect(engine.status().state).toBe('running')
+
+      await vi.advanceTimersByTimeAsync(60)
+      expect(engine.status().state).toBe('stopped')
+      expect(children[0]!.killed.length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('gives up when the model never becomes ready', async () => {

@@ -12,6 +12,8 @@ export const INVOKE_CHANNELS = [
   'app:setKeybinding',
   'app:resetKeybindings',
   'app:setAiEnabled',
+  'app:setAiWritePolicy',
+  'app:setAiWeb',
   'app:setEmbeddedIdleMinutes',
   'app:setStatsIdleTimeoutMinutes',
   'project:openDialog',

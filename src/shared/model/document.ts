@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { FORMAT_VERSIONS } from '../constants.js'
+import { provenanceEntrySchema } from './provenance.js'
 
 /**
  * A section's page geometry. Envelope-level, like `sections` itself — see
@@ -144,7 +145,15 @@ export const pubDocumentSchema = z.object({
    * attribute, the spellchecker, and DOCX `w:lang` on export. Absent means the
    * project's default (`manifest.publication.language`), then the OS default.
    */
-  lang: z.string().optional()
+  lang: z.string().optional(),
+  /**
+   * Every edit the assistant made to this document, oldest first. Append-only:
+   * `DocumentService.write` unions the previous file's entries back in, so no
+   * writer — the renderer included — can shorten it. The writer may delete the
+   * assistant's words; the record that they were written stays. Absent means
+   * no assistant prose has ever landed here. See `provenance.ts`.
+   */
+  provenance: z.array(provenanceEntrySchema).optional()
 })
 export type PubDocument = z.infer<typeof pubDocumentSchema>
 

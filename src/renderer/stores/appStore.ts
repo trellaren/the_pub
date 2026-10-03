@@ -16,6 +16,12 @@ interface AppStore {
   setTheme: (theme: AppState['theme']) => Promise<void>
   setTimelineOrientation: (orientation: AppState['timelineOrientation']) => Promise<void>
   setAiEnabled: (enabled: boolean) => Promise<void>
+  setAiWritePolicy: (policy: AppState['aiWritePolicy']) => Promise<void>
+  setAiWeb: (changes: {
+    webAccess?: AppState['aiWebAccess']
+    searchProvider?: AppState['aiSearchProvider']
+    searchBaseUrl?: string
+  }) => Promise<void>
   setEmbeddedIdleMinutes: (minutes: number) => Promise<void>
   setStatsIdleTimeoutMinutes: (minutes: number) => Promise<void>
   setKeybinding: (commandId: string, accelerator: string | null) => Promise<KeybindingResult>
@@ -43,6 +49,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setAiEnabled: async (enabled) => {
     get().setState(await invoke('app:setAiEnabled', { enabled }))
+  },
+  setAiWritePolicy: async (policy) => {
+    get().setState(await invoke('app:setAiWritePolicy', { policy }))
+  },
+  setAiWeb: async (changes) => {
+    get().setState(await invoke('app:setAiWeb', changes))
   },
   setEmbeddedIdleMinutes: async (minutes) => {
     get().setState(await invoke('app:setEmbeddedIdleMinutes', { minutes }))

@@ -109,6 +109,13 @@ describe('migrate', () => {
     expect(result).toEqual({ value: raw, migrated: true, tooNew: false })
   })
 
+  it('carries a v9 document forward to v10 unchanged — the provenance log is additive', () => {
+    const raw = { formatVersion: 9, docId: 'd', content: { type: 'doc' } }
+    const result = migrate('document', raw)
+    expect(result.migrated).toBe(true)
+    expect(result.value).toEqual(raw)
+  })
+
   it('carries a v2 document forward to v3 unchanged', () => {
     const raw = { formatVersion: 2, title: 'x' }
     const result = migrate('document', raw)

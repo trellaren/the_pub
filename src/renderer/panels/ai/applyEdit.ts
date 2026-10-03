@@ -2,7 +2,7 @@ import type { AssistantEdit } from '@shared/pm/assistantEdits.js'
 import { applyAssistantEdit } from '@shared/pm/assistantEdits.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { invoke } from '@renderer/lib/ipc.js'
-import { getEditor } from '@renderer/stores/documentStore.js'
+import { getEditor, useDocumentStore } from '@renderer/stores/documentStore.js'
 import { replaceDocument } from '../editor/editorActions.js'
 
 export type EditOutcome =
@@ -24,6 +24,7 @@ export async function applyAssistantEditLocally(edit: AssistantEdit): Promise<Ed
     const applied = applyAssistantEdit(editor.getJSON() as PmDoc, edit)
     if (applied.failed.length === edit.ops.length) return { ok: false, reason: 'no-match' }
     replaceDocument(editor, applied.doc)
+    useDocumentStore.getState().appendProvenance(edit.docId, applied.entries)
     return { ok: true, where: 'editor', failed: applied.failed.length }
   }
 

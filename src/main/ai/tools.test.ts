@@ -10,6 +10,7 @@ import { DocumentService } from '../services/documentService.js'
 import { SnapshotService } from '../services/snapshotService.js'
 import { ReviewService } from '../services/reviewService.js'
 import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
+import { buildWebGate } from './webGate.js'
 import { isProvisional } from '../../shared/model/source.js'
 import type { ProjectSession } from '../services/projectSession.js'
 
@@ -45,6 +46,9 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     assistant: { id: 'assistant-owner', name: 'Assistant', color: '' },
     runId: 'run-1',
     model: 'stub',
+    writePolicy: 'suggest',
+    web: buildWebGate('none'),
+    captures: new Map(),
     onEdit: () => {},
     onReviewChanged: () => {},
     complete: async () => '[]',
@@ -424,5 +428,69 @@ describe('proofread', () => {
     expect(result.ok).toBe(true)
     expect(edits).toHaveLength(0)
     expect(result.content).toContain('nothing to correct')
+  })
+})
+
+describe('the web tools', () => {
+  const page = { url: 'https://example.org/docks', title: 'Lisbon docks', text: 'Dockworkers earned little in 1954.', accessed: '2026-10-02' }
+
+  it('are offered only to the extent the writer allowed', () => {
+    const names = (web: 'none' | 'urls' | 'search') => toolSpecs({ retrieval: false, web }).map((spec) => spec.name)
+    expect(names('none')).not.toContain('fetch_page')
+    expect(names('none')).not.toContain('web_search')
+    expect(names('urls')).toContain('fetch_page')
+    expect(names('urls')).toContain('cite_page')
+    expect(names('urls')).not.toContain('web_search')
+    expect(names('search')).toContain('web_search')
+  })
+
+  it('refuses to fetch a page the writer did not name under the urls level, and reads one they did', async () => {
+    const fetched: string[] = []
+    const ctx = context({
+      web: buildWebGate('urls', ['https://example.org/docks']),
+      fetchPage: async (url) => {
+        fetched.push(url)
+        return { ok: true, capture: page }
+      }
+    })
+    const refused = await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/other' }), ctx)
+    expect(refused.ok).toBe(false)
+    expect(fetched).toEqual([])
+
+    const read = await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/docks' }), ctx)
+    expect(read.ok).toBe(true)
+    expect(read.content).toContain('Dockworkers earned little')
+    expect(ctx.captures.get('https://example.org/docks')).toEqual(page)
+  })
+
+  it('cites only a page it has read, as a draft source with the capture attached', async () => {
+    const ctx = context({ web: buildWebGate('urls', ['https://example.org/docks']), fetchPage: async () => ({ ok: true, capture: page }) })
+    const unread = await runTool('cite_page', JSON.stringify({ url: 'https://example.org/docks', claim: 'Wages were low.' }), ctx)
+    expect(unread.ok).toBe(false)
+    expect(sources.snapshot().sources).toHaveLength(0)
+
+    await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/docks' }), ctx)
+    const cited = await runTool('cite_page', JSON.stringify({ url: 'https://example.org/docks', claim: 'Wages were low.', year: '1954' }), ctx)
+    expect(cited.ok).toBe(true)
+    const [source] = sources.snapshot().sources
+    expect(isProvisional(source!)).toBe(true)
+    expect(source!.URL).toBe('https://example.org/docks')
+    expect(source!.accessed).toEqual({ 'date-parts': [[2026, 10, 2]] })
+    expect(JSON.stringify(source)).toContain('"kind":"capture"')
+  })
+
+  it("searches through the writer's provider and reports a missing key plainly", async () => {
+    const searching = context({ web: buildWebGate('search'), search: async () => ({ ok: true, hits: [{ title: 'Docks', url: 'https://example.org/docks', snippet: 'Wages.' }] }) })
+    const found = await runTool('web_search', JSON.stringify({ query: 'lisbon docks 1954' }), searching)
+    expect(found.ok).toBe(true)
+    expect(found.content).toContain('https://example.org/docks')
+
+    const unkeyed = context({ web: buildWebGate('search'), search: async () => ({ ok: false, reason: 'no-key' }) })
+    const failed = await runTool('web_search', JSON.stringify({ query: 'x' }), unkeyed)
+    expect(failed.ok).toBe(false)
+    expect(failed.content).toContain('No key')
+
+    const forbidden = await runTool('web_search', JSON.stringify({ query: 'x' }), context({ web: buildWebGate('urls') }))
+    expect(forbidden.ok).toBe(false)
   })
 })

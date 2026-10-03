@@ -96,6 +96,10 @@ describe('the schemas built from it', () => {
   it('builds a scope schema holding only that scope, keyed as stored', () => {
     expect(Object.keys(buildScopeSchema('app').shape).sort()).toEqual([
       'aiEnabled',
+      'aiSearchBaseUrl',
+      'aiSearchProvider',
+      'aiWebAccess',
+      'aiWritePolicy',
       'embeddedIdleMinutes',
       'statsIdleTimeoutMinutes',
       'theme',

@@ -54,7 +54,13 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     // setup and absent means the uniform `margin` on all four sides, so no
     // v8 document's own shape changes — only the version, so an older build
     // doesn't re-save a v9 file and silently drop a margin someone set.
-    { from: 8, to: 9, up: (raw) => raw }
+    { from: 8, to: 9, up: (raw) => raw },
+    // The assistant's `aiAuthored` mark and the envelope's `provenance` log.
+    // Absent means "no assistant prose here", so no v9 document's own shape
+    // changes — but an older build must open a v10 file read-only rather
+    // than re-save it without the mark, which would strip the attribution
+    // the log exists to make permanent.
+    { from: 9, to: 10, up: (raw) => raw }
   ],
   manifest: [
     // Phase 4 adds `projectType`. The schema's own default would fill it in

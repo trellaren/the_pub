@@ -207,7 +207,7 @@ interface PubTestHook {
     term?: string
   }) => Promise<boolean>
   /** The live TipTap editor for an open document, exactly what `citeFromPdfHighlight` etc. below operate on. */
-  getEditor: (docId: string) => { getJSON: () => unknown } | undefined
+  getEditor: (docId: string) => import('@tiptap/core').Editor | undefined
   citeFromPdfHighlight: (
     editor: unknown,
     sourceId: string,

@@ -111,6 +111,27 @@ export class AppStateService {
     return { ...profile, color: profile.color || colorForAuthor(profile.id) }
   }
 
+  setAiWeb(changes: {
+    webAccess?: AppState['aiWebAccess']
+    searchProvider?: AppState['aiSearchProvider']
+    searchBaseUrl?: string
+  }): AppState {
+    this.state = {
+      ...this.state,
+      ...(changes.webAccess !== undefined ? { aiWebAccess: changes.webAccess } : {}),
+      ...(changes.searchProvider !== undefined ? { aiSearchProvider: changes.searchProvider } : {}),
+      ...(changes.searchBaseUrl !== undefined ? { aiSearchBaseUrl: changes.searchBaseUrl.trim() } : {})
+    }
+    this.persist()
+    return this.state
+  }
+
+  setAiWritePolicy(aiWritePolicy: AppState['aiWritePolicy']): AppState {
+    this.state = { ...this.state, aiWritePolicy }
+    this.persist()
+    return this.state
+  }
+
   /** The assistant that works for this person, derived from their own id. */
   assistant(): AuthorProfile {
     return assistantProfile(this.author())

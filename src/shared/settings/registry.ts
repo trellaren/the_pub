@@ -164,6 +164,69 @@ export const SETTING_DEFS = [
     control: { kind: 'boolean' }
   },
   {
+    key: 'app.ai.writePolicy',
+    storageKey: 'aiWritePolicy',
+    scope: 'app',
+    group: 'AI',
+    title: 'How the assistant may change a document',
+    description:
+      'Suggest: every change is a tracked change you accept or reject. Trivial fixes: spelling and punctuation corrections apply at once, everything else is suggested. Direct: changes apply at once. Whatever it writes directly is marked in the text and logged in the document for good.',
+    schema: z.enum(['suggest', 'direct-trivial', 'direct']).default('suggest'),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'suggest', label: 'Suggest everything' },
+        { value: 'direct-trivial', label: 'Apply trivial fixes, suggest the rest' },
+        { value: 'direct', label: 'Apply directly' }
+      ]
+    }
+  },
+  {
+    key: 'app.ai.webAccess',
+    storageKey: 'aiWebAccess',
+    scope: 'app',
+    group: 'AI',
+    title: 'What the assistant may reach on the web',
+    description:
+      'Off: it never browses, and a source it adds is marked as its own unverified attribution. Pages you name: it may read pages whose address you have given it, in the chat or in the bibliography. Search: it may also search the web through the provider below. Only a page it has actually fetched can be cited with its text attached.',
+    schema: z.enum(['none', 'urls', 'search']).default('none'),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'none', label: 'Off' },
+        { value: 'urls', label: 'Pages you name' },
+        { value: 'search', label: 'Search and fetch' }
+      ]
+    }
+  },
+  {
+    key: 'app.ai.searchProvider',
+    storageKey: 'aiSearchProvider',
+    scope: 'app',
+    group: 'AI',
+    title: 'Web search provider',
+    description: 'Used only when web access is set to search. Brave and Tavily need a key, saved in the AI panel; SearXNG needs the address of your own instance.',
+    schema: z.enum(['brave', 'tavily', 'searxng']).default('brave'),
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'brave', label: 'Brave Search' },
+        { value: 'tavily', label: 'Tavily' },
+        { value: 'searxng', label: 'SearXNG (self-hosted)' }
+      ]
+    }
+  },
+  {
+    key: 'app.ai.searchBaseUrl',
+    storageKey: 'aiSearchBaseUrl',
+    scope: 'app',
+    group: 'AI',
+    title: 'Search server address',
+    description: 'For a self-hosted SearXNG, e.g. http://searx.home:8080. Leave empty for a hosted provider.',
+    schema: z.string().default(''),
+    control: { kind: 'text' }
+  },
+  {
     key: 'app.ai.embeddedIdleMinutes',
     storageKey: 'embeddedIdleMinutes',
     scope: 'app',

@@ -23,6 +23,7 @@ import { HighlightId } from './extensions/highlightId.js'
 import { BlockIds } from './extensions/blockIds.js'
 import { Anchors } from './extensions/anchors.js'
 import { Insertion, Deletion, SuggestingMode } from './extensions/suggestions.js'
+import { AiAuthored, ProvenanceGuard } from './extensions/provenance.js'
 import { Field } from './extensions/field.js'
 import { Footnote } from './extensions/footnote.js'
 import { Citation } from './extensions/citation.js'
@@ -120,6 +121,8 @@ export function createEditor(options: CreateEditorOptions): Editor {
       Insertion,
       Deletion,
       SuggestingMode.configure({ authorId: options.authorId ?? '', enabled: false }),
+      AiAuthored,
+      ProvenanceGuard,
       Field,
       Footnote,
       Citation.configure({ getSources: options.getSources, getStyleId: options.getCitationStyleId }),

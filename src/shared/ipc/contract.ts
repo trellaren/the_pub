@@ -27,10 +27,10 @@ import {
   chatSchema,
   chatMessageSchema,
   aiSettingsSchema,
-  aiProviderIdSchema,
   streamEventSchema
 } from '../model/ai.js'
 import { assistantEditSchema } from '../pm/assistantEdits.js'
+import { keyIdSchema } from '../model/webAccess.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import { retrievalStatusSchema } from '../model/retrieval.js'
 import { dailyPromptSchema } from '../model/writingPrompt.js'
@@ -119,6 +119,15 @@ export const ipcContract = defineContract({
      * app state from the renderer.
      */
     'app:setAiEnabled': { req: z.object({ enabled: z.boolean() }), res: appStateSchema },
+    'app:setAiWritePolicy': { req: z.object({ policy: appStateSchema.shape.aiWritePolicy }), res: appStateSchema },
+    'app:setAiWeb': {
+      req: z.object({
+        webAccess: appStateSchema.shape.aiWebAccess.optional(),
+        searchProvider: appStateSchema.shape.aiSearchProvider.optional(),
+        searchBaseUrl: z.string().optional()
+      }),
+      res: appStateSchema
+    },
     'app:setEmbeddedIdleMinutes': {
       req: z.object({ minutes: z.number().int().min(0).max(240) }),
       res: appStateSchema
@@ -656,13 +665,13 @@ export const ipcContract = defineContract({
         z.object({ ok: z.literal(false), reason: z.enum(['missing', 'conflict', 'format-too-new', 'no-match']) })
       ])
     },
-    /** Which providers hold a key. Never the keys themselves. */
+    /** Which providers — model and search — hold a key. Never the keys themselves. */
     'ai:keyStatus': {
       req: empty,
-      res: z.object({ configured: z.array(aiProviderIdSchema), secureStorage: z.boolean() })
+      res: z.object({ configured: z.array(keyIdSchema), secureStorage: z.boolean() })
     },
     'ai:setKey': {
-      req: z.object({ provider: aiProviderIdSchema, key: z.string() }),
+      req: z.object({ provider: keyIdSchema, key: z.string() }),
       res: z.object({ ok: z.boolean(), reason: z.string().optional() })
     },
     'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },

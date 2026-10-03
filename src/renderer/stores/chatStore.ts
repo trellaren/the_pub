@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { Chat, ChatMessage, AiSettings, AiProviderId, ToolCall } from '@shared/model/ai.js'
+import type { Chat, ChatMessage, AiSettings, ToolCall } from '@shared/model/ai.js'
+import type { KeyId } from '@shared/model/webAccess.js'
 import { modelChoice, type LlmStatus } from '@shared/model/llm.js'
 import type { RetrievalStatus } from '@shared/model/retrieval.js'
 import { invoke, attempt, on, reportError } from '@renderer/lib/ipc.js'
@@ -11,7 +12,7 @@ interface ChatStore {
   activeChatId: string | null
   /** The reply currently arriving, if any. */
   streaming: { requestId: string; chatId: string; text: string; toolCalls: ToolCall[] } | null
-  keyStatus: { configured: AiProviderId[]; secureStorage: boolean }
+  keyStatus: { configured: KeyId[]; secureStorage: boolean }
   loaded: boolean
   load: () => Promise<void>
   setActive: (id: string | null) => void
@@ -31,7 +32,7 @@ interface ChatStore {
   ask: (text: string) => Promise<boolean>
   cancel: () => Promise<void>
   refreshKeys: () => Promise<void>
-  setKey: (provider: AiProviderId, key: string) => Promise<string | null>
+  setKey: (provider: KeyId, key: string) => Promise<string | null>
   /** Embedded models: what is downloaded, what this machine can run, engine state. */
   llm: LlmStatus | null
   /** Bytes so far per variant, for a download in flight. */

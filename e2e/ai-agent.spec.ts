@@ -328,3 +328,114 @@ test('a proofreading pass suggests each correction as a tracked change', async (
   await expect(editor.locator('del.pub-deletion[data-author^="assistant-"]')).toContainText('recieved')
   await expect(editor.locator('ins.pub-insertion[data-author^="assistant-"]')).toContainText('received')
 })
+
+test('under a direct write policy the change lands at once, marked in the text and logged for good', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'scene.pubdoc')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.press('T')
+  await editor.pressSequentially('he harbour was quiet.')
+  await expect(editor).toContainText('The harbour was quiet.')
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+  await harness.page.evaluate(() => window.pub.invoke('app:setAiWritePolicy', { policy: 'direct' }))
+
+  const agent = await startAgentServer([
+    { call: { name: 'suggest_edit', args: { path: 'scene.pubdoc', find: 'harbour was quiet', replace: 'harbour lay quiet', reason: 'Tighter.' } } },
+    { text: 'Changed.' }
+  ])
+  baseUrl = agent.url
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+  await ask('Tighten the opening.')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('Changed.')
+  await expect(harness.page.getByTestId('tool-trail').last()).toContainText('Changed scene')
+
+  await harness.page.evaluate((id) => {
+    const state = window.__pub.documents.getState().docs[id]!
+    window.__pub.layout.getState().openEditor(id, state.path, state.title)
+  }, docId)
+  // No tracked change to judge — the words are simply there, attributed.
+  await expect(editor).toContainText('The harbour lay quiet.')
+  await expect(editor.locator('ins.pub-insertion')).toHaveCount(0)
+  await expect(editor.locator('.pub-ai-authored')).toContainText('harbour lay quiet')
+
+  // The log reached the file.
+  type Envelope = { provenance?: { mode: string; excerpt: string; chars: number }[] }
+  await waitFor(async () => Boolean((await readJson<Envelope>(path.join(harness.projectDir, 'scene.pubdoc'))).provenance?.length), 'the log to be saved')
+  const logged = await readJson<Envelope>(path.join(harness.projectDir, 'scene.pubdoc'))
+  expect(logged.provenance).toEqual([expect.objectContaining({ mode: 'direct', excerpt: 'harbour lay quiet', chars: 17 })])
+
+  // Clearing formatting over the words keeps the attribution; deleting the
+  // words removes it from the text but never from the log.
+  await harness.page.evaluate((id) => {
+    const live = window.__pub.getEditor(id)!
+    live.chain().setTextSelection({ from: 1, to: live.state.doc.content.size - 1 }).unsetAllMarks().run()
+  }, docId)
+  await expect(editor.locator('.pub-ai-authored')).toContainText('harbour lay quiet')
+  await harness.page.evaluate((id) => {
+    const live = window.__pub.getEditor(id)!
+    live.chain().setTextSelection({ from: 1, to: live.state.doc.content.size - 1 }).deleteSelection().insertContent('Rewritten by hand.').run()
+  }, docId)
+  await expect(editor.locator('.pub-ai-authored')).toHaveCount(0)
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+  const after = await readJson<Envelope>(path.join(harness.projectDir, 'scene.pubdoc'))
+  expect(after.provenance).toHaveLength(1)
+
+  // And the Review panel lists it from the log, words or no words.
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
+  await expect(harness.page.getByTestId('provenance-log')).toContainText('harbour lay quiet')
+})
+
+test('with web access set to pages you name, the assistant reads only those, and cites what it read', async () => {
+  // A page on this machine stands in for the web; the gate must still let it
+  // through only because the writer named it.
+  const pageServer = http.createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end('<html><head><title>Lisbon Docks 1954</title></head><body><p>Dockworkers earned forty escudos a day.</p></body></html>')
+  })
+  await new Promise<void>((resolve) => pageServer.listen(0, '127.0.0.1', resolve))
+  const pageAddress = pageServer.address()
+  if (typeof pageAddress === 'string' || !pageAddress) throw new Error('No address')
+  // Loopback is private by the gate's rules, so the fixture is reached by a
+  // name the resolver maps there — the one public-looking host that always does.
+  const pageUrl = `http://localtest.me:${pageAddress.port}/docks`
+
+  try {
+    harness = await launch()
+    await openProject(harness.page, harness.projectDir)
+    await harness.page.evaluate(() => window.pub.invoke('app:setAiWeb', { webAccess: 'urls' }))
+
+    const agent = await startAgentServer([
+      { call: { name: 'fetch_page', args: { url: `http://localtest.me:${pageAddress.port}/elsewhere` } } },
+      { call: { name: 'fetch_page', args: { url: pageUrl } } },
+      { call: { name: 'cite_page', args: { url: pageUrl, claim: 'Dockworkers earned forty escudos a day.' } } },
+      { text: 'Cited the page you gave me.' }
+    ])
+    baseUrl = agent.url
+    await useAgent()
+    await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+    await ask(`What does ${pageUrl} say dockworkers earned?`)
+    await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('Cited the page you gave me.')
+
+    const trail = harness.page.getByTestId('tool-trail').last()
+    await expect(trail).toContainText('Refused to fetch')
+    await expect(trail).toContainText('Read Lisbon Docks 1954')
+    await expect(trail).toContainText('Cited "Lisbon Docks 1954" (captured)')
+
+    // Search was never on offer at this level.
+    const first = agent.requests()[0] as { tools: { function: { name: string } }[] }
+    const offered = first.tools.map((tool) => tool.function.name)
+    expect(offered).toContain('fetch_page')
+    expect(offered).not.toContain('web_search')
+
+    // A draft source, with the page's text attached and the date it was read.
+    type SourceFile = { sources: { title: string; URL?: string; accessed?: unknown; _pubProvisional?: boolean; _pubAttachments?: { kind: string }[] }[] }
+    const file = await readJson<SourceFile>(path.join(harness.projectDir, '.thepub', 'sources.json'))
+    expect(file.sources).toHaveLength(1)
+    expect(file.sources[0]).toMatchObject({ title: 'Lisbon Docks 1954', URL: pageUrl, _pubProvisional: true })
+    expect(file.sources[0]!._pubAttachments?.[0]?.kind).toBe('capture')
+  } finally {
+    await new Promise<void>((resolve) => pageServer.close(() => resolve()))
+  }
+})

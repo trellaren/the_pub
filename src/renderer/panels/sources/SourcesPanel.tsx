@@ -1,3 +1,4 @@
+import { pubAttachmentsSchema, PUB_ATTACHMENTS_KEY } from '@shared/model/research.js'
 import { useEffect, useRef, useState } from 'react'
 import type { CslItem, CslName } from '@shared/model/source.js'
 import type { Capture, ResearchAttachment } from '@shared/model/research.js'
@@ -207,10 +208,17 @@ function SourceDetail({
       */}
       {isProvisional(source) ? (
         <div className="mb-3 rounded border border-danger p-2" data-testid="source-provisional">
-          <p className="text-[11px] text-danger">
-            Attributed by the assistant — not verified. It cannot browse, so this reference may not
-            exist. Check it against the work itself before citing it.
-          </p>
+          {hasCapture(source) ? (
+            <p className="text-[11px] text-danger" data-testid="source-captured-note">
+              Added by the assistant from a page it read; the page's text is attached below. Check
+              that the page says what the assistant claims before citing it.
+            </p>
+          ) : (
+            <p className="text-[11px] text-danger">
+              Attributed by the assistant — not verified. It did not read this work, so this
+              reference may not exist. Check it against the work itself before citing it.
+            </p>
+          )}
           <div className="mt-2">
             <ToolbarButton
               label="Mark this source as checked"
@@ -463,4 +471,10 @@ const CAPTURE_FAILURES: Record<string, string> = {
   offline: 'Could not reach that page. Check your connection and try again.',
   'not-found': 'That page could not be found (404).',
   unreadable: 'That page had no readable text to capture.'
+}
+
+/** Whether the assistant read a page for this source, which is what separates a capture from a guess. */
+function hasCapture(source: CslItem): boolean {
+  const parsed = pubAttachmentsSchema.safeParse(source[PUB_ATTACHMENTS_KEY])
+  return parsed.success && parsed.data.some((attachment) => attachment.kind === 'capture')
 }

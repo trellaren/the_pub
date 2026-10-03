@@ -84,7 +84,7 @@ describe('applyAssistantEdit in suggest mode', () => {
     }
     const { doc: out } = applyAssistantEdit(marked, edit([{ kind: 'replace', blockIndex: 0, start: 0, end: 5, text: 'Marta Reyes' }]))
     const inserted = out.content![0]!.content!.find((node) => node.marks?.some((mark) => mark.type === 'insertion'))!
-    expect(inserted.marks!.map((mark) => mark.type)).toEqual(['italic', 'insertion'])
+    expect(inserted.marks!.map((mark) => mark.type)).toEqual(['italic', 'aiAuthored', 'insertion'])
   })
 
   it('spans a bold run split across text nodes', () => {
@@ -170,8 +170,48 @@ describe('applyAssistantEdit in direct mode', () => {
     expect(out.content![0]!.content!.map((node) => node.text)).toEqual(['The harbour ', 'lay', ' quiet.'])
   })
 
-  it('appends plain paragraphs', () => {
+  it('appends paragraphs carrying only attribution', () => {
     const { doc: out } = applyAssistantEdit(doc, edit([{ kind: 'append', text: 'Plain.' }], 'direct'))
-    expect(out.content!.at(-1)).toEqual({ type: 'paragraph', content: [{ type: 'text', text: 'Plain.' }] })
+    const last = out.content!.at(-1)!
+    expect(last.content![0]!.text).toBe('Plain.')
+    expect(last.content![0]!.marks!.map((mark) => mark.type)).toEqual(['aiAuthored'])
+  })
+})
+
+describe('provenance', () => {
+  it('marks every word the assistant wrote and logs one entry per op, in both modes', () => {
+    const { doc: out, entries } = applyAssistantEdit(
+      doc,
+      edit([
+        { kind: 'replace', blockIndex: 0, start: 12, end: 15, text: 'lay', reason: 'Tighter.' },
+        { kind: 'append', text: 'And so on.' }
+      ], 'direct')
+    )
+    const authored = out.content!.flatMap((block) => block.content ?? []).filter((node) => node.marks?.some((m) => m.type === 'aiAuthored'))
+    expect(authored.map((node) => node.text)).toEqual(['lay', 'And so on.'])
+    expect(authored[0]!.marks![0]!.attrs).toEqual({ runId: 'run-1', model: 'stub', at: '2026-10-02T00:00:00.000Z', authorId: 'assistant-owner' })
+    expect(entries).toEqual([
+      expect.objectContaining({ id: 'e1:0', mode: 'direct', blockIndex: 0, chars: 3, excerpt: 'lay', reason: 'Tighter.' }),
+      expect.objectContaining({ id: 'e1:1', mode: 'direct', blockIndex: null, chars: 10, excerpt: 'And so on.' })
+    ])
+  })
+
+  it('keeps attribution under the insertion mark, so accepting a suggestion leaves it behind', () => {
+    const { doc: out, entries } = applyAssistantEdit(doc, edit([{ kind: 'replace', blockIndex: 0, start: 12, end: 15, text: 'lay' }]))
+    expect(entries[0]).toMatchObject({ mode: 'suggest' })
+    const accepted = resolveSuggestions(out, true)
+    const node = accepted.content![0]!.content!.find((n) => n.text === 'lay')!
+    expect(node.marks!.map((m) => m.type)).toEqual(['aiAuthored'])
+  })
+
+  it('logs nothing for an anchor or a failed op', () => {
+    const { entries } = applyAssistantEdit(
+      doc,
+      edit([
+        { kind: 'anchor', blockIndex: 0, start: 4, end: 11, anchorId: 'a1' },
+        { kind: 'replace', blockIndex: 9, start: 0, end: 1, text: 'x' }
+      ])
+    )
+    expect(entries).toEqual([])
   })
 })

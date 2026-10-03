@@ -11,6 +11,8 @@ import { applyAssistantEditLocally } from './applyEdit.js'
 import { ulid } from 'ulid'
 import type { AssistantEdit } from '@shared/pm/assistantEdits.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
+import { useAppStore } from '@renderer/stores/appStore.js'
+import { SEARCH_PROVIDERS, searchProviderInfo, searchKeyId } from '@shared/model/webAccess.js'
 import { assistantProfile } from '@shared/model/author.js'
 import {
   PanelShell,
@@ -415,10 +417,130 @@ function SettingsForm() {
         changes for you to accept or reject — it never changes a document itself.
       </p>
 
+      <WritePolicyField />
+      <WebAccessFields />
+
       <RetrievalManager />
 
       {settings.provider === 'embedded' ? <ModelManager /> : null}
     </div>
+  )
+}
+
+/**
+ * The writer's standing choice about how the assistant's prose may land. The
+ * same app-scoped setting the Settings panel shows; offered here because this
+ * is where someone wonders why a change arrived as a suggestion.
+ */
+function WritePolicyField() {
+  const policy = useAppStore((store) => store.state?.aiWritePolicy ?? 'suggest')
+  return (
+    <Field label="Its changes">
+      <Select
+        value={policy}
+        onChange={(event) => void useAppStore.getState().setAiWritePolicy(event.target.value as typeof policy)}
+        data-testid="ai-write-policy"
+      >
+        <option value="suggest">Suggest everything as tracked changes</option>
+        <option value="direct-trivial">Apply trivial fixes, suggest the rest</option>
+        <option value="direct">Apply directly, marked and logged</option>
+      </Select>
+    </Field>
+  )
+}
+
+/**
+ * How far the assistant may reach on the web, and through whom.
+ *
+ * App-scoped like the write policy, and keyed like a model provider: a search
+ * key is encrypted into the same store, under a `search:` prefix, and the
+ * renderer learns only that one is present.
+ */
+function WebAccessFields() {
+  const level = useAppStore((store) => store.state?.aiWebAccess ?? 'none')
+  const provider = useAppStore((store) => store.state?.aiSearchProvider ?? 'brave')
+  const baseUrl = useAppStore((store) => store.state?.aiSearchBaseUrl ?? '')
+  const keyStatus = useChatStore((store) => store.keyStatus)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const info = searchProviderInfo(provider)
+  const keyId = searchKeyId(provider)
+  const stored = keyStatus.configured.includes(keyId)
+
+  return (
+    <>
+      <Field label="On the web">
+        <Select
+          value={level}
+          onChange={(event) => void useAppStore.getState().setAiWeb({ webAccess: event.target.value as typeof level })}
+          data-testid="ai-web-access"
+        >
+          <option value="none">Nothing — it never browses</option>
+          <option value="urls">Pages you name</option>
+          <option value="search">Search and fetch</option>
+        </Select>
+      </Field>
+      {level === 'search' ? (
+        <>
+          <Field label="Search provider">
+            <Select
+              value={provider}
+              onChange={(event) =>
+                void useAppStore.getState().setAiWeb({ searchProvider: event.target.value as typeof provider })
+              }
+              data-testid="ai-search-provider"
+            >
+              {SEARCH_PROVIDERS.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {info.needsKey ? (
+            <>
+              <Field label={stored ? 'Search key (stored)' : 'Search key'}>
+                <TextInput
+                  type="password"
+                  value={keyDraft}
+                  placeholder={stored ? '••••••••' : 'key'}
+                  onChange={(event) => setKeyDraft(event.target.value)}
+                  data-testid="ai-search-key"
+                />
+              </Field>
+              <div className="mb-2 flex gap-1">
+                <ToolbarButton
+                  label="Save the search key"
+                  onClick={async () => {
+                    setKeyError(await useChatStore.getState().setKey(keyId, keyDraft))
+                    setKeyDraft('')
+                  }}
+                >
+                  save key
+                </ToolbarButton>
+                {stored ? (
+                  <ToolbarButton
+                    label="Forget the stored search key"
+                    onClick={() => void useChatStore.getState().setKey(keyId, '')}
+                  >
+                    forget
+                  </ToolbarButton>
+                ) : null}
+              </div>
+              {keyError ? <p className="mb-2 text-[11px] text-danger">{keyError}</p> : null}
+            </>
+          ) : (
+            <Field label="Search server address">
+              <TextInput
+                value={baseUrl}
+                placeholder="http://searx.home:8080"
+                onChange={(event) => void useAppStore.getState().setAiWeb({ searchBaseUrl: event.target.value })}
+              />
+            </Field>
+          )}
+        </>
+      ) : null}
+    </>
   )
 }
 

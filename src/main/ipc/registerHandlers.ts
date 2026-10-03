@@ -29,6 +29,27 @@ import {
 
 /** Long enough for a local model on a slow machine, short enough not to hang the card. */
 const PROMPT_TIMEOUT_MS = 30_000
+/** A page or a search that has not answered in this long is not going to. */
+const WEB_TIMEOUT_MS = 15_000
+/** More than this is not an article; it is a download, and the model gets 12k characters anyway. */
+const MAX_PAGE_BYTES = 2 * 1024 * 1024
+
+/** `fetch` for the assistant's page reads: bounded in time and size, following no credentials. */
+async function fetchWithLimits(url: string): Promise<{ ok: boolean; status: number; text(): Promise<string> }> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(WEB_TIMEOUT_MS),
+    credentials: 'omit',
+    headers: { accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' }
+  })
+  return {
+    ok: response.ok,
+    status: response.status,
+    text: async () => {
+      const bytes = await response.arrayBuffer()
+      return new TextDecoder().decode(bytes.slice(0, MAX_PAGE_BYTES))
+    }
+  }
+}
 
 /**
  * Standing orders every run opens with, ahead of the writer's own.
@@ -61,7 +82,11 @@ import type { ModelStore } from '../llm/modelStore.js'
 import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
 import { historyToOutbound } from '../ai/history.js'
+import { buildWebGate, extractUrls } from '../ai/webGate.js'
+import { webSearch } from '../research/webSearch.js'
+import { searchKeyId, type WebSearchHit } from '../../shared/model/webAccess.js'
 import { applyAssistantEdit } from '../../shared/pm/assistantEdits.js'
+import { unionProvenance } from '../../shared/model/provenance.js'
 import type { PubDocument } from '../../shared/model/document.js'
 import { Embedder, embedderConfig, embedderRefusal } from '../ai/embedder.js'
 import type { EmbedderResolution } from '../ai/embeddingIndexer.js'
@@ -284,6 +309,9 @@ export function registerHandlers(context: HandlerContext): void {
     appState.setKeybinding(commandId, accelerator)
   )
   handle('app:resetKeybindings', () => appState.resetKeybindings())
+  handle('app:setAiWritePolicy', ({ policy }) => appState.setAiWritePolicy(policy))
+  handle('app:setAiWeb', (changes) => appState.setAiWeb(changes))
+
   handle('app:setAiEnabled', async ({ enabled }) => {
     // Turning it off stops the model now rather than at the next quit: the
     // point of the switch is that nothing AI-shaped is running, and gigabytes
@@ -1288,6 +1316,18 @@ export function registerHandlers(context: HandlerContext): void {
     return { embedder: new Embedder(config), unavailable: '' }
   }
 
+  /** A web search through the writer's chosen provider, with its key. */
+  async function searchTheWeb(query: string, limit: number): Promise<{ ok: true; hits: WebSearchHit[] } | { ok: false; reason: string }> {
+    const state = appState.get()
+    const provider = state.aiSearchProvider
+    const result = await webSearch(provider, query, limit, {
+      apiKey: keys.get(searchKeyId(provider)),
+      baseUrl: state.aiSearchBaseUrl,
+      fetchImpl: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(WEB_TIMEOUT_MS) })
+    })
+    return result.ok ? result : { ok: false, reason: result.reason }
+  }
+
   /** Search this project by meaning, for the agent's `find_passages` tool. */
   async function findPassages(
     ownerId: number,
@@ -1507,6 +1547,15 @@ export function registerHandlers(context: HandlerContext): void {
       onEvent,
       session,
       assistant: appState.assistant(),
+      writePolicy: appState.get().aiWritePolicy,
+      web: buildWebGate(appState.get().aiWebAccess, [
+        // Pages the writer has already put in front of the assistant: in this
+        // conversation, or in the project's own bibliography.
+        ...updated.messages.filter((item) => item.role === 'user').flatMap((item) => extractUrls(item.text)),
+        ...session.sources.snapshot().sources.map((source) => source.URL).filter((url): url is string => Boolean(url))
+      ]),
+      search: (query: string, limit: number) => searchTheWeb(query, limit),
+      fetchPage: (url: string) => capturePage(url, fetchWithLimits),
       onReviewChanged: (docId) => reviewChanged(event, docId),
       ...(indexed && ownerId !== null
         ? { findPassages: (query: string, limit: number) => findPassages(ownerId, session, query, limit) }
@@ -1538,7 +1587,11 @@ export function registerHandlers(context: HandlerContext): void {
       const written = await commitDocumentWrite(
         event,
         edit.docPath,
-        { ...loaded.doc, content: applied.doc },
+        {
+          ...loaded.doc,
+          content: applied.doc,
+          ...(applied.entries.length ? { provenance: unionProvenance(loaded.doc.provenance, applied.entries) } : {})
+        },
         loaded.mtime
       )
       if (written.ok) return { ok: true as const, failed: applied.failed }

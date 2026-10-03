@@ -1,10 +1,16 @@
 import type { AiSettings, StreamEvent, ToolCall } from '../../shared/model/ai.js'
 import { MAX_TOOL_CONTENT_CHARS } from '../../shared/model/ai.js'
 import type { AuthorProfile } from '../../shared/model/author.js'
+import type { WritePolicy } from '../../shared/model/provenance.js'
+import type { Capture } from '../../shared/model/research.js'
+import { buildWebGate, type WebGate } from './webGate.js'
 import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
 import type { ProjectSession } from '../services/projectSession.js'
 import { streamCompletion, assistantMessage, type AiRunner } from './aiRunner.js'
-import { toolSpecs, runTool, type RetrievalResult } from './tools.js'
+import { toolSpecs, runTool, type RetrievalResult, type ToolContext } from './tools.js'
+
+type ToolContextSearch = NonNullable<ToolContext['search']>
+type ToolContextFetch = NonNullable<ToolContext['fetchPage']>
 import type { OutboundMessage } from './providers.js'
 
 /**
@@ -26,6 +32,12 @@ export interface AgentRunOptions {
   session: ProjectSession
   /** Who the assistant is in this project — see `assistantProfile`. */
   assistant: AuthorProfile
+  /** How its edits may land; `suggest` when unset. */
+  writePolicy?: WritePolicy
+  /** What it may reach on the web; nothing when unset. */
+  web?: WebGate
+  search?: ToolContextSearch
+  fetchPage?: ToolContextFetch
   /**
    * Semantic retrieval, when this project has an index to search. Passed in
    * rather than reached for, because building the query vector needs the same
@@ -52,7 +64,9 @@ export interface AgentRunOptions {
 export async function runAgent(runner: AiRunner, options: AgentRunOptions): Promise<void> {
   const { requestId, settings, session, onEvent } = options
   const controller = runner.track(requestId)
-  const tools = toolSpecs({ retrieval: Boolean(options.findPassages) })
+  const web = options.web ?? buildWebGate('none')
+  const tools = toolSpecs({ retrieval: Boolean(options.findPassages), web: web.level })
+  const captures = new Map<string, Capture>()
 
   const conversation: OutboundMessage[] = [...options.messages]
   const performed: ToolCall[] = []
@@ -103,6 +117,11 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           assistant: options.assistant,
           runId: requestId,
           model: settings.model,
+          writePolicy: options.writePolicy ?? 'suggest',
+          web,
+          search: options.search,
+          fetchPage: options.fetchPage,
+          captures,
           findPassages: options.findPassages,
           ensembleAttempts,
           onEdit: (edit) => edits.push(edit),

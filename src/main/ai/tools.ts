@@ -16,6 +16,11 @@ import {
 } from './proofread.js'
 import { findTextOccurrences } from '../../shared/pm/anchors.js'
 import type { AssistantEdit, AssistantEditOp } from '../../shared/pm/assistantEdits.js'
+import { isTrivial, type WritePolicy } from '../../shared/model/provenance.js'
+import type { WebSearchHit } from '../../shared/model/webAccess.js'
+import type { Capture } from '../../shared/model/research.js'
+import { applyCaptureToCslFields, type CaptureResult, type CaptureFailure } from '../research/capture.js'
+import type { WebGate } from './webGate.js'
 import {
   ensembleConstraintsSchema,
   draftedRecordSchema,
@@ -40,6 +45,7 @@ import type { ToolSpec } from './providers.js'
 
 const MAX_SEARCH_HITS = 12
 const MAX_DOCUMENT_CHARS = 12_000
+const MAX_PAGE_CHARS = 12_000
 
 /** What a semantic search came back with, and how much of the book it covered. */
 export interface RetrievalResult {
@@ -55,6 +61,20 @@ export interface ToolContext {
   /** The run these calls belong to, recorded on every edit for provenance. */
   runId: string
   model: string
+  /** The writer's standing choice: suggest everything, apply trivial fixes, or apply directly. */
+  writePolicy: WritePolicy
+  /** What the writer has allowed on the web; see `webGate.ts`. */
+  web: WebGate
+  /** A web search, when `web.canSearch`. */
+  search?: (query: string, limit: number) => Promise<{ ok: true; hits: WebSearchHit[] } | { ok: false; reason: string }>
+  /** Fetch one page as readable text, through the gate. */
+  fetchPage?: (url: string) => Promise<CaptureResult | CaptureFailure>
+  /**
+   * Pages fetched during this run, by URL. `cite_page` refuses a URL that is
+   * not here: a citation is only ever written for a page the assistant has
+   * actually read, which is the whole difference between this and `add_source`.
+   */
+  captures: Map<string, Capture>
   /** Collects edits as they are described, so the loop can stream them out. */
   onEdit: (edit: AssistantEdit) => void
   /** A comment or reply landed on this document; the Review panel should reload. */
@@ -280,7 +300,8 @@ export function describeEdit(
   context: ToolContext,
   docId: string,
   docPath: string,
-  ops: AssistantEditOp[]
+  ops: AssistantEditOp[],
+  mode: AssistantEdit['mode'] = 'suggest'
 ): AssistantEdit {
   return {
     id: ulid(),
@@ -290,9 +311,36 @@ export function describeEdit(
     authorId: context.assistant.id,
     model: context.model,
     at: new Date().toISOString(),
-    mode: 'suggest',
+    mode,
     ops
   }
+}
+
+/**
+ * Which way one change lands, under the writer's policy.
+ *
+ * Decided here, in main, per change — never by the model, which is told only
+ * what happened. `trivial` is the caller's judgement of this particular
+ * change (a spelling fix, a comma); it only matters under `direct-trivial`.
+ */
+export function modeFor(policy: WritePolicy, trivial: boolean): AssistantEdit['mode'] {
+  if (policy === 'direct') return 'direct'
+  if (policy === 'direct-trivial' && trivial) return 'direct'
+  return 'suggest'
+}
+
+/** Split ops by the mode each should land in, so one call can suggest some and apply others. */
+function emitByMode(
+  context: ToolContext,
+  docId: string,
+  docPath: string,
+  items: { op: AssistantEditOp; trivial: boolean }[]
+): { direct: number; suggested: number } {
+  const direct = items.filter((item) => modeFor(context.writePolicy, item.trivial) === 'direct').map((item) => item.op)
+  const suggested = items.filter((item) => modeFor(context.writePolicy, item.trivial) !== 'direct').map((item) => item.op)
+  if (direct.length) context.onEdit(describeEdit(context, docId, docPath, direct, 'direct'))
+  if (suggested.length) context.onEdit(describeEdit(context, docId, docPath, suggested, 'suggest'))
+  return { direct: direct.length, suggested: suggested.length }
 }
 
 const suggestEdit = define({
@@ -315,12 +363,14 @@ const suggestEdit = define({
 
     if (!find.trim()) {
       if (!replace.trim()) return { ok: false, content: 'There is nothing to add.', summary: 'Empty suggestion' }
-      context.onEdit(describeEdit(context, loaded.doc.docId, path, [{ kind: 'append', text: replace, reason }]))
-      return {
-        ok: true,
-        content: 'The addition was suggested to the author as a tracked change. Do not repeat it.',
-        summary: `Suggested an addition to ${loaded.doc.title}`
-      }
+      const landed = emitByMode(context, loaded.doc.docId, path, [{ op: { kind: 'append', text: replace, reason }, trivial: false }])
+      return landed.direct
+        ? { ok: true, content: 'The addition was written into the document, marked as yours. Do not repeat it.', summary: `Added to ${loaded.doc.title}` }
+        : {
+            ok: true,
+            content: 'The addition was suggested to the author as a tracked change. Do not repeat it.',
+            summary: `Suggested an addition to ${loaded.doc.title}`
+          }
     }
 
     // Checked against the document before it is offered: a suggestion quoting
@@ -343,16 +393,19 @@ const suggestEdit = define({
     }
 
     const [where] = occurrences
-    context.onEdit(
-      describeEdit(context, loaded.doc.docId, path, [
-        { kind: 'replace', blockIndex: where!.blockIndex, start: where!.start, end: where!.end, text: replace, reason }
-      ])
-    )
-    return {
-      ok: true,
-      content: 'The change was suggested to the author as a tracked change they will accept or reject. Do not repeat it.',
-      summary: `Suggested an edit to ${loaded.doc.title}`
-    }
+    const landed = emitByMode(context, loaded.doc.docId, path, [
+      {
+        op: { kind: 'replace', blockIndex: where!.blockIndex, start: where!.start, end: where!.end, text: replace, reason },
+        trivial: isTrivial(find, replace)
+      }
+    ])
+    return landed.direct
+      ? { ok: true, content: 'The change was made in the document, marked as yours. Do not repeat it.', summary: `Changed ${loaded.doc.title}` }
+      : {
+          ok: true,
+          content: 'The change was suggested to the author as a tracked change they will accept or reject. Do not repeat it.',
+          summary: `Suggested an edit to ${loaded.doc.title}`
+        }
   }
 })
 
@@ -498,6 +551,121 @@ const replyComment = define({
   }
 })
 
+/*
+ * The web tools.
+ *
+ * Offered only to the extent the writer allowed (see `toolSpecs`), gated
+ * again at call time, and never allowed to turn a search result into a
+ * citation without the page having been read: `cite_page` wants a capture,
+ * and a capture is only ever made by `fetch_page` succeeding. The source it
+ * writes is still provisional — a person accepts it — but it arrives with the
+ * page's text attached and the access date filled in, which `add_source`'s
+ * "attributed, unverified" cards never can.
+ */
+
+const webSearchTool = define({
+  name: 'web_search',
+  description:
+    'Search the web. Returns titles, addresses and snippets. Nothing is cited from a search result alone: fetch_page the ones that matter, then cite_page.',
+  args: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(10).default(5)
+  }),
+  run: async ({ query, limit }, { web, search }) => {
+    if (!web.canSearch || !search) {
+      return { ok: false, content: 'The author has not allowed web search.', summary: 'Web search not allowed' }
+    }
+    const result = await search(query, limit)
+    if (!result.ok) {
+      const why =
+        result.reason === 'no-key'
+          ? 'No key is saved for the search provider. Tell the author to add one in the AI panel settings.'
+          : result.reason === 'no-url'
+            ? 'No address is set for the search server. Tell the author to add one in the AI panel settings.'
+            : `The search failed (${result.reason}).`
+      return { ok: false, content: why, summary: `Web search failed — ${result.reason}` }
+    }
+    if (result.hits.length === 0) return { ok: true, content: `Nothing found for "${query}".`, summary: `Searched the web for "${query}" — nothing` }
+    const content = result.hits.map((hit, index) => `${index + 1}. ${hit.title}\n   ${hit.url}\n   ${hit.snippet}`).join('\n\n')
+    return { ok: true, content, summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
+  }
+})
+
+const fetchPageTool = define({
+  name: 'fetch_page',
+  description:
+    'Read a web page as text. Only pages the author has allowed: under "pages you name", only addresses they gave you; under "search", any public page. Fetch before you cite.',
+  args: z.object({ url: z.string().url() }),
+  run: async ({ url }, context) => {
+    if (!context.web.allows(url) || !context.fetchPage) {
+      return {
+        ok: false,
+        content:
+          context.web.level === 'urls'
+            ? 'The author has only allowed pages whose address they gave you. Ask them for the address if you need this one.'
+            : 'That address is not one the assistant may fetch.',
+        summary: `Refused to fetch ${url}`
+      }
+    }
+    const result = await context.fetchPage(url)
+    if (!result.ok) {
+      return { ok: false, content: `Could not read ${url} (${result.reason}).`, summary: `Could not fetch ${url}` }
+    }
+    context.captures.set(url, result.capture)
+    const text = result.capture.text
+    const clipped = text.length > MAX_PAGE_CHARS ? `${text.slice(0, MAX_PAGE_CHARS)}\n\n[…truncated…]` : text
+    return {
+      ok: true,
+      content: `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`,
+      summary: `Read ${result.capture.title || url}`
+    }
+  }
+})
+
+const citePageTool = define({
+  name: 'cite_page',
+  description:
+    'Add a web page you have fetched in this conversation to the bibliography as a DRAFT source, with its text attached and the date you read it. The author accepts it. Refused for any page you have not fetched.',
+  args: z.object({
+    url: z.string().url(),
+    claim: z.string().min(1).describe('What the page supports, in a sentence.'),
+    title: z.string().default('').describe('Override the page title if it is better stated.'),
+    author: z.string().default(''),
+    year: z.string().default('')
+  }),
+  run: async ({ url, claim, title, author, year }, context) => {
+    const capture = context.captures.get(url)
+    if (!capture) {
+      return {
+        ok: false,
+        content: 'You have not fetched that page in this conversation. Call fetch_page first; a citation is only written for a page you have read.',
+        summary: `Refused to cite an unread page`
+      }
+    }
+    const issued = Number(year)
+    try {
+      const source = await context.session.sources.addProvisional({
+        id: ulid(),
+        type: 'webpage',
+        title: title || capture.title || url,
+        ...(author ? { author: [{ literal: author }] } : {}),
+        ...(Number.isFinite(issued) && year ? { issued: { 'date-parts': [[issued]] } } : {}),
+        ...applyCaptureToCslFields(url, capture.accessed),
+        note: `Captured by the assistant: ${claim}`
+      })
+      await context.session.sources.addCaptureAttachment(source.id, capture, url)
+      return {
+        ok: true,
+        content: `Added "${source.title}" to the bibliography as a draft, with the page's text attached. Tell the author it is there to check.`,
+        summary: `Cited "${source.title}" (captured)`
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, content: message, summary: 'Could not add the source' }
+    }
+  }
+})
+
 const proofread = define({
   name: 'proofread',
   description:
@@ -535,18 +703,32 @@ const proofread = define({
       dropped += parsed.dropped
     }
 
-    // One edit for the whole pass: one undo step in the editor, one write to a
-    // closed file, one row in the trail — not one of each per typo.
-    if (placed.length > 0) {
-      context.onEdit(describeEdit(context, loaded.doc.docId, path, placed.map((finding) => finding.op)))
-    }
+    // One edit per mode for the whole pass: one undo step in the editor, one
+    // write to a closed file, one row in the trail — not one of each per typo.
+    // Under `direct-trivial`, spelling and punctuation are the trivial kinds.
+    const landed = emitByMode(
+      context,
+      loaded.doc.docId,
+      path,
+      placed.map((finding) => ({
+        op: finding.op,
+        trivial: (finding.kind === 'spelling' || finding.kind === 'punctuation') && isTrivial(
+          blocks.find((block) => block.index === finding.op.blockIndex)?.text.slice(finding.op.start, finding.op.end) ?? '',
+          finding.op.text
+        )
+      }))
+    )
 
     const lastChecked = covered.at(-1)?.at(-1)?.index
     const remaining = chunks.length > covered.length ? chunks[covered.length]![0]!.index : null
     const described = describeFindings(placed)
     const notes = [
       placed.length > 0
-        ? `Suggested ${described} as tracked changes; the author will accept or reject each. Do not repeat them in your reply.`
+        ? landed.suggested === 0
+          ? `Applied ${described} directly, each marked as yours. Do not repeat them in your reply.`
+          : landed.direct === 0
+            ? `Suggested ${described} as tracked changes; the author will accept or reject each. Do not repeat them in your reply.`
+            : `Applied ${landed.direct} trivial correction${landed.direct === 1 ? '' : 's'} directly and suggested ${landed.suggested} as tracked changes (${described} in all). Do not repeat them in your reply.`
         : `Found nothing to correct${lastChecked !== undefined ? ` in paragraphs ${fromBlock}–${lastChecked}` : ''}.`,
       dropped > 0 ? `${dropped} finding${dropped === 1 ? '' : 's'} could not be placed and were dropped.` : '',
       remaining !== null
@@ -764,7 +946,8 @@ const addSource = define({
  * drafted cast the writer will assume failed.
  */
 export const RECORD_WRITING_TOOLS = ['draft_record', 'draft_ensemble', 'revise_record']
-export const SOURCE_WRITING_TOOLS = ['add_source']
+export const SOURCE_WRITING_TOOLS = ['add_source', 'cite_page']
+export const WEB_TOOLS = ['web_search', 'fetch_page', 'cite_page']
 export const REVIEW_WRITING_TOOLS = ['comment', 'reply_comment']
 
 const TOOLS = [
@@ -779,6 +962,9 @@ const TOOLS = [
   listComments,
   replyComment,
   proofread,
+  webSearchTool,
+  fetchPageTool,
+  citePageTool,
   draftRecord,
   draftEnsemble,
   reviseRecord,
@@ -795,8 +981,18 @@ const TOOLS = [
  * rather than being offered one that always refuses: a described tool is one
  * the model will spend a step calling.
  */
-export function toolSpecs(options: { retrieval: boolean } = { retrieval: false }): ToolSpec[] {
-  return TOOLS.filter((tool) => options.retrieval || tool.name !== 'find_passages').map((tool) => ({
+export function toolSpecs(
+  options: { retrieval: boolean; web?: WebGate['level'] } = { retrieval: false }
+): ToolSpec[] {
+  const web = options.web ?? 'none'
+  return TOOLS.filter((tool) => {
+    if (tool.name === 'find_passages') return options.retrieval
+    // Not offered rather than offered-and-refused, as with `find_passages`:
+    // a described tool is one the model will spend a step calling.
+    if (tool.name === 'web_search') return web === 'search'
+    if (tool.name === 'fetch_page' || tool.name === 'cite_page') return web !== 'none'
+    return true
+  }).map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: z.toJSONSchema(tool.args, { target: 'draft-7' }) as Record<string, unknown>

@@ -709,5 +709,9 @@ export const EDITOR_MARK_TYPES = new Set([
   // Suggested edits round-trip as Word's own tracked changes; see `runsFor`.
   'insertion',
   'deletion',
-  'lang'
+  'lang',
+  // Attribution for assistant-written words. Exported as plain text: Word has
+  // no run property for "a model wrote this", and the document's own
+  // `provenance` log is the record that outlives the export.
+  'aiAuthored'
 ])

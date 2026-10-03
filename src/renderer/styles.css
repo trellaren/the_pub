@@ -592,6 +592,13 @@ body {
  * kept as a *border* rather than a text colour so a suggestion inside a
  * coloured or styled run stays legible as itself.
  */
+/* Assistant-written words: attribution, not formatting, so it stays quiet. */
+.pub-ai-authored {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 0.2em;
+}
+
 .pub-insertion {
   text-decoration: none;
   border-bottom: 2px solid var(--pub-author-color, var(--color-accent));

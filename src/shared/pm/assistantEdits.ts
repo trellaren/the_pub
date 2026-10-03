@@ -3,6 +3,7 @@ import type { PmDoc, PmMark, PmNode } from '../model/document.js'
 import { INSERTION_MARK, DELETION_MARK } from '../model/suggestion.js'
 import { ANCHOR_MARK } from '../model/anchor.js'
 import { MENTION_MARK } from '../model/mention.js'
+import { AI_AUTHORED_MARK, excerptOf, type ProvenanceEntry } from '../model/provenance.js'
 import { extractRawBlocks, forEachTextNode, normalizeBlockText, type RawTextNode } from './extractText.js'
 import { applyAnchorMark } from './anchors.js'
 
@@ -57,6 +58,12 @@ export interface AppliedEdit {
   doc: PmDoc
   /** Indices into `edit.ops` that could not be applied. */
   failed: number[]
+  /**
+   * One log entry per op that put assistant prose into the document, with ids
+   * derived from the edit's own, so the renderer and main produce the same
+   * entries for the same edit and the union on write never double-counts.
+   */
+  entries: ProvenanceEntry[]
 }
 
 /**
@@ -66,10 +73,18 @@ export interface AppliedEdit {
  * suggestion names something specific about *that* text, and copying it onto
  * text the assistant wrote would claim the new words are the same thing.
  */
-const IDENTITY_MARKS = new Set<string>([INSERTION_MARK, DELETION_MARK, ANCHOR_MARK, MENTION_MARK, 'highlight'])
+const IDENTITY_MARKS = new Set<string>([
+  INSERTION_MARK,
+  DELETION_MARK,
+  ANCHOR_MARK,
+  MENTION_MARK,
+  AI_AUTHORED_MARK,
+  'highlight'
+])
 
 export function applyAssistantEdit(doc: PmDoc, edit: AssistantEdit): AppliedEdit {
   const failed: number[] = []
+  const entries: ProvenanceEntry[] = []
   let current = doc
 
   // Within one block, later offsets first, so an earlier op never shifts the
@@ -87,11 +102,29 @@ export function applyAssistantEdit(doc: PmDoc, edit: AssistantEdit): AppliedEdit
 
   for (const { op, index } of [...placed, ...appends]) {
     const next = applyOp(current, op, edit)
-    if (next) current = next
-    else failed.push(index)
+    if (!next) {
+      failed.push(index)
+      continue
+    }
+    current = next
+    if (op.kind !== 'anchor' && op.text.trim()) {
+      entries.push({
+        id: `${edit.id}:${index}`,
+        runId: edit.runId,
+        authorId: edit.authorId,
+        model: edit.model,
+        at: edit.at,
+        mode: edit.mode,
+        blockIndex: op.kind === 'replace' ? op.blockIndex : null,
+        chars: op.text.length,
+        excerpt: excerptOf(op.text),
+        reason: op.reason
+      })
+    }
   }
   failed.sort((a, b) => a - b)
-  return { doc: current, failed }
+  entries.sort((a, b) => Number(a.id.split(':').pop()) - Number(b.id.split(':').pop()))
+  return { doc: current, failed, entries }
 }
 
 function applyOp(doc: PmDoc, op: AssistantEditOp, edit: AssistantEdit): PmDoc | null {
@@ -104,13 +137,25 @@ function suggestionAttrs(edit: AssistantEdit): Record<string, unknown> {
   return { authorId: edit.authorId, at: edit.at }
 }
 
+/**
+ * Attribution rides on every word the assistant writes, in both modes: on a
+ * suggestion it sits under the `insertion` mark, so accepting strips the
+ * verdict and leaves the authorship.
+ */
+function authoredMark(edit: AssistantEdit): PmMark {
+  return { type: AI_AUTHORED_MARK, attrs: { runId: edit.runId, model: edit.model, at: edit.at, authorId: edit.authorId } }
+}
+
 function appendBlocks(doc: PmDoc, text: string, edit: AssistantEdit): PmDoc | null {
   const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
   if (paragraphs.length === 0) return null
-  const marks: PmMark[] = edit.mode === 'suggest' ? [{ type: INSERTION_MARK, attrs: suggestionAttrs(edit) }] : []
+  const marks: PmMark[] = [
+    authoredMark(edit),
+    ...(edit.mode === 'suggest' ? [{ type: INSERTION_MARK, attrs: suggestionAttrs(edit) }] : [])
+  ]
   const blocks: PmNode[] = paragraphs.map((paragraph) => ({
     type: 'paragraph',
-    content: [{ type: 'text', text: paragraph, ...(marks.length ? { marks } : {}) }]
+    content: [{ type: 'text', text: paragraph, marks }]
   }))
   return { ...doc, content: [...(doc.content ?? []), ...blocks] }
 }
@@ -179,8 +224,12 @@ function replaceInBlock(
 
 function newTextNode(text: string, neighbouring: PmMark[], edit: AssistantEdit): PmNode {
   const carried = neighbouring.filter((mark) => !IDENTITY_MARKS.has(mark.type))
-  const marks = edit.mode === 'suggest' ? [...carried, { type: INSERTION_MARK, attrs: suggestionAttrs(edit) }] : carried
-  return { type: 'text', text, ...(marks.length ? { marks } : {}) }
+  const marks = [
+    ...carried,
+    authoredMark(edit),
+    ...(edit.mode === 'suggest' ? [{ type: INSERTION_MARK, attrs: suggestionAttrs(edit) }] : [])
+  ]
+  return { type: 'text', text, marks }
 }
 
 /**

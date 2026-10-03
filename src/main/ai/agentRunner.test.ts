@@ -85,6 +85,11 @@ function fakeSession(overrides: Partial<Record<string, unknown>> = {}): ProjectS
     },
     entities: { snapshot: () => ({ entities: [] }) },
     manuscript: { view: async () => ({ nodes: [], resolving: false }) },
+    reviews: {
+      createThread: async () => ({ id: 'thread-1' }),
+      list: async () => [],
+      reply: async () => ({ id: 'reply-1' })
+    },
     ...overrides
   } as unknown as ProjectSession
 }

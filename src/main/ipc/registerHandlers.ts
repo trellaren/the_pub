@@ -1507,6 +1507,7 @@ export function registerHandlers(context: HandlerContext): void {
       onEvent,
       session,
       assistant: appState.assistant(),
+      onReviewChanged: (docId) => reviewChanged(event, docId),
       ...(indexed && ownerId !== null
         ? { findPassages: (query: string, limit: number) => findPassages(ownerId, session, query, limit) }
         : {})

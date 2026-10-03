@@ -6,6 +6,10 @@ import { toolSpecs, runTool, type RetrievalResult, type ToolContext } from './to
 import { EntityService } from '../services/entityService.js'
 import { SourceService } from '../services/sourceService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
+import { DocumentService } from '../services/documentService.js'
+import { SnapshotService } from '../services/snapshotService.js'
+import { ReviewService } from '../services/reviewService.js'
+import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
 import { isProvisional } from '../../shared/model/source.js'
 import type { ProjectSession } from '../services/projectSession.js'
 
@@ -42,6 +46,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     runId: 'run-1',
     model: 'stub',
     onEdit: () => {},
+    onReviewChanged: () => {},
     ensembleAttempts: new Map(),
     ...overrides
   }
@@ -279,5 +284,89 @@ describe('add_source', () => {
 
     expect(result.ok).toBe(false)
     expect(sources.snapshot().sources).toEqual([])
+  })
+})
+
+describe('comment', () => {
+  const OWNER = { id: 'owner', name: 'Marta', color: '' }
+  const ASSISTANT = { id: 'assistant-owner', name: 'Assistant', color: '' }
+
+  async function reviewContext(): Promise<{ context: ToolContext; edits: AssistantEdit[]; reviews: ReviewService; changed: string[] }> {
+    const snapshots = new SnapshotService(adapter)
+    const documents = new DocumentService(adapter, snapshots)
+    const reviews = new ReviewService(adapter, () => OWNER)
+    const created = await documents.create('scene.pubdoc', 'Scene')
+    await documents.write(
+      'scene.pubdoc',
+      {
+        ...created.doc,
+        content: {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'The harbour was quiet. The harbour was dark.' }] }
+          ]
+        }
+      },
+      created.mtime
+    )
+    const edits: AssistantEdit[] = []
+    const changed: string[] = []
+    return {
+      reviews,
+      edits,
+      changed,
+      context: context({
+        session: { entities, sources, documents, reviews } as unknown as ProjectSession,
+        assistant: ASSISTANT,
+        onEdit: (edit) => edits.push(edit),
+        onReviewChanged: (docId) => changed.push(docId)
+      })
+    }
+  }
+
+  it('writes a thread under the assistant\'s own id and anchors it through an edit', async () => {
+    const { context: ctx, edits, reviews, changed } = await reviewContext()
+    const result = await runTool(
+      'comment',
+      JSON.stringify({ path: 'scene.pubdoc', quote: 'was dark', text: 'Dark how? Give us one detail.' }),
+      ctx
+    )
+
+    expect(result.ok).toBe(true)
+    const [thread] = await reviews.list((await ctx.session.documents.read('scene.pubdoc')).doc.docId)
+    expect(thread!.authorId).toBe('assistant-owner')
+    expect(thread!.anchorText).toBe('was dark')
+    expect(JSON.stringify(thread!.body)).toContain('Dark how?')
+    // The mark arrives the way a suggestion does, addressed to the same offsets.
+    expect(edits[0]!.ops).toEqual([{ kind: 'anchor', blockIndex: 0, start: 35, end: 43, anchorId: thread!.anchorId }])
+    expect(changed).toHaveLength(1)
+    // Only the assistant's file exists; nothing was written as the person.
+    const files = await fs.readdir(path.join(root, '.thepub', 'reviews', thread!.docId))
+    expect(files).toEqual(['assistant-owner.json'])
+  })
+
+  it('refuses a quote that occurs more than once rather than guessing', async () => {
+    const { context: ctx, edits } = await reviewContext()
+    const result = await runTool('comment', JSON.stringify({ path: 'scene.pubdoc', quote: 'The harbour', text: 'x' }), ctx)
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('occurs 2 times')
+    expect(edits).toHaveLength(0)
+  })
+
+  it('lists and replies by thread id, as the assistant', async () => {
+    const { context: ctx, reviews } = await reviewContext()
+    await runTool('comment', JSON.stringify({ path: 'scene.pubdoc', quote: 'was quiet', text: 'Too quiet?' }), ctx)
+    const listed = await runTool('list_comments', JSON.stringify({ path: 'scene.pubdoc' }), ctx)
+    expect(listed.content).toContain('Too quiet?')
+    const threadId = listed.content.split(' · ')[0]!.trim()
+
+    const replied = await runTool('reply_comment', JSON.stringify({ path: 'scene.pubdoc', threadId, text: 'Agreed.' }), ctx)
+    expect(replied.ok).toBe(true)
+    const docId = (await ctx.session.documents.read('scene.pubdoc')).doc.docId
+    const [thread] = await reviews.list(docId)
+    expect(thread!.replies[0]).toMatchObject({ authorId: 'assistant-owner' })
+
+    const missing = await runTool('reply_comment', JSON.stringify({ path: 'scene.pubdoc', threadId: 'nope', text: 'x' }), ctx)
+    expect(missing.ok).toBe(false)
   })
 })

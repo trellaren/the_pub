@@ -47,6 +47,8 @@ export interface ToolContext {
   model: string
   /** Collects edits as they are described, so the loop can stream them out. */
   onEdit: (edit: AssistantEdit) => void
+  /** A comment or reply landed on this document; the Review panel should reload. */
+  onReviewChanged: (docId: string) => void
   /**
    * How many times each ensemble has been attempted in this run, so a group
    * that fails its constraints is redrafted once and then written with the
@@ -336,6 +338,148 @@ const suggestEdit = define({
 })
 
 /*
+ * The review tools.
+ *
+ * Comments are the other half of a peer review, and they already have a home:
+ * `ReviewService`'s one-file-per-(document, author) threads, which the
+ * assistant writes under its own id. A comment is anchored the way a person's
+ * is — an `anchor` mark delivered through the same edit routing as a
+ * suggestion — so orphan recovery, the panel and the Word export all treat it
+ * as an ordinary thread by someone called Assistant.
+ */
+
+function locateQuote(
+  content: Parameters<typeof findTextOccurrences>[0],
+  quote: string,
+  path: string
+): { blockIndex: number; start: number; end: number } | ToolResult {
+  const wanted = quote.trim()
+  if (!wanted) return { ok: false, content: 'Quote the passage the comment is about.', summary: 'Empty quote' }
+  const occurrences = findTextOccurrences(content, wanted)
+  if (occurrences.length === 0) {
+    return {
+      ok: false,
+      content: `That exact text is not in ${path}. Quote it exactly as it appears, within one paragraph.`,
+      summary: `Quoted text not found in ${path}`
+    }
+  }
+  if (occurrences.length > 1) {
+    return {
+      ok: false,
+      content: `"${wanted}" occurs ${occurrences.length} times in ${path}. Include more of the surrounding words so it occurs once.`,
+      summary: `Ambiguous quote in ${path}`
+    }
+  }
+  return occurrences[0]!
+}
+
+const comment = define({
+  name: 'comment',
+  description:
+    'Leave a review comment on a passage of a document, as a reviewer would in the margin. It appears in the Review panel attached to the quoted text. Quote the passage exactly, within one paragraph, with enough words that it occurs only once. Use suggest_edit instead when you have a concrete rewording.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    quote: z.string().describe('The exact passage the comment is about.'),
+    text: z.string().min(1).describe('The comment itself.')
+  }),
+  run: async ({ path, quote, text }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const where = locateQuote(loaded.doc.content, quote, path)
+    if ('ok' in where) return where
+
+    // The thread first, then the mark. A mark that never lands leaves a thread
+    // the next reconcile marks orphaned — with its text intact and recoverable,
+    // which is the failure the review system was already built to survive. A
+    // mark with no thread would be an anchor pointing at nothing.
+    const anchorId = ulid()
+    const thread = await context.session.reviews.createThread(
+      loaded.doc.docId,
+      anchorId,
+      quote.trim(),
+      where.blockIndex,
+      { as: context.assistant, text }
+    )
+    context.onEdit(
+      describeEdit(context, loaded.doc.docId, path, [
+        { kind: 'anchor', blockIndex: where.blockIndex, start: where.start, end: where.end, anchorId }
+      ])
+    )
+    context.onReviewChanged(loaded.doc.docId)
+    return {
+      ok: true,
+      content: `Comment ${thread.id} was left on "${quote.trim()}". The author will see it in the Review panel.`,
+      summary: `Commented on ${loaded.doc.title}: "${quote.trim().slice(0, 40)}${quote.trim().length > 40 ? '…' : ''}"`
+    }
+  }
+})
+
+const listComments = define({
+  name: 'list_comments',
+  description:
+    'List the review comments on a document — yours and every other reviewer\'s — with their ids, status, the passage each is attached to, and any replies.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    status: z.enum(['open', 'resolved', 'all']).default('open')
+  }),
+  run: async ({ path, status }, { session }) => {
+    let loaded
+    try {
+      loaded = await session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const threads = (await session.reviews.list(loaded.doc.docId)).filter(
+      (thread) => status === 'all' || thread.status === status
+    )
+    if (threads.length === 0) {
+      return { ok: true, content: `No ${status === 'all' ? '' : `${status} `}comments on ${path}.`, summary: `Listed comments on ${loaded.doc.title} — none` }
+    }
+    const content = threads
+      .map((thread) => {
+        const replies = thread.replies.map((reply) => `    ↳ ${reply.authorId}: ${extractPlainText(reply.body)}`)
+        return [
+          `${thread.id} · ${thread.authorId} · ${thread.status}${thread.orphaned ? ' · passage no longer found' : ''}`,
+          `  on: "${thread.anchorText}"`,
+          `  ${extractPlainText(thread.body) || '(no text)'}`,
+          ...replies
+        ].join('\n')
+      })
+      .join('\n\n')
+    return { ok: true, content, summary: `Listed ${threads.length} comment${threads.length === 1 ? '' : 's'} on ${loaded.doc.title}` }
+  }
+})
+
+const replyComment = define({
+  name: 'reply_comment',
+  description: 'Reply to an existing review comment, by its id from list_comments.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    threadId: z.string(),
+    text: z.string().min(1)
+  }),
+  run: async ({ path, threadId, text }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const threads = await context.session.reviews.list(loaded.doc.docId)
+    if (!threads.some((thread) => thread.id === threadId)) {
+      return { ok: false, content: `There is no comment ${threadId} on ${path}.`, summary: `No comment ${threadId}` }
+    }
+    await context.session.reviews.reply(loaded.doc.docId, threadId, text, null, { as: context.assistant })
+    context.onReviewChanged(loaded.doc.docId)
+    return { ok: true, content: 'Replied.', summary: `Replied to a comment on ${loaded.doc.title}` }
+  }
+})
+
+/*
  * The writing tools.
  *
  * Every one of them proposes. For prose that means a suggestion mark; for
@@ -539,6 +683,7 @@ const addSource = define({
  */
 export const RECORD_WRITING_TOOLS = ['draft_record', 'draft_ensemble', 'revise_record']
 export const SOURCE_WRITING_TOOLS = ['add_source']
+export const REVIEW_WRITING_TOOLS = ['comment', 'reply_comment']
 
 const TOOLS = [
   searchManuscript,
@@ -548,6 +693,9 @@ const TOOLS = [
   listRecords,
   readRecord,
   suggestEdit,
+  comment,
+  listComments,
+  replyComment,
   draftRecord,
   draftEnsemble,
   reviseRecord,

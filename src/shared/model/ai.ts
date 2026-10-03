@@ -212,6 +212,12 @@ export const PROMPT_PRESETS: { id: string; title: string; prompt: string }[] = [
       'Read the passage below as an editor. What works, what does not, and what would you change? Be specific and quote the text you mean.'
   },
   {
+    id: 'peer-review',
+    title: 'Peer review in the margin',
+    prompt:
+      'Review the open document as a peer reviewer. Find it with list_documents, read it, then leave your observations as margin comments with `comment` on the exact passages they concern, and offer concrete rewordings with `suggest_edit`. Finish with two or three sentences on the whole.'
+  },
+  {
     id: 'tighten',
     title: 'Tighten',
     prompt:

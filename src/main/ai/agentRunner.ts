@@ -33,6 +33,8 @@ export interface AgentRunOptions {
    */
   findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
   onEvent: (event: StreamEvent) => void
+  /** A comment landed; the panel showing that document's threads should reload. */
+  onReviewChanged?: (docId: string) => void
 }
 
 /**
@@ -103,7 +105,8 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           model: settings.model,
           findPassages: options.findPassages,
           ensembleAttempts,
-          onEdit: (edit) => edits.push(edit)
+          onEdit: (edit) => edits.push(edit),
+          onReviewChanged: (docId) => options.onReviewChanged?.(docId)
         })
 
         const record: ToolCall = {

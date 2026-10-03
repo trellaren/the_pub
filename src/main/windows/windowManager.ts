@@ -14,6 +14,13 @@ const CLOSE_FLUSH_TIMEOUT_MS = 4000
  * The Raven theme's own background, so a window opens in the app's colour
  * rather than flashing something else before the renderer paints.
  */
+/**
+ * Keep windows off the screen. Set by the e2e harness, and only by it: every
+ * Playwright test launches a fresh app, and dozens of windows popping up in
+ * front of the person running the suite is the thing this prevents.
+ */
+const HIDDEN_WINDOWS = process.env.QUOTH_HIDDEN_WINDOWS === '1'
+
 const BACKGROUND = '#0b0d10'
 
 /**
@@ -101,6 +108,7 @@ export class WindowManager {
   }
 
   createProjectWindow(): BrowserWindow {
+
     const window = new BrowserWindow({
       width: 1440,
       height: 900,
@@ -130,7 +138,19 @@ export class WindowManager {
 
     this.records.set(window.id, { window, ownerId: window.id, closeConfirmed: false })
     this.hardenWebContents(window.webContents, window.id)
-    window.once('ready-to-show', () => window.show())
+    window.once('ready-to-show', () => {
+      if (!HIDDEN_WINDOWS) {
+        window.show()
+        return
+      }
+      // Shown, but parked beyond every display and never given focus: a test
+      // suite that launches the app once per test must not steal the screen
+      // from whoever is running it. Shown rather than left hidden because a
+      // never-shown window is never painted, and layout-dependent code — the
+      // editor's caret, scrollIntoView — needs a painted page.
+      window.setPosition(-32000, -32000)
+      window.showInactive()
+    })
     window.on('close', (event) => this.handleClose(window, event))
     window.on('closed', () => this.records.delete(window.id))
     // The buttons follow the window, not the other way round: it can be

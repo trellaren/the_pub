@@ -25,7 +25,9 @@ interface Request {
 
 /** Whether this request is the loop feeding a tool's result back — i.e. the run is finishing. */
 function answering(body: Request): boolean {
-  return body.messages.some((message) => message.role === 'tool')
+  // The last message, not any: earlier runs' tool calls are replayed in the
+  // history now, so a fresh question arrives behind old tool results.
+  return body.messages.at(-1)?.role === 'tool'
 }
 
 /** The last thing a person asked, so one server can serve two runs in a conversation. */

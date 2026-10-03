@@ -156,6 +156,12 @@ test('a suggested edit lands as a tracked change the author judges, never as a w
   await ask('Tighten the opening.')
   await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('One suggestion in the document.')
 
+  // The AI panel took the editor's tab group; bring the scene back to check it.
+  await harness.page.evaluate((id) => {
+    const state = window.__pub.documents.getState().docs[id]!
+    window.__pub.layout.getState().openEditor(id, state.path, state.title)
+  }, docId)
+
   // The suggestion is in the prose as Phase 9 marks, stamped with the
   // assistant's own id — not a card in the panel, and not a silent rewrite.
   const struck = editor.locator('del.pub-deletion[data-author^="assistant-"]')
@@ -166,7 +172,14 @@ test('a suggested edit lands as a tracked change the author judges, never as a w
   // Rejecting it from the Review panel restores the sentence exactly: the
   // verdict is the writer's, through the machinery every reviewer uses.
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
-  await harness.page.getByRole('button', { name: 'Reject' }).first().click()
+  // One row per mark: the struck-through words and the inserted ones are
+  // judged separately, as they are for any reviewer.
+  const reject = harness.page.getByRole('button', { name: 'Reject' })
+  await expect(reject).toHaveCount(2)
+  await reject.first().click()
+  await expect(reject).toHaveCount(1)
+  await reject.first().click()
+  await expect(reject).toHaveCount(0)
   await expect(editor).toContainText('The harbour was quiet.')
   await expect(editor).not.toContainText('lay quiet')
 })

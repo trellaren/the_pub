@@ -87,8 +87,11 @@ slips through — because a noisy suggestion list is how a feature like this get
   mountains, ruins, harbours and the rest — and dragged to a new spot without losing what they are
   linked to. Stroke width and region fill are yours to set, and stay with the shape.
 
-- **An assistant, from Anthropic, OpenAI, Hugging Face, a local LM Studio server or a model the
-  app runs itself**, with as many conversations as you like. It always has the project in hand:
+- **An assistant that works out of the box.** The first launch asks once: download Gemma 3n
+  (Google's on-device model, about 4.5 GB, or the 3 GB build on a smaller machine) to run inside
+  the app with nothing leaving your computer, choose another provider — Anthropic, OpenAI,
+  Hugging Face or a local LM Studio server — or have no model at all. As many conversations as
+  you like. It always has the project in hand:
   it can search and read your documents and records, and it is told the shape of the book —
   its people, its places, the beats still at outline stage — before every question, so a writing
   prompt or a "what comes next" starts from your story rather than from a generic one. Keys are

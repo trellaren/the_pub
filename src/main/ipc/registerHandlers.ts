@@ -323,6 +323,7 @@ export function registerHandlers(context: HandlerContext): void {
   )
   handle('app:resetKeybindings', () => appState.resetKeybindings())
   handle('app:setAiWritePolicy', ({ policy }) => appState.setAiWritePolicy(policy))
+  handle('app:setAssistantSetupDone', () => appState.setAssistantSetupDone())
   handle('app:setAiWeb', (changes) => appState.setAiWeb(changes))
 
   handle('app:setAiEnabled', async ({ enabled }) => {

@@ -44,6 +44,13 @@ export const appStateSchema = z.object({
   author: authorProfileSchema.prefault({ id: '', name: '', color: '' }),
   /** Today's writing prompt, cached so opening the app twice costs one request. */
   dailyPrompt: dailyPromptSchema.prefault({ date: '', text: '', angle: '' }),
+  /**
+   * Whether the first-launch question about the assistant's model has been
+   * answered. Asked once, on the welcome screen, and never again whatever the
+   * answer: a question that comes back is a nag, and the AI panel's settings
+   * are where the answer can be changed later.
+   */
+  assistantSetupDone: z.boolean().default(false),
   ...appSettingsSchema.shape
 })
 export type AppState = z.infer<typeof appStateSchema>

@@ -10,8 +10,7 @@ import {
   variantStatusSchema,
   type VariantStatus,
   memoryGate,
-  formatBytes
-} from './llm.js'
+  formatBytes, defaultVariantFor } from './llm.js'
 
 const GB = 1024 ** 3
 
@@ -58,15 +57,26 @@ describe('memoryGate', () => {
   })
 })
 
+describe('defaultVariantFor', () => {
+  const GB = 1024 ** 3
+  it('offers the default model where it fits, the small one where only that fits, and nothing below that', () => {
+    expect(defaultVariantFor(16 * GB)?.id).toBe('gemma-3n-e4b-q4_k_m')
+    expect(defaultVariantFor(7 * GB)?.id).toBe('gemma-3n-e2b-q4_k_m')
+    expect(defaultVariantFor(4 * GB)).toBeNull()
+    // An unknown reading is not a small machine.
+    expect(defaultVariantFor(0)?.id).toBe('gemma-3n-e4b-q4_k_m')
+  })
+})
+
 describe('resolving a model setting', () => {
   it('takes a model id to its first variant', () => {
     // The picker offers models and the manager offers variants, so both
     // spellings turn up in saved projects.
-    expect(resolveVariant('bonsai-9b')?.id).toBe('bonsai-9b-q4_k_m')
+    expect(resolveVariant('gemma-3n-e4b')?.id).toBe('gemma-3n-e4b-q4_k_m')
   })
 
   it('takes a variant id to itself', () => {
-    expect(resolveVariant('bonsai-27b-q8_0')?.id).toBe('bonsai-27b-q8_0')
+    expect(resolveVariant('gemma-3n-e4b-q8_0')?.id).toBe('gemma-3n-e4b-q8_0')
   })
 
   it('resolves nothing for a name in neither list', () => {

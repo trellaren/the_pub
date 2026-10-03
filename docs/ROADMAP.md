@@ -211,9 +211,10 @@ providers** exactly as today.
 - **One managed llama.cpp `llama-server` child process**, model-agnostic — GGUF in, tokens out —
   so the catalogue is data, not engine code. Never in-process bindings: inference that dies must
   take a subprocess with it, not unsaved manuscript.
-- **A curated catalogue**: `prism-ml/bonsai-27b` as the flagship recommendation, plus a mid-size
-  and a small model so modest hardware gets a private routine agent instead of a refusal — the
-  per-variant RAM gate refuses the 27B *and offers the 4B*. Which model answers rides the
+- **A curated catalogue**: Gemma 3n E4B as the default (Phase 16 replaced the placeholder
+  Bonsai entries with it, pinned by revision and digest), plus the small E2B so modest hardware
+  gets a private routine agent instead of a refusal — the per-variant RAM gate refuses the E4B
+  *and offers the E2B*. A first launch asks once which model, if any, should answer. Which model answers rides the
   existing `aiSettings.model` field, per-chat overrides included; sideloading a local `.gguf` is
   an escape hatch, not the product.
 - **Weights download on first use into userData** — never bundled, never in a project folder

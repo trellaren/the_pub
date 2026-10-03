@@ -153,6 +153,18 @@ test('settings and chats survive reopening the project', async () => {
 test('a hosted provider with no key refuses to send rather than failing silently', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
+  // Embedded is the default now, so the hosted case has to be chosen.
+  await harness.page.evaluate(() =>
+    window.__pub.chats.getState().saveSettings({
+      provider: 'anthropic',
+      model: '',
+      baseUrl: '',
+      temperature: 0.7,
+      maxTokens: 512,
+      systemPrompt: '',
+      embedModel: ''
+    })
+  )
 
   const chat = await harness.page.evaluate(() => window.__pub.chats.getState().createChat())
   const error = await harness.page.evaluate(async (id) => {

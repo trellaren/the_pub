@@ -93,7 +93,12 @@ export function providerInfo(id: AiProviderId): ProviderInfo {
 }
 
 export const aiSettingsSchema = z.object({
-  provider: aiProviderIdSchema.default('anthropic'),
+  /**
+   * Embedded by default: a fresh install has an assistant that works once a
+   * model is downloaded, with nothing leaving the machine and no key to find.
+   * The hosted providers are a choice, not a prerequisite.
+   */
+  provider: aiProviderIdSchema.default('embedded'),
   model: z.string().default(''),
   /** Overrides the provider default; how LM Studio is pointed at a port. */
   baseUrl: z.string().default(''),

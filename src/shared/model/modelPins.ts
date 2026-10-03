@@ -17,4 +17,8 @@ export interface ModelPin {
   sha256: string
 }
 
-export const MODEL_PINS: Record<string, ModelPin> = {}
+export const MODEL_PINS: Record<string, ModelPin> = {
+  'gemma-3n-e2b-q4_k_m': { bytes: 3026881888, sha256: '189d42b4303cb1078ea8d00963f437cd6d884069b7ba2ba80b38cd09585dc415' },
+  'gemma-3n-e4b-q4_k_m': { bytes: 4539054208, sha256: '43b489bb77a81bda85180e7c490d40ad7f1d5c2ce654c9b05e15e104bd3c777e' },
+  'gemma-3n-e4b-q8_0': { bytes: 7353292928, sha256: '80e3a8cff3f29b2d2a6f580d8aaaf9269fff767c48eacf4306294718a76eb262' }
+}

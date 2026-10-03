@@ -13,6 +13,7 @@ export const INVOKE_CHANNELS = [
   'app:resetKeybindings',
   'app:setAiEnabled',
   'app:setAiWritePolicy',
+  'app:setAssistantSetupDone',
   'app:setAiWeb',
   'app:setEmbeddedIdleMinutes',
   'app:setStatsIdleTimeoutMinutes',

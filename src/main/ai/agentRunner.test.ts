@@ -90,6 +90,7 @@ function fakeSession(overrides: Partial<Record<string, unknown>> = {}): ProjectS
       list: async () => [],
       reply: async () => ({ id: 'reply-1' })
     },
+    manifest: { publication: { language: 'en-GB' } },
     ...overrides
   } as unknown as ProjectSession
 }
@@ -236,6 +237,25 @@ describe('runAgent', () => {
     expect(events.some((event) => event.type === 'edit')).toBe(false)
     const tool = events.find((event) => event.type === 'tool')
     expect(tool?.type === 'tool' && tool.call.ok).toBe(false)
+  })
+
+  it('lets a tool ask the model a plain question of its own, under the same cancel signal', async () => {
+    // Turn two is the nested proofreading reply, not a tool turn: it carries
+    // no tools and is answered in JSON, which the tool then places.
+    const { events, bodies } = await run([
+      { call: { id: 'call_1', name: 'proofread', args: JSON.stringify({ path: 'ch1.pubdoc' }) } },
+      { text: JSON.stringify([{ block: 0, find: 'at dusk', replace: 'at dawn', kind: 'style' }]) },
+      { text: 'Done.' }
+    ])
+
+    expect(bodies).toHaveLength(3)
+    expect(bodies[1]!.tools).toBeUndefined()
+    const edit = events.find((event) => event.type === 'edit')
+    expect(edit?.type === 'edit' && edit.edit.ops).toEqual([
+      { kind: 'replace', blockIndex: 0, start: 12, end: 19, text: 'at dawn', reason: 'style' }
+    ])
+    const done = events.find((event) => event.type === 'done')
+    expect(done?.type === 'done' && done.message.toolCalls[0]!.result).toContain('1 suggestion')
   })
 
   it('reports an unknown tool back to the model rather than ending the run', async () => {

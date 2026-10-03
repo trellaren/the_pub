@@ -106,7 +106,21 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           findPassages: options.findPassages,
           ensembleAttempts,
           onEdit: (edit) => edits.push(edit),
-          onReviewChanged: (docId) => options.onReviewChanged?.(docId)
+          onReviewChanged: (docId) => options.onReviewChanged?.(docId),
+          complete: async (system, user, maxTokens) => {
+            const nested = await streamCompletion(
+              {
+                settings: { ...settings, maxTokens },
+                system,
+                messages: [{ role: 'user', text: user }],
+                apiKey: options.apiKey
+              },
+              controller.signal,
+              () => {}
+            )
+            if (nested.error) throw new Error(nested.error)
+            return nested.text
+          }
         })
 
         const record: ToolCall = {

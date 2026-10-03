@@ -296,3 +296,35 @@ test('a review comment lands in the margin as a thread by the Assistant, anchore
   await expect(harness.page.getByText('Quiet how? Give us a sound that is missing.')).toBeVisible()
   await expect(harness.page.locator('[title="Assistant"]').first()).toBeVisible()
 })
+
+test('a proofreading pass suggests each correction as a tracked change', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'scene.pubdoc')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.press('S')
+  await editor.pressSequentially('he recieved no answer.')
+  await expect(editor).toContainText('She recieved no answer.')
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+
+  // Turn two is the nested copy-editing request the tool makes on its own,
+  // answered in JSON; turn three is the agent's reply to the writer.
+  const agent = await startAgentServer([
+    { call: { name: 'proofread', args: { path: 'scene.pubdoc' } } },
+    { text: JSON.stringify([{ block: 0, find: 'recieved', replace: 'received', reason: 'misspelt', kind: 'spelling' }]) },
+    { text: 'One spelling fix suggested.' }
+  ])
+  baseUrl = agent.url
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+  await ask('Proofread this.')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('One spelling fix suggested.')
+  await expect(harness.page.getByTestId('tool-trail').last()).toContainText('1 suggestion (1 spelling)')
+
+  await harness.page.evaluate((id) => {
+    const state = window.__pub.documents.getState().docs[id]!
+    window.__pub.layout.getState().openEditor(id, state.path, state.title)
+  }, docId)
+  await expect(editor.locator('del.pub-deletion[data-author^="assistant-"]')).toContainText('recieved')
+  await expect(editor.locator('ins.pub-insertion[data-author^="assistant-"]')).toContainText('received')
+})

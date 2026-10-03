@@ -47,6 +47,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     model: 'stub',
     onEdit: () => {},
     onReviewChanged: () => {},
+    complete: async () => '[]',
     ensembleAttempts: new Map(),
     ...overrides
   }
@@ -368,5 +369,60 @@ describe('comment', () => {
 
     const missing = await runTool('reply_comment', JSON.stringify({ path: 'scene.pubdoc', threadId: 'nope', text: 'x' }), ctx)
     expect(missing.ok).toBe(false)
+  })
+})
+
+describe('proofread', () => {
+  async function proofContext(reply: string, text: string): Promise<{ context: ToolContext; edits: AssistantEdit[]; asked: string[] }> {
+    const documents = new DocumentService(adapter, new SnapshotService(adapter))
+    const created = await documents.create('draft.pubdoc', 'Draft')
+    await documents.write(
+      'draft.pubdoc',
+      { ...created.doc, lang: 'en-GB', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } },
+      created.mtime
+    )
+    const edits: AssistantEdit[] = []
+    const asked: string[] = []
+    return {
+      edits,
+      asked,
+      context: context({
+        session: { entities, sources, documents, manifest: { publication: {} } } as unknown as ProjectSession,
+        onEdit: (edit) => edits.push(edit),
+        complete: async (system, user) => {
+          asked.push(`${system}\n${user}`)
+          return reply
+        }
+      })
+    }
+  }
+
+  it('asks the model about numbered paragraphs and suggests every placed correction as one edit', async () => {
+    const { context: ctx, edits, asked } = await proofContext(
+      JSON.stringify([
+        { block: 0, find: 'recieved', replace: 'received', reason: 'misspelt', kind: 'spelling' },
+        { block: 0, find: 'nowhere', replace: 'anywhere', kind: 'grammar' }
+      ]),
+      'She recieved no answer.'
+    )
+    const result = await runTool('proofread', JSON.stringify({ path: 'draft.pubdoc' }), ctx)
+
+    expect(result.ok).toBe(true)
+    expect(asked[0]).toContain('[0] She recieved no answer.')
+    expect(asked[0]).toContain('en-GB')
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.ops).toEqual([
+      { kind: 'replace', blockIndex: 0, start: 4, end: 12, text: 'received', reason: 'spelling: misspelt' }
+    ])
+    expect(result.summary).toBe('Proofread Draft — 1 suggestion (1 spelling)')
+    expect(result.content).toContain('1 finding could not be placed')
+  })
+
+  it('suggests nothing when the model finds nothing', async () => {
+    const { context: ctx, edits } = await proofContext('[]', 'All is well.')
+    const result = await runTool('proofread', JSON.stringify({ path: 'draft.pubdoc' }), ctx)
+    expect(result.ok).toBe(true)
+    expect(edits).toHaveLength(0)
+    expect(result.content).toContain('nothing to correct')
   })
 })

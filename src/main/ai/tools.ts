@@ -3,7 +3,17 @@ import { ulid } from 'ulid'
 import type { ProjectSession } from '../services/projectSession.js'
 import type { SemanticHit } from '../services/searchIndexService.js'
 import type { AuthorProfile } from '../../shared/model/author.js'
-import { extractPlainText } from '../../shared/pm/extractText.js'
+import { extractPlainText, extractBlocks } from '../../shared/pm/extractText.js'
+import {
+  PROOFREAD_KINDS,
+  MAX_PROOFREAD_CALLS,
+  chunkBlocks,
+  proofreadPrompt,
+  parseFindings,
+  describeFindings,
+  type PlacedFinding,
+  type ProofreadKind
+} from './proofread.js'
 import { findTextOccurrences } from '../../shared/pm/anchors.js'
 import type { AssistantEdit, AssistantEditOp } from '../../shared/pm/assistantEdits.js'
 import {
@@ -49,6 +59,15 @@ export interface ToolContext {
   onEdit: (edit: AssistantEdit) => void
   /** A comment or reply landed on this document; the Review panel should reload. */
   onReviewChanged: (docId: string) => void
+  /**
+   * One plain request to the same model, outside the tool loop.
+   *
+   * For tools whose work *is* a model call — proofreading a chapter chunk by
+   * chunk — rather than a lookup. Bound by the loop to the run's settings, key
+   * and abort signal, so a tool cannot reach a provider the writer did not
+   * choose or outlive a run they cancelled.
+   */
+  complete: (system: string, user: string, maxTokens: number) => Promise<string>
   /**
    * How many times each ensemble has been attempted in this run, so a group
    * that fails its constraints is redrafted once and then written with the
@@ -479,6 +498,69 @@ const replyComment = define({
   }
 })
 
+const proofread = define({
+  name: 'proofread',
+  description:
+    'Proofread a document for spelling, grammar and punctuation (and, if asked, style), suggesting every correction as a tracked change the author accepts or rejects. Works through the whole document in passes; a long document reports where it stopped so you can call again with fromBlock.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    kinds: z
+      .array(z.enum(PROOFREAD_KINDS))
+      .default((): ProofreadKind[] => ['spelling', 'grammar', 'punctuation'])
+      .describe('Which problems to look for. Add "style" only when the author asked for it.'),
+    fromBlock: z.number().int().min(0).default(0).describe('First paragraph to check; use what a previous call reported.'),
+    toBlock: z.number().int().min(0).optional().describe('Last paragraph to check, inclusive.')
+  }),
+  run: async ({ path, kinds, fromBlock, toBlock }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const blocks = extractBlocks(loaded.doc.content).filter(
+      (block) => block.index >= fromBlock && (toBlock === undefined || block.index <= toBlock)
+    )
+    const chunks = chunkBlocks(blocks)
+    const covered = chunks.slice(0, MAX_PROOFREAD_CALLS)
+    const lang = loaded.doc.lang ?? context.session.manifest.publication.language ?? ''
+
+    const placed: PlacedFinding[] = []
+    let dropped = 0
+    for (const chunk of covered) {
+      const prompt = proofreadPrompt(chunk, kinds, lang)
+      const reply = await context.complete(prompt.system, prompt.user, 2_048)
+      const parsed = parseFindings(reply, chunk)
+      placed.push(...parsed.placed)
+      dropped += parsed.dropped
+    }
+
+    // One edit for the whole pass: one undo step in the editor, one write to a
+    // closed file, one row in the trail — not one of each per typo.
+    if (placed.length > 0) {
+      context.onEdit(describeEdit(context, loaded.doc.docId, path, placed.map((finding) => finding.op)))
+    }
+
+    const lastChecked = covered.at(-1)?.at(-1)?.index
+    const remaining = chunks.length > covered.length ? chunks[covered.length]![0]!.index : null
+    const described = describeFindings(placed)
+    const notes = [
+      placed.length > 0
+        ? `Suggested ${described} as tracked changes; the author will accept or reject each. Do not repeat them in your reply.`
+        : `Found nothing to correct${lastChecked !== undefined ? ` in paragraphs ${fromBlock}–${lastChecked}` : ''}.`,
+      dropped > 0 ? `${dropped} finding${dropped === 1 ? '' : 's'} could not be placed and were dropped.` : '',
+      remaining !== null
+        ? `Stopped after paragraph ${lastChecked}; call proofread again with fromBlock=${remaining} to continue.`
+        : ''
+    ].filter(Boolean)
+    return {
+      ok: true,
+      content: notes.join(' '),
+      summary: `Proofread ${loaded.doc.title} — ${described}${remaining !== null ? ` (through paragraph ${lastChecked})` : ''}`
+    }
+  }
+})
+
 /*
  * The writing tools.
  *
@@ -696,6 +778,7 @@ const TOOLS = [
   comment,
   listComments,
   replyComment,
+  proofread,
   draftRecord,
   draftEnsemble,
   reviseRecord,

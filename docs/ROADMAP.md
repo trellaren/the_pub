@@ -8,7 +8,7 @@ serves an essay, a thesis or a research paper, without losing what makes it good
 It is a direction of travel, not a schedule. Phases are ordered by dependency, and each one is
 meant to be shippable on its own.
 
-**Status:** Phases 0–6 and 8–15 have shipped, each with a build plan linked from its section
+**Status:** Phases 0–6 and 8–16 have shipped, each with a build plan linked from its section
 below. Phase 7 (pagination) is deliberately deferred: steps 1 and 2 of its sequence — per-document
 page setup, real headers and footers in exported `.docx`, and a pure `paginate()` — are built,
 because they are useful on their own; step 3, where the permanent cost starts, is not.
@@ -392,6 +392,33 @@ next: draft a character, fill out a cast, bring research back with its citation 
 - **Research records a claim and its attributed citation; it does not browse.** A confident
   fabricated citation in a thesis bibliography is career damage, so the card says "attributed by
   the assistant — not verified" and fetching waits for Phase 11's research library.
+
+## Phase 16 — The assistant proper
+
+*Detailed build plan: [`superpowers/plans/2026-10-02-writing-agent-plan.md`](./superpowers/plans/2026-10-02-writing-agent-plan.md).*
+
+Phase 10b's agent was an opt-in behind a checkbox, and its proposals were applied by a button in
+the panel rather than as the suggestion marks the rule promised. This phase makes it the
+assistant the app was always describing.
+
+- **On by default.** Tools are offered on every send once AI is on; the `agent` switch is gone
+  (`FORMAT_VERSIONS.chats` 4 → 5, the first chats step that changes a value). Earlier tool calls
+  are replayed to the model, so it remembers what it searched.
+- **An identity of its own**, `assistant-<ownerId>`, so its marks, comments and review file are
+  attributable and single-writer like any collaborator's.
+- **Every change is an `AssistantEdit`** — block offsets, applied by whoever holds the document:
+  the open editor (one undoable transaction) or main (the same function over the file, with the
+  same post-write steps as `doc:write`). In the default policy it lands as Phase 9
+  `insertion`/`deletion` marks.
+- **Peer review in the margin** (`comment`, `list_comments`, `reply_comment`), **proofreading**
+  as one batched edit per pass, and **planning reads** (`list_beats`, `read_outline`).
+- **A write policy** — suggest, apply trivial fixes, or apply directly — and **permanent
+  provenance**: an `aiAuthored` mark the editor refuses to let formatting strip, and an
+  append-only `provenance` log in the envelope that `DocumentService.write` unions back in
+  (`FORMAT_VERSIONS.document` 9 → 10).
+- **Web access as a writer's setting**: off, pages they named, or search and fetch through a
+  swappable provider; `cite_page` writes a draft source only for a page actually read, capture
+  attached. Phase 15's unverified attribution remains the only path when nothing was fetched.
 
 ## The decisions that matter most
 

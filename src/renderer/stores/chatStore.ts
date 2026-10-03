@@ -5,6 +5,7 @@ import { modelChoice, type LlmStatus } from '@shared/model/llm.js'
 import type { RetrievalStatus } from '@shared/model/retrieval.js'
 import { invoke, attempt, on, reportError } from '@renderer/lib/ipc.js'
 import { applyAssistantEditLocally } from '@renderer/panels/ai/applyEdit.js'
+import { useDocumentStore } from '@renderer/stores/documentStore.js'
 
 interface ChatStore {
   chats: Chat[]
@@ -104,7 +105,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   send: async (chatId, text, context) => {
     const started = await attempt(
-      invoke('ai:send', { chatId, text, context }),
+      invoke('ai:send', { chatId, text, context, activeDocId: useDocumentStore.getState().activeDocId ?? '' }),
       'Could not send the message'
     )
     if (!started) return

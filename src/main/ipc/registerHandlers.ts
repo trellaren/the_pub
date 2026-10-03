@@ -29,6 +29,18 @@ import {
 
 /** Long enough for a local model on a slow machine, short enough not to hang the card. */
 const PROMPT_TIMEOUT_MS = 30_000
+/** The brief for a project whose storyboard or records could not be read. */
+function emptyFacts(session: ProjectSession): Parameters<typeof describeProject>[0] {
+  return {
+    name: session.manifest.name,
+    projectType: session.manifest.projectType,
+    documents: [],
+    records: [],
+    outlineBeats: [],
+    openComments: null
+  }
+}
+
 /** A page or a search that has not answered in this long is not going to. */
 const WEB_TIMEOUT_MS = 15_000
 /** More than this is not an article; it is a download, and the model gets 12k characters anyway. */
@@ -82,6 +94,7 @@ import type { ModelStore } from '../llm/modelStore.js'
 import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
 import { historyToOutbound } from '../ai/history.js'
+import { describeProject, projectFacts } from '../ai/projectContext.js'
 import { buildWebGate, extractUrls } from '../ai/webGate.js'
 import { webSearch } from '../research/webSearch.js'
 import { searchKeyId, type WebSearchHit } from '../../shared/model/webAccess.js'
@@ -1382,11 +1395,14 @@ export function registerHandlers(context: HandlerContext): void {
     }
 
     const angle = pickAngle(stored.angle)
+    // Rooted in the open project when there is one; the generic prompt
+    // otherwise, since the welcome screen also shows before a project opens.
+    const brief = session ? describeProject(await projectFacts(session).catch(() => emptyFacts(session))) : ''
     const outcome = await streamCompletion(
       {
         settings: { ...settings, baseUrl, maxTokens: 200 },
         system: 'You write short, concrete writing prompts.',
-        messages: [{ role: 'user', text: promptRequest(angle) }],
+        messages: [{ role: 'user', text: promptRequest(angle, brief) }],
         apiKey
       },
       AbortSignal.timeout(PROMPT_TIMEOUT_MS),
@@ -1471,7 +1487,7 @@ export function registerHandlers(context: HandlerContext): void {
    * The user's message is stored before the request goes out, so a failed or
    * cancelled reply still leaves what they wrote in the conversation.
    */
-  handle('ai:send', async ({ chatId, text, context: attached }, event) => {
+  handle('ai:send', async ({ chatId, text, context: attached, activeDocId }, event) => {
     const session = requireSession(event)
     const chat = session.chats.get(chatId)
     if (!chat) throw new Error('That chat no longer exists')
@@ -1541,7 +1557,13 @@ export function registerHandlers(context: HandlerContext): void {
     void runAgent(session.ai, {
       requestId,
       settings,
-      system: [ASSISTANT_PREAMBLE, settings.systemPrompt.trim()].filter(Boolean).join('\n\n'),
+      system: [
+        ASSISTANT_PREAMBLE,
+        describeProject(await projectFacts(session, activeDocId || undefined).catch(() => emptyFacts(session))),
+        settings.systemPrompt.trim()
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       messages: historyToOutbound(updated.messages),
       apiKey,
       onEvent,

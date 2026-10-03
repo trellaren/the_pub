@@ -410,6 +410,78 @@ const suggestEdit = define({
 })
 
 /*
+ * The planning tools.
+ *
+ * Read-only views of the storyboard, so "what comes next" and "set me an
+ * exercise" can be asked of this book rather than of a book. There is no
+ * tool that writes a beat: beats have no `provisional` flag, so the service
+ * could not enforce Phase 15's rule that a tool changes only what it drafted
+ * — and a rule the service cannot enforce is a request, not a rule.
+ */
+
+const listBeats = define({
+  name: 'list_beats',
+  description:
+    'List the story beats on the storyboard — title, summary, when it happens, which document it is in, who is in it, and how far along it is (outline, draft, revised, done).',
+  args: z.object({
+    status: z.enum(['outline', 'draft', 'revised', 'done', 'all']).default('all')
+  }),
+  run: async ({ status }, { session }) => {
+    const { beats, columns } = session.beats.snapshot()
+    const names = new Map(session.entities.snapshot().entities.map((entity) => [entity.id, entity.name]))
+    const columnName = new Map(columns.map((column) => [column.id, column.name]))
+    const wanted = beats.filter((beat) => status === 'all' || beat.status === status)
+    if (wanted.length === 0) {
+      return { ok: true, content: `No ${status === 'all' ? '' : `${status} `}beats.`, summary: `Listed beats — none` }
+    }
+    const content = wanted
+      .map((beat) => {
+        const cast = beat.entityIds.map((id) => names.get(id)).filter(Boolean).join(', ')
+        return [
+          `- ${beat.title} [${beat.status}]${columnName.get(beat.columnId) ? ` · ${columnName.get(beat.columnId)}` : ''}${beat.when.label ? ` · when: ${beat.when.label}` : ''}`,
+          beat.summary ? `  ${beat.summary}` : '',
+          cast ? `  with: ${cast}` : '',
+          beat.docId ? `  in document ${session.search.resolvePath(beat.docId) ?? beat.docId}` : ''
+        ]
+          .filter(Boolean)
+          .join('\n')
+      })
+      .join('\n')
+    return { ok: true, content, summary: `Listed ${wanted.length} beat${wanted.length === 1 ? '' : 's'}` }
+  }
+})
+
+const readOutline = define({
+  name: 'read_outline',
+  description:
+    'The shape of the book: the manuscript in order (parts and documents, with word counts) and the storyboard columns with their beats. Use it before proposing what comes next.',
+  args: z.object({}),
+  run: async (_args, { session }) => {
+    const view = session.manuscript.view()
+    const manuscript = view.nodes
+      .map((node) =>
+        node.kind === 'part'
+          ? `${node.title}`
+          : `  ${node.title}${node.missing ? ' (missing)' : ''}${node.resolvedPath ? ` — ${node.resolvedPath}` : ''}`
+      )
+      .join('\n')
+    const { beats, columns } = session.beats.snapshot()
+    const board = [...columns]
+      .sort((a, b) => a.order - b.order)
+      .map((column) => {
+        const inColumn = beats.filter((beat) => beat.columnId === column.id).sort((a, b) => a.order - b.order)
+        return `${column.name}:\n${inColumn.length ? inColumn.map((beat) => `  - ${beat.title} [${beat.status}]${beat.summary ? ` — ${beat.summary}` : ''}`).join('\n') : '  (empty)'}`
+      })
+      .join('\n')
+    return {
+      ok: true,
+      content: `Manuscript:\n${manuscript || '  (no documents yet)'}\n\nStoryboard:\n${board || '  (no columns)'}`,
+      summary: 'Read the outline'
+    }
+  }
+})
+
+/*
  * The review tools.
  *
  * Comments are the other half of a peer review, and they already have a home:
@@ -957,6 +1029,8 @@ const TOOLS = [
   listDocuments,
   listRecords,
   readRecord,
+  listBeats,
+  readOutline,
   suggestEdit,
   comment,
   listComments,

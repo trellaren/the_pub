@@ -91,6 +91,7 @@ function fakeSession(overrides: Partial<Record<string, unknown>> = {}): ProjectS
       reply: async () => ({ id: 'reply-1' })
     },
     manifest: { publication: { language: 'en-GB' } },
+    beats: { snapshot: () => ({ beats: [], columns: [] }) },
     ...overrides
   } as unknown as ProjectSession
 }

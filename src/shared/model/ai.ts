@@ -203,45 +203,6 @@ export const chatContextSchema = z.object({
 })
 export type ChatContext = z.infer<typeof chatContextSchema>
 
-/** Ready-made asks, because a blank prompt box is where this feature stalls. */
-export const PROMPT_PRESETS: { id: string; title: string; prompt: string }[] = [
-  {
-    id: 'review',
-    title: 'Review this',
-    prompt:
-      'Read the passage below as an editor. What works, what does not, and what would you change? Be specific and quote the text you mean.'
-  },
-  {
-    id: 'peer-review',
-    title: 'Peer review in the margin',
-    prompt:
-      'Review the open document as a peer reviewer. Find it with list_documents, read it, then leave your observations as margin comments with `comment` on the exact passages they concern, and offer concrete rewordings with `suggest_edit`. Finish with two or three sentences on the whole.'
-  },
-  {
-    id: 'tighten',
-    title: 'Tighten',
-    prompt:
-      'Rewrite the passage below to be tighter, keeping the voice and every plot detail. Return only the rewritten prose.'
-  },
-  {
-    id: 'continue',
-    title: 'Suggest what happens next',
-    prompt:
-      'Given the passage below, suggest three different ways the scene could continue. One or two sentences each, no prose.'
-  },
-  {
-    id: 'critique-character',
-    title: 'Is this character consistent?',
-    prompt:
-      'Considering the passage below, does the character behave consistently with how they have been written? Name anything that reads out of character.'
-  },
-  {
-    id: 'brainstorm',
-    title: 'Brainstorm',
-    prompt: 'Help me think through the following. Ask me a question if that would be more useful than an answer.'
-  }
-]
-
 /** A streamed reply, as it reaches the renderer. */
 export const streamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delta'), requestId: z.string(), text: z.string() }),

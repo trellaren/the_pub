@@ -57,5 +57,12 @@ describe('promptRequest', () => {
     const request = promptRequest('a door that will not close')
     expect(request).toContain('a door that will not close')
     expect(request).toMatch(/no preamble/i)
+    expect(request).not.toContain('this project')
+  })
+
+  it('roots the prompt in the project when told about it', () => {
+    const request = promptRequest('an object that changes hands', 'The project is "The Harbour", a novel.')
+    expect(request).toContain('The Harbour')
+    expect(request).toContain('without retelling it')
   })
 })

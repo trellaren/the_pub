@@ -9,6 +9,7 @@ import { LocalAdapter } from '../vfs/localAdapter.js'
 import { DocumentService } from '../services/documentService.js'
 import { SnapshotService } from '../services/snapshotService.js'
 import { ReviewService } from '../services/reviewService.js'
+import { BeatService } from '../services/beatService.js'
 import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
 import { buildWebGate } from './webGate.js'
 import { isProvisional } from '../../shared/model/source.js'
@@ -492,5 +493,45 @@ describe('the web tools', () => {
 
     const forbidden = await runTool('web_search', JSON.stringify({ query: 'x' }), context({ web: buildWebGate('urls') }))
     expect(forbidden.ok).toBe(false)
+  })
+})
+
+describe('the planning tools', () => {
+  async function planningContext(): Promise<ToolContext> {
+    const beats = new BeatService(adapter)
+    await beats.load()
+    const aurelio = await entities.create('character', 'Aurelio')
+    const storm = await beats.create({ title: 'The storm' })
+    await beats.save({ ...storm, summary: 'The boat does not come back.', entityIds: [aurelio.id], when: { label: 'Night 3', sort: 3 } })
+    const calm = await beats.create({ title: 'The calm' })
+    await beats.save({ ...calm, status: 'done' })
+    return context({
+      session: {
+        entities,
+        sources,
+        beats,
+        search: { resolvePath: () => null },
+        manuscript: { view: () => ({ nodes: [{ kind: 'document', title: 'One', resolvedPath: 'one.pubdoc', missing: false }], resolving: false }) }
+      } as unknown as ProjectSession
+    })
+  }
+
+  it('lists beats with their cast by name and filters by status', async () => {
+    const ctx = await planningContext()
+    const all = await runTool('list_beats', '{}', ctx)
+    expect(all.content).toContain('The storm [outline]')
+    expect(all.content).toContain('with: Aurelio')
+    expect(all.content).toContain('when: Night 3')
+    const outline = await runTool('list_beats', JSON.stringify({ status: 'outline' }), ctx)
+    expect(outline.content).not.toContain('The calm')
+  })
+
+  it('reads the outline as manuscript order plus the board by column', async () => {
+    const ctx = await planningContext()
+    const result = await runTool('read_outline', '{}', ctx)
+    expect(result.content).toContain('Manuscript:')
+    expect(result.content).toContain('One — one.pubdoc')
+    expect(result.content).toContain('Storyboard:')
+    expect(result.content).toContain('- The storm [outline] — The boat does not come back.')
   })
 })

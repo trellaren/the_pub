@@ -439,3 +439,34 @@ test('with web access set to pages you name, the assistant reads only those, and
     await new Promise<void>((resolve) => pageServer.close(() => resolve()))
   }
 })
+
+test('the task buttons offer what can run, and a task names the open document to the model', async () => {
+  const agent = await startAgentServer([{ text: 'Nothing to fix.' }])
+  baseUrl = agent.url
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'Assistant'))
+
+  // No document open: only the project-wide asks.
+  const tasks = harness.page.getByTestId('assistant-tasks')
+  await expect(tasks.getByTestId('task-prompt')).toBeVisible()
+  await expect(tasks.getByTestId('task-peer-review')).toHaveCount(0)
+  await expect(tasks.getByTestId('task-research')).toHaveCount(0)
+
+  const docId = await createDocument(harness.page, 'scene.pubdoc')
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'Assistant'))
+  await expect(tasks.getByTestId('task-peer-review')).toBeVisible()
+  await expect(tasks.getByTestId('task-proofread')).toBeVisible()
+
+  await tasks.getByTestId('task-proofread').click()
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('Nothing to fix.')
+  const sent = agent.requests()[0] as { messages: { role: string; content: string }[] }
+  const asked = sent.messages.filter((message) => message.role === 'user').at(-1)!.content
+  expect(asked).toContain('scene.pubdoc')
+  expect(asked).toContain('proofread')
+  // The project brief rides in the system prompt, naming the project.
+  expect(sent.messages[0]!.role).toBe('system')
+  expect(sent.messages[0]!.content).toContain('The project is')
+  void docId
+})

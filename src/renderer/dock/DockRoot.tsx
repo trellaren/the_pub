@@ -181,7 +181,7 @@ export function DockRoot() {
             registerCommand({
               id: 'panel.ai',
               title: 'Show AI',
-              run: () => useLayoutStore.getState().showPanel('ai', 'AI')
+              run: () => useLayoutStore.getState().showPanel('ai', 'Assistant')
             })
           ]
         : []),

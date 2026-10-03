@@ -647,7 +647,9 @@ export const ipcContract = defineContract({
       req: z.object({
         chatId: z.string(),
         text: z.string(),
-        context: z.string().default('')
+        context: z.string().default(''),
+        /** The document the writer is looking at, so the brief can count its open comments. */
+        activeDocId: z.string().default('')
       }),
       res: z.object({ requestId: z.string(), message: chatMessageSchema })
     },

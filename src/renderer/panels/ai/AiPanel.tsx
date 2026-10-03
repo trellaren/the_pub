@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AiProviderId, ToolCall } from '@shared/model/ai.js'
-import { PROVIDERS, PROMPT_PRESETS, providerInfo, resolveSettings } from '@shared/model/ai.js'
+import { PROVIDERS, providerInfo, resolveSettings } from '@shared/model/ai.js'
+import { availableTasks, type AssistantTask } from '@shared/model/assistantTasks.js'
+import { pickAngle } from '@shared/model/writingPrompt.js'
 import { EMBEDDED_MODELS, isSideloadedModel } from '@shared/model/llm.js'
 import { ModelManager } from './ModelManager.js'
 import { RetrievalManager } from './RetrievalManager.js'
@@ -12,6 +14,7 @@ import { ulid } from 'ulid'
 import type { AssistantEdit } from '@shared/pm/assistantEdits.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
+import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { SEARCH_PROVIDERS, searchProviderInfo, searchKeyId } from '@shared/model/webAccess.js'
 import { assistantProfile } from '@shared/model/author.js'
 import {
@@ -45,8 +48,14 @@ export function AiPanel() {
   const streaming = useChatStore((store) => store.streaming)
   const keyStatus = useChatStore((store) => store.keyStatus)
 
+  const activeDocId = useDocumentStore((store) => store.activeDocId)
+  const activeDoc = useDocumentStore((store) => (store.activeDocId ? store.docs[store.activeDocId] : undefined))
+  const webAccess = useAppStore((store) => store.state?.aiWebAccess ?? 'none')
   const [draft, setDraft] = useState('')
   const [useSelection, setUseSelection] = useState(true)
+  // Re-read on each render rather than subscribed: a selection changes on
+  // every keystroke, and the chips only need to be right when looked at.
+  const hasSelection = hasEditorSelection(activeDocId)
   const [showSettings, setShowSettings] = useState(false)
   const [replyAnnouncement, setReplyAnnouncement] = useState('')
   const threadEnd = useRef<HTMLDivElement>(null)
@@ -81,19 +90,23 @@ export function AiPanel() {
     wasStreaming.current = Boolean(streaming)
   }, [streaming])
 
-  const send = async (prompt: string): Promise<void> => {
+  const send = async (prompt: string, attach = useSelection): Promise<void> => {
     if (!prompt.trim() || streaming) return
     let target = chat
     if (!target) target = await useChatStore.getState().createChat()
     if (!target) return
     setDraft('')
-    await useChatStore.getState().send(target.id, prompt, useSelection ? manuscriptContext() : '')
+    await useChatStore.getState().send(target.id, prompt, attach ? manuscriptContext() : '')
+  }
+
+  const runTask = (task: AssistantTask): void => {
+    void send(task.prompt({ docPath: activeDoc?.path ?? '', angle: pickAngle('') }), task.attach)
   }
 
   if (!project) {
     return (
       <PanelShell>
-        <PanelHeader>AI</PanelHeader>
+        <PanelHeader>Assistant</PanelHeader>
         <EmptyState title="No project open" />
       </PanelShell>
     )
@@ -106,7 +119,7 @@ export function AiPanel() {
     <PanelShell>
       <PanelHeader>
         <RavenMark variant="bust" size={14} className="shrink-0 text-faint" />
-        <span className="flex-1">AI</span>
+        <span className="flex-1">Assistant</span>
         <Select
           value={activeChatId ?? ''}
           onChange={(event) => useChatStore.getState().setActive(event.target.value || null)}
@@ -148,8 +161,8 @@ export function AiPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="chat-thread">
         {!chat || chat.messages.length === 0 ? (
           <EmptyState
-            title="Ask about the manuscript"
-            hint="The selected text, or the open document, is sent with your question."
+            title="Ask the assistant"
+            hint="It can read and search the project, review and proofread, and suggest changes you accept or reject. The selected text, or the open document, is sent with your question."
           />
         ) : (
           chat.messages.map((message) => (
@@ -201,15 +214,16 @@ export function AiPanel() {
       </div>
 
       <div className="shrink-0 border-t border-border p-2">
-        <div className="mb-1 flex flex-wrap gap-1">
-          {PROMPT_PRESETS.map((preset) => (
+        <div className="mb-1 flex flex-wrap gap-1" data-testid="assistant-tasks">
+          {availableTasks({ hasDocument: Boolean(activeDoc), hasSelection, web: webAccess }).map((task) => (
             <ToolbarButton
-              key={preset.id}
-              label={preset.prompt}
+              key={task.id}
+              label={task.title}
               disabled={Boolean(streaming)}
-              onClick={() => void send(preset.prompt)}
+              onClick={() => runTask(task)}
+              data-testid={`task-${task.id}`}
             >
-              {preset.title}
+              {task.title}
             </ToolbarButton>
           ))}
         </div>
@@ -544,17 +558,62 @@ function WebAccessFields() {
   )
 }
 
-/** What the agent did, above the answer it did it for. */
+/**
+ * What the agent did, above the answer it did it for.
+ *
+ * A call that touched a document links to it: a suggestion or a comment is
+ * something to go and look at, and the panel that judges it is the editor's
+ * Review panel, not this one.
+ */
 function ToolTrail({ calls }: { calls: ToolCall[] }) {
   return (
     <ul className="mb-1 border-l-2 border-border pl-2" data-testid="tool-trail">
-      {calls.map((call) => (
-        <li key={call.id} className={cx('text-[10px]', call.ok ? 'text-faint' : 'text-danger')}>
-          {call.result || call.name}
-        </li>
-      ))}
+      {calls.map((call) => {
+        const path = documentPathOf(call)
+        return (
+          <li key={call.id} className={cx('text-[10px]', call.ok ? 'text-faint' : 'text-danger')}>
+            {call.result || call.name}
+            {path && call.ok ? (
+              <button
+                type="button"
+                className="ml-1 text-accent hover:underline"
+                onClick={() => void openDocumentFromTrail(path, call.name)}
+                aria-label={`Open ${path}`}
+              >
+                open
+              </button>
+            ) : null}
+          </li>
+        )
+      })}
     </ul>
   )
+}
+
+const DOCUMENT_TOOLS = new Set(['suggest_edit', 'comment', 'reply_comment', 'proofread', 'read_document'])
+
+function documentPathOf(call: ToolCall): string | null {
+  if (!DOCUMENT_TOOLS.has(call.name)) return null
+  try {
+    const args = JSON.parse(call.args || '{}') as { path?: unknown }
+    return typeof args.path === 'string' && args.path ? args.path : null
+  } catch {
+    return null
+  }
+}
+
+async function openDocumentFromTrail(path: string, tool: string): Promise<void> {
+  const docId = await useDocumentStore.getState().openPath(path)
+  if (!docId) return
+  const state = useDocumentStore.getState().docs[docId]
+  if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+  // A comment or a suggestion is judged in the Review panel, so it comes along.
+  if (tool !== 'read_document') useLayoutStore.getState().showPanel('review', 'Review')
+}
+
+function hasEditorSelection(docId: string | null): boolean {
+  const editor = docId ? getEditor(docId) : undefined
+  return Boolean(editor && editor.state.selection.from !== editor.state.selection.to)
 }
 
 /**

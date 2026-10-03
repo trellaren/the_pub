@@ -4,7 +4,7 @@ import { app } from 'electron'
 import { appStateSchema, type AppState, type RecentProject } from '../../shared/model/app.js'
 import { keybindableCommands } from '../../shared/menu/menuModel.js'
 import { findConflict, normalizeAccelerator } from '../../shared/menu/keybindings.js'
-import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
+import { colorForAuthor, assistantProfile, type AuthorProfile } from '../../shared/model/author.js'
 import { DEFAULT_THEME } from '../../shared/themes.js'
 import { ulid } from 'ulid'
 import type { DailyPrompt } from '../../shared/model/writingPrompt.js'
@@ -109,6 +109,11 @@ export class AppStateService {
     if (!this.state.author.id) this.setAuthor({})
     const profile = this.state.author
     return { ...profile, color: profile.color || colorForAuthor(profile.id) }
+  }
+
+  /** The assistant that works for this person, derived from their own id. */
+  assistant(): AuthorProfile {
+    return assistantProfile(this.author())
   }
 
   setDailyPrompt(dailyPrompt: DailyPrompt): DailyPrompt {

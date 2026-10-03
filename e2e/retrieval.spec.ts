@@ -91,20 +91,19 @@ test.afterEach(async () => {
   server = null
 })
 
-async function useLocalServer(agent: boolean): Promise<void> {
+async function useLocalServer(): Promise<void> {
   await harness.page.evaluate(
-    ([url, useAgent]) =>
+    (url) =>
       window.__pub.chats.getState().saveSettings({
         provider: 'lmstudio',
         model: 'stub-model',
-        baseUrl: url as string,
+        baseUrl: url,
         temperature: 0.7,
         maxTokens: 512,
         systemPrompt: '',
-        agent: useAgent as boolean,
         embedModel: 'stub-embed'
       }),
-    [baseUrl, agent] as const
+    baseUrl
   )
 }
 
@@ -127,7 +126,7 @@ test('the index is built on request, reports its coverage, and survives reopenin
 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await useLocalServer(false)
+  await useLocalServer()
   await writeScene('scene-01.pubdoc', 'The harbour was quiet.')
 
   await waitFor(async () => (await retrievalStatus()).total > 0, 'the block to be indexed')
@@ -157,7 +156,7 @@ test('editing one paragraph re-embeds that paragraph and no others', async () =>
 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await useLocalServer(false)
+  await useLocalServer()
   await writeScene('scene-01.pubdoc', 'The harbour was quiet.')
   await writeScene('scene-02.pubdoc', 'Rain came late.')
 
@@ -185,7 +184,7 @@ test('the agent finds a passage by meaning and never sees the whole book', async
 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await useLocalServer(true)
+  await useLocalServer()
   await writeScene('scene-01.pubdoc', 'The harbour was quiet.')
   await writeScene('scene-02.pubdoc', 'The horse waited.')
 
@@ -216,7 +215,7 @@ test('a project with no index is not offered the tool that would refuse', async 
 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await useLocalServer(true)
+  await useLocalServer()
   await writeScene('scene-01.pubdoc', 'The harbour was quiet.')
   await waitFor(async () => (await retrievalStatus()).total > 0, 'the block to be indexed')
 

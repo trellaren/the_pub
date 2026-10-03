@@ -1,4 +1,7 @@
-import type { AiSettings, StreamEvent, ToolCall, EditProposal } from '../../shared/model/ai.js'
+import type { AiSettings, StreamEvent, ToolCall } from '../../shared/model/ai.js'
+import { MAX_TOOL_CONTENT_CHARS } from '../../shared/model/ai.js'
+import type { AuthorProfile } from '../../shared/model/author.js'
+import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
 import type { ProjectSession } from '../services/projectSession.js'
 import { streamCompletion, assistantMessage, type AiRunner } from './aiRunner.js'
 import { toolSpecs, runTool, type RetrievalResult } from './tools.js'
@@ -21,6 +24,8 @@ export interface AgentRunOptions {
   messages: OutboundMessage[]
   apiKey: string | null
   session: ProjectSession
+  /** Who the assistant is in this project — see `assistantProfile`. */
+  assistant: AuthorProfile
   /**
    * Semantic retrieval, when this project has an index to search. Passed in
    * rather than reached for, because building the query vector needs the same
@@ -90,12 +95,15 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
       for (const call of outcome.toolCalls) {
         if (controller.signal.aborted) break
 
-        const proposals: EditProposal[] = []
+        const edits: AssistantEdit[] = []
         const result = await runTool(call.name, call.args, {
           session,
+          assistant: options.assistant,
+          runId: requestId,
+          model: settings.model,
           findPassages: options.findPassages,
           ensembleAttempts,
-          onProposal: (proposal) => proposals.push(proposal)
+          onEdit: (edit) => edits.push(edit)
         })
 
         const record: ToolCall = {
@@ -103,13 +111,14 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           name: call.name,
           args: call.args,
           result: result.summary,
+          content: result.content.slice(0, MAX_TOOL_CONTENT_CHARS),
           ok: result.ok
         }
         performed.push(record)
         // Emitted as it happens rather than at the end: an agent that spends
         // twenty seconds searching should say so while it searches.
         onEvent({ type: 'tool', requestId, call: record })
-        for (const proposal of proposals) onEvent({ type: 'proposal', requestId, proposal })
+        for (const edit of edits) onEvent({ type: 'edit', requestId, edit })
 
         results.push({ id: call.id, content: result.content })
       }

@@ -1,4 +1,5 @@
 import type { Editor } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 import { findPluginKey, getFindState, type FindOptions } from './extensions/findHighlight.js'
 import { suggestionModeKey } from './extensions/suggestions.js'
 import { resolveSuggestions } from '@shared/pm/suggestions.js'
@@ -107,10 +108,32 @@ export function resolveSuggestion(
     authorId: suggestion.authorId,
     mark: suggestion.mark
   })
-  editor.commands.setContent(resolved)
+  replaceDocument(editor, resolved)
 }
 
 /** Every pending suggestion in the document, judged at once. */
 export function resolveAllSuggestions(editor: Editor, accept: boolean): void {
-  editor.commands.setContent(resolveSuggestions(editor.getJSON() as PmDoc, accept))
+  replaceDocument(editor, resolveSuggestions(editor.getJSON() as PmDoc, accept))
+}
+
+/**
+ * Swap the whole document for a JSON replacement, as one undoable step.
+ *
+ * Carries the suggesting-mode meta so the `SuggestingMode` filter lets it
+ * through verbatim: the replacement already says exactly which marks it wants,
+ * and a writer who is in suggesting mode while a verdict or an assistant edit
+ * lands must not have that rewritten into a second layer of marks. The cursor
+ * is put back where it was, clamped, because a replacement that throws the
+ * writer to the top of the chapter is one they will stop accepting.
+ */
+export function replaceDocument(editor: Editor, doc: PmDoc): void {
+  const { state, view } = editor
+  const node = state.schema.nodeFromJSON(doc)
+  const { from, to } = state.selection
+  const transaction = state.tr.replaceWith(0, state.doc.content.size, node.content)
+  const size = transaction.doc.content.size
+  const clamp = (position: number): number => Math.max(1, Math.min(position, Math.max(1, size - 1)))
+  transaction.setSelection(TextSelection.create(transaction.doc, clamp(from), clamp(to)))
+  transaction.setMeta(suggestionModeKey, suggestionModeKey.getState(state) ?? { authorId: '', enabled: false })
+  view.dispatch(transaction)
 }

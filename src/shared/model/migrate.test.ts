@@ -55,6 +55,24 @@ describe('migrate', () => {
     expect(result.value).toEqual(raw)
   })
 
+  it('drops the retired agent switch from a v4 chats file and its per-chat overrides', () => {
+    // Left in place, an older build would re-save `agent: false` and read it as
+    // an instruction to hide tools this build always offers.
+    const raw = {
+      formatVersion: 4,
+      settings: { provider: 'openai', agent: true, model: 'gpt-4o' },
+      chats: [{ id: 'c1', title: 'Hello', settings: { agent: false, model: 'o3' } }, { id: 'c2', title: 'Bare' }]
+    }
+    const result = migrate('chats', raw)
+    expect(result.migrated).toBe(true)
+    // `migrate` moves the contents, not the stamp — the schema default restamps on save.
+    expect(result.value).toEqual({
+      formatVersion: 4,
+      settings: { provider: 'openai', model: 'gpt-4o' },
+      chats: [{ id: 'c1', title: 'Hello', settings: { model: 'o3' } }, { id: 'c2', title: 'Bare', settings: undefined }]
+    })
+  })
+
   it('refuses a chats file from a newer build rather than migrating it', () => {
     const result = migrate('chats', { formatVersion: FORMAT_VERSIONS.chats + 1 })
     expect(result.tooNew).toBe(true)

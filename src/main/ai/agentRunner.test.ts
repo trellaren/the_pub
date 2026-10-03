@@ -72,6 +72,7 @@ function fakeSession(overrides: Partial<Record<string, unknown>> = {}): ProjectS
     documents: {
       read: async () => ({
         doc: {
+          docId: 'doc-1',
           title: 'Chapter One',
           content: {
             type: 'doc',
@@ -88,7 +89,8 @@ function fakeSession(overrides: Partial<Record<string, unknown>> = {}): ProjectS
   } as unknown as ProjectSession
 }
 
-const settings = resolveSettings(aiSettingsSchema.parse({ provider: 'lmstudio', agent: true }))
+const settings = resolveSettings(aiSettingsSchema.parse({ provider: 'lmstudio' }))
+const assistant = { id: 'assistant-owner', name: 'Assistant', color: '' }
 
 let originalFetch: typeof globalThis.fetch
 
@@ -116,6 +118,7 @@ async function run(
     messages: [{ role: 'user', text: 'Where do I describe the harbour?' }],
     apiKey: null,
     session,
+    assistant,
     onEvent: (event) => events.push(event)
   })
 
@@ -174,16 +177,16 @@ describe('runAgent', () => {
     ])
   })
 
-  it('emits a proposal instead of writing to the document', async () => {
+  it('describes a suggested edit in block offsets instead of writing to the document', async () => {
     const { events } = await run([
       {
         call: {
           id: 'call_1',
-          name: 'propose_edit',
+          name: 'suggest_edit',
           args: JSON.stringify({
             path: 'ch1.pubdoc',
-            find: 'The harbour at dusk was quiet.',
-            replace: 'The harbour lay quiet at dusk.',
+            find: 'at dusk was quiet',
+            replace: 'lay quiet at dusk',
             reason: 'Tighter.'
           })
         }
@@ -191,28 +194,41 @@ describe('runAgent', () => {
       { text: 'Suggested a tightening.' }
     ])
 
-    const proposal = events.find((event) => event.type === 'proposal')
-    expect(proposal?.type === 'proposal' && proposal.proposal).toMatchObject({
+    const edit = events.find((event) => event.type === 'edit')
+    expect(edit?.type === 'edit' && edit.edit).toMatchObject({
       docPath: 'ch1.pubdoc',
-      replace: 'The harbour lay quiet at dusk.'
+      docId: 'doc-1',
+      authorId: 'assistant-owner',
+      runId: 'req-1',
+      mode: 'suggest',
+      ops: [{ kind: 'replace', blockIndex: 0, start: 12, end: 29, text: 'lay quiet at dusk', reason: 'Tighter.' }]
     })
   })
 
-  it('refuses a proposal quoting text the document does not contain', async () => {
+  it('keeps what the model saw on the record, so the next turn can replay it', async () => {
+    const { events } = await run([
+      { call: { id: 'call_1', name: 'search_manuscript', args: '{"query":"harbour"}' } },
+      { text: 'Chapter one.' }
+    ])
+    const done = events.find((event) => event.type === 'done')
+    expect(done?.type === 'done' && done.message.toolCalls[0]!.content).toContain('the harbour at dusk')
+  })
+
+  it('refuses a suggestion quoting text the document does not contain', async () => {
     const { events } = await run([
       {
         call: {
           id: 'call_1',
-          name: 'propose_edit',
+          name: 'suggest_edit',
           args: JSON.stringify({ path: 'ch1.pubdoc', find: 'nowhere in the book', replace: 'x' })
         }
       },
       { text: 'I could not find that line.' }
     ])
 
-    // Discovering an unappliable proposal when the author clicks accept is
+    // Discovering an unplaceable suggestion after the author has read it is
     // discovering it too late.
-    expect(events.some((event) => event.type === 'proposal')).toBe(false)
+    expect(events.some((event) => event.type === 'edit')).toBe(false)
     const tool = events.find((event) => event.type === 'tool')
     expect(tool?.type === 'tool' && tool.call.ok).toBe(false)
   })
@@ -252,6 +268,7 @@ describe('runAgent', () => {
       messages: [{ role: 'user', text: 'Hello' }],
       apiKey: null,
       session: fakeSession(),
+      assistant,
       onEvent: (event) => events.push(event)
     })
 

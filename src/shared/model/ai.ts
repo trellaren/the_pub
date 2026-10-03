@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { FORMAT_VERSIONS } from '../constants.js'
 import { DEFAULT_EMBEDDED_MODEL } from './llm.js'
+import { assistantEditSchema } from '../pm/assistantEdits.js'
 
 /**
  * The five backends the app talks to.
@@ -101,15 +102,6 @@ export const aiSettingsSchema = z.object({
   /** Prepended to every conversation. The author's standing instructions. */
   systemPrompt: z.string().default(''),
   /**
-   * Let the model search the project and read documents and records before it
-   * answers, and propose edits.
-   *
-   * Off by default. An ordinary question should cost one request, and a writer
-   * who has not asked for an assistant that goes looking through their project
-   * should not get one.
-   */
-  agent: z.boolean().default(false),
-  /**
    * What to embed the retrieval index with. Empty takes the provider's default.
    *
    * Its own field rather than reusing `model`, because on a hosted backend they
@@ -135,8 +127,15 @@ export const toolCallSchema = z.object({
   name: z.string(),
   args: z.string().default(''),
   result: z.string().default(''),
+  /**
+   * What the model saw, clipped to `MAX_TOOL_CONTENT_CHARS`, so the next turn
+   * can replay it and the agent remembers its own searches. Empty on messages
+   * written before it was recorded; `history.ts` falls back to `result`.
+   */
+  content: z.string().default(''),
   ok: z.boolean().default(true)
 })
+export const MAX_TOOL_CONTENT_CHARS = 4_000
 export type ToolCall = z.infer<typeof toolCallSchema>
 
 export const chatRoles = ['user', 'assistant'] as const
@@ -169,7 +168,6 @@ export const aiSettingsOverrideSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(64).max(32_000).optional(),
   systemPrompt: z.string().optional(),
-  agent: z.boolean().optional(),
   embedModel: z.string().optional()
 })
 export type AiSettingsOverride = z.infer<typeof aiSettingsOverrideSchema>
@@ -238,26 +236,6 @@ export const PROMPT_PRESETS: { id: string; title: string; prompt: string }[] = [
   }
 ]
 
-/**
- * An edit the agent proposes.
- *
- * It is a *proposal*, never an applied change: the agent has no write path to a
- * document, so this is the whole of what it can do to prose. `docPath` and the
- * quoted `find` text locate it the way every other recovery in this codebase
- * does — by surface text rather than by offset — so a proposal survives the
- * author editing elsewhere while they read it.
- */
-export const editProposalSchema = z.object({
-  id: z.string(),
-  docPath: z.string(),
-  /** Existing text to replace. Empty means insert `replace` at the end. */
-  find: z.string().default(''),
-  replace: z.string().default(''),
-  /** Why, in the agent's own words. Shown beside the diff. */
-  reason: z.string().default('')
-})
-export type EditProposal = z.infer<typeof editProposalSchema>
-
 /** A streamed reply, as it reaches the renderer. */
 export const streamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delta'), requestId: z.string(), text: z.string() }),
@@ -266,11 +244,13 @@ export const streamEventSchema = z.discriminatedUnion('type', [
    * spends twenty seconds searching should say so while it searches.
    */
   z.object({ type: z.literal('tool'), requestId: z.string(), call: toolCallSchema }),
-  z.object({
-    type: z.literal('proposal'),
-    requestId: z.string(),
-    proposal: editProposalSchema
-  }),
+  /**
+   * An edit to a document, described in block offsets and applied by whoever
+   * holds the document: the renderer if it is open, main if it is not. In
+   * `suggest` mode it lands as suggestion marks the writer judges in the
+   * Review panel — the agent has no other reach into prose.
+   */
+  z.object({ type: z.literal('edit'), requestId: z.string(), edit: assistantEditSchema }),
   z.object({ type: z.literal('done'), requestId: z.string(), message: chatMessageSchema }),
   z.object({ type: z.literal('error'), requestId: z.string(), message: z.string() })
 ])

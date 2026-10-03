@@ -38,7 +38,10 @@ afterEach(async () => {
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     session: { entities, sources } as unknown as ProjectSession,
-    onProposal: () => {},
+    assistant: { id: 'assistant-owner', name: 'Assistant', color: '' },
+    runId: 'run-1',
+    model: 'stub',
+    onEdit: () => {},
     ensembleAttempts: new Map(),
     ...overrides
   }

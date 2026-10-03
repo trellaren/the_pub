@@ -81,7 +81,6 @@ async function useAgent(): Promise<void> {
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: true,
       embedModel: ''
     })
   }, baseUrl)
@@ -130,58 +129,112 @@ test('the agent searches the project and reports what it did', async () => {
   expect(assistant?.toolCalls?.[0]?.name).toBe('search_manuscript')
 })
 
-test('a proposed edit is offered for review and never written by the agent', async () => {
+test('a suggested edit lands as a tracked change the author judges, never as a write', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'scene.pubdoc')
 
-  await harness.page.locator('.pub-sheet:visible .ProseMirror').press('T')
-  await harness.page.locator('.pub-sheet:visible .ProseMirror').pressSequentially('he harbour was quiet.')
-  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText(
-    'The harbour was quiet.'
-  )
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.press('T')
+  await editor.pressSequentially('he harbour was quiet.')
+  await expect(editor).toContainText('The harbour was quiet.')
   await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
 
   const agent = await startAgentServer([
     {
       call: {
-        name: 'propose_edit',
-        args: {
-          path: 'scene.pubdoc',
-          find: 'The harbour was quiet.',
-          replace: 'The harbour lay quiet.',
-          reason: 'Tighter.'
-        }
+        name: 'suggest_edit',
+        args: { path: 'scene.pubdoc', find: 'harbour was quiet', replace: 'harbour lay quiet', reason: 'Tighter.' }
       }
     },
-    { text: 'One suggestion above.' }
+    { text: 'One suggestion in the document.' }
   ])
   baseUrl = agent.url
   await useAgent()
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
 
   await ask('Tighten the opening.')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('One suggestion in the document.')
 
-  const card = harness.page.getByTestId('edit-proposal')
-  await expect(card).toContainText('The harbour lay quiet.')
+  // The suggestion is in the prose as Phase 9 marks, stamped with the
+  // assistant's own id — not a card in the panel, and not a silent rewrite.
+  const struck = editor.locator('del.pub-deletion[data-author^="assistant-"]')
+  const added = editor.locator('ins.pub-insertion[data-author^="assistant-"]')
+  await expect(struck).toContainText('harbour was quiet')
+  await expect(added).toContainText('harbour lay quiet')
 
-  // The document is untouched until the author acts. This is the rule the
-  // whole design rests on.
-  const onDisk = await readJson<{ content: unknown }>(
-    path.join(harness.projectDir, 'scene.pubdoc')
+  // Rejecting it from the Review panel restores the sentence exactly: the
+  // verdict is the writer's, through the machinery every reviewer uses.
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
+  await harness.page.getByRole('button', { name: 'Reject' }).first().click()
+  await expect(editor).toContainText('The harbour was quiet.')
+  await expect(editor).not.toContainText('lay quiet')
+})
+
+test('a suggestion for a document that is not open is written to its file as marks', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'closed.pubdoc')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.press('T')
+  await editor.pressSequentially('he gulls were loud.')
+  await expect(editor).toContainText('The gulls were loud.')
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+  await harness.page.evaluate((id) => window.__pub.documents.getState().close(id), docId)
+
+  const agent = await startAgentServer([
+    { call: { name: 'suggest_edit', args: { path: 'closed.pubdoc', find: 'were loud', replace: 'were screaming' } } },
+    { text: 'Suggested.' }
+  ])
+  baseUrl = agent.url
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+  await ask('Make the gulls louder.')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('Suggested.')
+
+  // Main applied the same edit function to the file: the old words are still
+  // there under a deletion, the new ones under an insertion, both the
+  // assistant's.
+  await waitFor(async () => {
+    const onDisk = await readJson<{ content: unknown }>(path.join(harness.projectDir, 'closed.pubdoc'))
+    return JSON.stringify(onDisk.content).includes('"insertion"')
+  }, 'the suggestion to reach the file')
+  const onDisk = await readJson<{ content: { content: { content: { text: string; marks?: { type: string; attrs: { authorId: string } }[] }[] }[] } }>(
+    path.join(harness.projectDir, 'closed.pubdoc')
   )
-  expect(JSON.stringify(onDisk.content)).toContain('The harbour was quiet.')
+  const runs = onDisk.content.content[0]!.content
+  const deleted = runs.find((run) => run.marks?.some((mark) => mark.type === 'deletion'))
+  const inserted = runs.find((run) => run.marks?.some((mark) => mark.type === 'insertion'))
+  expect(deleted?.text).toBe('were loud')
+  expect(inserted?.text).toBe('were screaming')
+  expect(inserted?.marks?.[0]?.attrs.authorId).toMatch(/^assistant-/)
+})
 
-  await harness.page.getByTestId('proposal-apply').click()
-  await expect(card).toHaveCount(0)
+test('the next turn replays what the agent did, so it does not search twice', async () => {
+  const agent = await startAgentServer([
+    { call: { name: 'search_manuscript', args: { query: 'harbour' } } },
+    { text: 'Chapter one.' },
+    { text: 'As I said, chapter one.' }
+  ])
+  baseUrl = agent.url
 
-  // Applying is an ordinary editor edit the author made, so it lands in the
-  // open document.
-  await harness.page.evaluate((id) => {
-    const state = window.__pub.documents.getState().docs[id]!
-    window.__pub.layout.getState().openEditor(id, state.path, state.title)
-  }, docId)
-  await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toContainText(
-    'The harbour lay quiet.'
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+
+  await ask('Where do I describe the harbour?')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('Chapter one.')
+
+  const chatId = await harness.page.evaluate(() => window.__pub.chats.getState().activeChatId)
+  await harness.page.evaluate(
+    ([id, question]) => window.__pub.chats.getState().send(id!, question!, ''),
+    [chatId, 'Remind me?']
   )
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('As I said, chapter one.')
+
+  await waitFor(async () => agent.requests().length === 3, 'the third request')
+  const third = agent.requests()[2] as { messages: { role: string; tool_calls?: unknown[]; tool_call_id?: string }[] }
+  expect(third.messages.some((message) => message.role === 'assistant' && message.tool_calls?.length)).toBe(true)
+  expect(third.messages.some((message) => message.role === 'tool')).toBe(true)
 })

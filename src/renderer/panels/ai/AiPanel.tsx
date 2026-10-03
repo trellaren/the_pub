@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AiProviderId, ToolCall, EditProposal } from '@shared/model/ai.js'
+import type { AiProviderId, ToolCall } from '@shared/model/ai.js'
 import { PROVIDERS, PROMPT_PRESETS, providerInfo, resolveSettings } from '@shared/model/ai.js'
 import { EMBEDDED_MODELS, isSideloadedModel } from '@shared/model/llm.js'
 import { ModelManager } from './ModelManager.js'
@@ -7,6 +7,11 @@ import { RetrievalManager } from './RetrievalManager.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useChatStore, listenForReplies } from '@renderer/stores/chatStore.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
+import { applyAssistantEditLocally } from './applyEdit.js'
+import { ulid } from 'ulid'
+import type { AssistantEdit } from '@shared/pm/assistantEdits.js'
+import { useReviewStore } from '@renderer/stores/reviewStore.js'
+import { assistantProfile } from '@shared/model/author.js'
 import {
   PanelShell,
   PanelHeader,
@@ -36,7 +41,6 @@ export function AiPanel() {
   const settings = useChatStore((store) => store.settings)
   const activeChatId = useChatStore((store) => store.activeChatId)
   const streaming = useChatStore((store) => store.streaming)
-  const proposals = useChatStore((store) => store.proposals)
   const keyStatus = useChatStore((store) => store.keyStatus)
 
   const [draft, setDraft] = useState('')
@@ -58,6 +62,11 @@ export function AiPanel() {
   }, [project?.root])
 
   useEffect(() => listenForReplies(), [])
+  // The insert button stamps the assistant's marks with an id derived from
+  // the writer's own, so their profile has to be known before it is pressed.
+  useEffect(() => {
+    if (project && !useReviewStore.getState().me) void useReviewStore.getState().loadMe()
+  }, [project?.root])
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ block: 'end' })
@@ -159,8 +168,8 @@ export function AiPanel() {
               {message.role === 'assistant' && message.text ? (
                 <div className="mt-1 flex gap-1">
                   <ToolbarButton
-                    label="Insert this at the cursor"
-                    onClick={() => insertIntoDocument(message.text)}
+                    label="Insert this at the cursor, as a tracked change"
+                    onClick={() => void insertIntoDocument(message.text, message.model)}
                   >
                     insert
                   </ToolbarButton>
@@ -186,9 +195,6 @@ export function AiPanel() {
           </article>
         ) : null}
 
-        {proposals.map((proposal) => (
-          <EditProposalCard key={proposal.id} proposal={proposal} />
-        ))}
         <div ref={threadEnd} />
       </div>
 
@@ -404,24 +410,12 @@ function SettingsForm() {
         />
       </Field>
 
-      <label className="mb-1 flex items-center gap-1 text-[11px] text-muted">
-        <input
-          type="checkbox"
-          checked={settings.agent}
-          onChange={(event) => patch({ agent: event.target.checked })}
-          data-testid="ai-agent"
-        />
-        Let it search the project before answering
-      </label>
-      {/* Off by default: an ordinary question should cost one request, and a
-          writer who has not asked for an assistant that goes looking through
-          their project should not get one. */}
       <p className="mb-2 text-[10px] text-faint">
-        It can search and read your documents and records, and suggest edits for you to accept —
-        it never changes a document itself.
+        It can search and read your documents and records, and suggest edits that appear as tracked
+        changes for you to accept or reject — it never changes a document itself.
       </p>
 
-      {settings.agent ? <RetrievalManager /> : null}
+      <RetrievalManager />
 
       {settings.provider === 'embedded' ? <ModelManager /> : null}
     </div>
@@ -442,86 +436,6 @@ function ToolTrail({ calls }: { calls: ToolCall[] }) {
 }
 
 /**
- * An edit the agent has proposed.
- *
- * Applying it is an ordinary editor command the author runs — the agent has no
- * write path to a document, and this card is the whole of its reach into prose.
- * When Phase 9's suggestion marks exist, "apply" becomes "insert as a
- * suggestion" and this is the only place that changes.
- */
-function EditProposalCard({ proposal }: { proposal: EditProposal }) {
-  const [error, setError] = useState<string | null>(null)
-
-  return (
-    <article
-      className="mb-2 rounded border border-accent bg-surface-2 px-2 py-1.5 text-[12px]"
-      data-testid="edit-proposal"
-    >
-      <div className="mb-1 text-[10px] text-faint">Suggested change to {proposal.docPath}</div>
-      {proposal.find ? (
-        <div className="mb-1 whitespace-pre-wrap text-danger line-through">{proposal.find}</div>
-      ) : null}
-      <div className="mb-1 whitespace-pre-wrap text-text">{proposal.replace}</div>
-      {proposal.reason ? <div className="mb-1 text-[10px] text-muted">{proposal.reason}</div> : null}
-      {error ? <div className="mb-1 text-[11px] text-danger">{error}</div> : null}
-      <div className="flex gap-1">
-        <ToolbarButton
-          label="Make this change"
-          onClick={() => {
-            const failure = applyProposal(proposal)
-            if (failure) {
-              setError(failure)
-              return
-            }
-            useChatStore.getState().dismissProposal(proposal.id)
-          }}
-          data-testid="proposal-apply"
-        >
-          apply
-        </ToolbarButton>
-        <ToolbarButton
-          label="Discard this suggestion"
-          onClick={() => useChatStore.getState().dismissProposal(proposal.id)}
-        >
-          dismiss
-        </ToolbarButton>
-      </div>
-    </article>
-  )
-}
-
-/**
- * Apply a proposal to the open document, as one undoable edit.
- *
- * Matched against the document's *current* text rather than what the agent saw:
- * the author may have written since, and silently replacing the wrong range is
- * far worse than refusing.
- */
-function applyProposal(proposal: EditProposal): string | null {
-  const docId = useDocumentStore.getState().activeDocId
-  if (!docId) return 'Open the document first.'
-  const editor = getEditor(docId)
-  if (!editor) return 'Open the document first.'
-
-  if (!proposal.find) {
-    editor.chain().focus().insertContentAt(editor.state.doc.content.size, proposal.replace).run()
-    return null
-  }
-
-  let range: { from: number; to: number } | null = null
-  editor.state.doc.descendants((node, pos) => {
-    if (range || !node.isText || !node.text) return true
-    const index = node.text.indexOf(proposal.find)
-    if (index !== -1) range = { from: pos + index, to: pos + index + proposal.find.length }
-    return true
-  })
-
-  if (!range) return 'That text is no longer in this document.'
-  editor.chain().focus().insertContentAt(range, proposal.replace).run()
-  return null
-}
-
-/**
  * What to send with the question: the selected prose, or the whole open
  * document when nothing is selected.
  */
@@ -535,18 +449,48 @@ function manuscriptContext(): string {
   return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n\n')
 }
 
-/** Put a reply into the manuscript at the cursor. */
-function insertIntoDocument(text: string): void {
+/**
+ * Put a reply into the manuscript at the cursor — as a tracked change.
+ *
+ * Through the same path a tool's suggestion takes, so no button in this panel
+ * writes assistant prose into a document without the insertion mark that says
+ * where it came from.
+ */
+async function insertIntoDocument(text: string, model: string): Promise<void> {
   const docId = useDocumentStore.getState().activeDocId
   if (!docId) return
   const editor = getEditor(docId)
-  if (!editor) return
-  // Inserted as plain paragraphs at the selection, so it is an ordinary edit
-  // the author can undo in one step.
-  editor.chain().focus().insertContent(text.split('\n\n').map((block) => ({
-    type: 'paragraph',
-    content: block ? [{ type: 'text', text: block }] : []
-  }))).run()
+  const state = useDocumentStore.getState().docs[docId]
+  const me = useReviewStore.getState().me
+  if (!editor || !state || !me) return
+  const assistant = assistantProfile(me)
+
+  const { from } = editor.state.selection
+  const $from = editor.state.doc.resolve(from)
+  // The block the cursor is in, and how far into its text: `textBetween` over
+  // the block's own range measures the same characters the walker does for a
+  // plain paragraph, which is the case a cursor insertion serves.
+  const blockIndex = $from.index(0)
+  const blockStart = $from.start(1)
+  const offset = editor.state.doc.textBetween(blockStart, from, '\n').replace(/\n+/g, ' ').length
+  const paragraphs = text.split(/\n{2,}/).filter((part) => part.trim())
+
+  const ops: AssistantEdit['ops'] = [
+    { kind: 'replace', blockIndex, start: offset, end: offset, text: paragraphs[0] ?? text, reason: '' }
+  ]
+  for (const paragraph of paragraphs.slice(1)) ops.push({ kind: 'append', text: paragraph, reason: '' })
+
+  await applyAssistantEditLocally({
+    id: ulid(),
+    runId: 'insert',
+    docId,
+    docPath: state.path,
+    authorId: assistant.id,
+    model,
+    at: new Date().toISOString(),
+    mode: 'suggest',
+    ops
+  })
 }
 
 /** The file name of a sideloaded model, on either platform's separator. */

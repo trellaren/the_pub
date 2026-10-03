@@ -105,7 +105,6 @@ async function useAgent(): Promise<void> {
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: true,
       embedModel: ''
     })
   }, baseUrl)
@@ -260,16 +259,12 @@ test('with AI off there is nothing to draft with', async () => {
   expect(refused).toContain('turned off')
 })
 
-test('drafting is offered only when the writer has turned the agent on', async () => {
+test('drafting is offered whenever AI is on, with nothing further to switch on', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await showRecords()
 
-  // AI is on but this is an ordinary chat, which has no tools at all. Offering
-  // to draft would be offering something that cannot happen.
-  await expect(harness.page.getByTestId('character-ensemble')).toHaveCount(0)
-
-  baseUrl = 'http://127.0.0.1:1'
-  await useAgent()
+  // The assistant's tools are always offered once AI is on; there is no
+  // second switch a writer has to find before the Records panel will draft.
   await expect(harness.page.getByTestId('character-ensemble')).toBeVisible()
 })

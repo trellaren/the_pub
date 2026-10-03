@@ -92,7 +92,31 @@ export const EMPTY_AUTHORS_FILE: AuthorsFile = {
 export function describeAuthor(authorId: string, authors: readonly AuthorProfile[]): AuthorProfile {
   const known = authors.find((author) => author.id === authorId)
   if (known) return { ...known, color: known.color || colorForAuthor(authorId) }
+  // An assistant that was never registered — a collaborator's, say — is still
+  // recognisably not a person.
+  if (isAssistantAuthor(authorId)) return { id: authorId, name: ASSISTANT_NAME, color: ASSISTANT_COLOR }
   // Not "Unknown": an id is at least *an* answer, and a reviewer who never
   // filled in a name is far more likely than a corrupted file.
   return { id: authorId, name: `Author ${authorId.slice(-4)}`, color: colorForAuthor(authorId) }
+}
+
+/**
+ * The assistant's identity, derived from the person it works for.
+ *
+ * Per owner rather than one shared `assistant` id, because review files are
+ * one per (document, author) and must stay single-writer: two collaborators
+ * whose assistants both wrote to `reviews/<doc>/assistant.json` would race on
+ * it. A hyphen rather than a colon, because the id is a filename on Windows.
+ */
+export const ASSISTANT_ID_PREFIX = 'assistant-'
+export const ASSISTANT_NAME = 'Assistant'
+/** Deliberately outside `AUTHOR_COLORS`, so the assistant never shares a tint with a person. */
+export const ASSISTANT_COLOR = '#6b7280'
+
+export function assistantProfile(owner: AuthorProfile): AuthorProfile {
+  return { id: `${ASSISTANT_ID_PREFIX}${owner.id}`, name: ASSISTANT_NAME, color: ASSISTANT_COLOR }
+}
+
+export function isAssistantAuthor(authorId: string): boolean {
+  return authorId.startsWith(ASSISTANT_ID_PREFIX)
 }

@@ -30,6 +30,7 @@ import {
   aiProviderIdSchema,
   streamEventSchema
 } from '../model/ai.js'
+import { assistantEditSchema } from '../pm/assistantEdits.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import { retrievalStatusSchema } from '../model/retrieval.js'
 import { dailyPromptSchema } from '../model/writingPrompt.js'
@@ -642,6 +643,19 @@ export const ipcContract = defineContract({
       res: z.object({ requestId: z.string(), message: chatMessageSchema })
     },
     'ai:cancel': { req: z.object({ requestId: z.string() }), res: ok },
+    /**
+     * Apply an assistant edit to a document that is not open in any editor.
+     * The renderer applies edits to open documents itself, so autosave and
+     * undo behave as for any other change; this is the path for the rest, and
+     * it writes through the same conflict-guarded save as `doc:write`.
+     */
+    'ai:applyEdit': {
+      req: z.object({ edit: assistantEditSchema }),
+      res: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), failed: z.array(z.number().int()) }),
+        z.object({ ok: z.literal(false), reason: z.enum(['missing', 'conflict', 'format-too-new', 'no-match']) })
+      ])
+    },
     /** Which providers hold a key. Never the keys themselves. */
     'ai:keyStatus': {
       req: empty,

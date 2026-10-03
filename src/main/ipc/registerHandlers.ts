@@ -30,6 +30,20 @@ import {
 /** Long enough for a local model on a slow machine, short enough not to hang the card. */
 const PROMPT_TIMEOUT_MS = 30_000
 
+/**
+ * Standing orders every run opens with, ahead of the writer's own.
+ *
+ * Tools are always offered now, and a small local model told about eleven of
+ * them tends to reach for one on every question. Saying plainly that a plain
+ * answer is fine is what keeps "what is a good name for a dog" from costing a
+ * manuscript search.
+ */
+const ASSISTANT_PREAMBLE = [
+  "You are the writing assistant inside Quoth, working on the author's project.",
+  'Tools let you search and read the project and suggest changes the author then accepts or rejects; use them when the question is about the manuscript, and answer directly when it is not.',
+  'Never claim to have changed a document: you only ever suggest.'
+].join(' ')
+
 import {
   aiSettingsSchema,
   resolveSettings,
@@ -46,6 +60,9 @@ import {
 import type { ModelStore } from '../llm/modelStore.js'
 import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
+import { historyToOutbound } from '../ai/history.js'
+import { applyAssistantEdit } from '../../shared/pm/assistantEdits.js'
+import type { PubDocument } from '../../shared/model/document.js'
 import { Embedder, embedderConfig, embedderRefusal } from '../ai/embedder.js'
 import type { EmbedderResolution } from '../ai/embeddingIndexer.js'
 import { RECORD_WRITING_TOOLS, SOURCE_WRITING_TOOLS, type RetrievalResult } from '../ai/tools.js'
@@ -241,6 +258,9 @@ export function registerHandlers(context: HandlerContext): void {
     // Put ourselves in the project's registry on open, so a collaborator sees a
     // name against our comments rather than an id.
     await session.reviews.registerAuthor(appState.author()).catch(() => {})
+    // And the assistant beside us, so its suggestions and comments carry a
+    // name in the panel and in a Word export rather than an id.
+    if (appState.get().aiEnabled) await session.reviews.registerAuthor(appState.assistant()).catch(() => {})
     // The project's own words — character names above all — join the OS
     // spellchecker's vocabulary the moment the project is open, not only when
     // someone happens to right-click a flagged one.
@@ -479,7 +499,24 @@ export function registerHandlers(context: HandlerContext): void {
     return created
   })
 
-  handle('doc:write', async ({ path: target, doc, expectedMtime }, event) => {
+  handle('doc:write', ({ path: target, doc, expectedMtime }, event) =>
+    commitDocumentWrite(event, target, doc, expectedMtime)
+  )
+
+  /**
+   * The one way a document reaches disk from a handler.
+   *
+   * Everything that has to follow a write — the search index, and the notes,
+   * review threads and highlights whose anchors may have moved — happens here,
+   * so a second writer (the assistant applying an edit to a closed document)
+   * cannot forget a step the editor's own save remembers.
+   */
+  async function commitDocumentWrite(
+    event: IpcMainInvokeEvent,
+    target: string,
+    doc: PubDocument,
+    expectedMtime: number | null
+  ): Promise<IpcRes<'doc:write'>> {
     const session = requireSession(event)
     const result = await session.documents.write(target, doc, expectedMtime)
     if (result.ok) {
@@ -494,7 +531,7 @@ export function registerHandlers(context: HandlerContext): void {
       if (highlightsReconciled) highlightChanged(event, doc.docId)
     }
     return result
-  })
+  }
 
   handle('doc:writeAsset', async ({ dataBase64, ext }, event) => {
     const session = requireSession(event)
@@ -1456,34 +1493,24 @@ export function registerHandlers(context: HandlerContext): void {
       }
     }
 
-    const run = {
+    // Semantic search is offered only when there is something to search. A
+    // project with an empty index gets the keyword tools and no mention of the
+    // other, rather than a tool the model spends a step calling to be told it
+    // is useless.
+    const indexed = session.search.embeddingCoverage().embedded > 0
+    void runAgent(session.ai, {
       requestId,
       settings,
-      system: settings.systemPrompt,
-      messages: updated.messages.map((item) => ({
-        role: item.role,
-        text: item.text
-      })),
+      system: [ASSISTANT_PREAMBLE, settings.systemPrompt.trim()].filter(Boolean).join('\n\n'),
+      messages: historyToOutbound(updated.messages),
       apiKey,
-      onEvent
-    }
-
-    // An ordinary question costs one request; only an agent run loops. Which
-    // path a message takes is the writer's setting, not a guess about intent.
-    // Offered only when there is something to search. A project with an empty
-    // index gets the keyword tools and no mention of the other, rather than a
-    // tool the model spends a step calling to be told it is useless.
-    const indexed = session.search.embeddingCoverage().embedded > 0
-    const started = settings.agent
-      ? runAgent(session.ai, {
-          ...run,
-          session,
-          ...(indexed && ownerId !== null
-            ? { findPassages: (query: string, limit: number) => findPassages(ownerId, session, query, limit) }
-            : {})
-        })
-      : session.ai.run(run)
-    void started.catch(() => {})
+      onEvent,
+      session,
+      assistant: appState.assistant(),
+      ...(indexed && ownerId !== null
+        ? { findPassages: (query: string, limit: number) => findPassages(ownerId, session, query, limit) }
+        : {})
+    }).catch(() => {})
 
     return { requestId, message }
   })
@@ -1491,6 +1518,32 @@ export function registerHandlers(context: HandlerContext): void {
   handle('ai:cancel', ({ requestId }, event) => {
     requireSession(event).ai.cancel(requestId)
     return { ok: true as const }
+  })
+
+  handle('ai:applyEdit', async ({ edit }, event) => {
+    const session = requireSession(event)
+    // Once more on a conflict, because the likeliest other writer is this
+    // window's own autosave landing a moment earlier; a second conflict is a
+    // real one and is reported.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let loaded
+      try {
+        loaded = await session.documents.read(edit.docPath)
+      } catch {
+        return { ok: false as const, reason: 'missing' as const }
+      }
+      const applied = applyAssistantEdit(loaded.doc.content, edit)
+      if (applied.failed.length === edit.ops.length) return { ok: false as const, reason: 'no-match' as const }
+      const written = await commitDocumentWrite(
+        event,
+        edit.docPath,
+        { ...loaded.doc, content: applied.doc },
+        loaded.mtime
+      )
+      if (written.ok) return { ok: true as const, failed: applied.failed }
+      if (written.reason !== 'conflict') return { ok: false as const, reason: written.reason }
+    }
+    return { ok: false as const, reason: 'conflict' as const }
   })
 
   handle('connections:list', () => ({

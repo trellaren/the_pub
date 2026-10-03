@@ -1,9 +1,11 @@
 import { z } from 'zod'
 import { ulid } from 'ulid'
 import type { ProjectSession } from '../services/projectSession.js'
-import type { EditProposal } from '../../shared/model/ai.js'
 import type { SemanticHit } from '../services/searchIndexService.js'
+import type { AuthorProfile } from '../../shared/model/author.js'
 import { extractPlainText } from '../../shared/pm/extractText.js'
+import { findTextOccurrences } from '../../shared/pm/anchors.js'
+import type { AssistantEdit, AssistantEditOp } from '../../shared/pm/assistantEdits.js'
 import {
   ensembleConstraintsSchema,
   draftedRecordSchema,
@@ -20,11 +22,10 @@ import type { ToolSpec } from './providers.js'
  * it only gets to ask for it.
  *
  * The rule the whole design rests on: **nothing here writes to a document.**
- * `proposeEdit` returns a proposal for the author to accept or dismiss, and
- * that is the entire extent of the agent's reach into prose. Accept/reject,
- * attribution and undo are worth inheriting rather than rebuilding, and until
- * Phase 9's suggestion marks exist a proposal is reviewed in the panel; when
- * they do, this is the one place that changes.
+ * `suggest_edit` describes a change as an `AssistantEdit` and hands it to
+ * whoever holds the document, where it lands as Phase 9 suggestion marks for
+ * the writer to judge. Accept/reject, attribution, undo and the Word
+ * round-trip are inherited from there rather than rebuilt here.
  */
 
 const MAX_SEARCH_HITS = 12
@@ -39,8 +40,13 @@ export interface RetrievalResult {
 
 export interface ToolContext {
   session: ProjectSession
-  /** Collects proposals as they are made, so the loop can stream them out. */
-  onProposal: (proposal: EditProposal) => void
+  /** Who the assistant is in this project, for every mark and record it stamps. */
+  assistant: AuthorProfile
+  /** The run these calls belong to, recorded on every edit for provenance. */
+  runId: string
+  model: string
+  /** Collects edits as they are described, so the loop can stream them out. */
+  onEdit: (edit: AssistantEdit) => void
   /**
    * How many times each ensemble has been attempted in this run, so a group
    * that fails its constraints is redrafted once and then written with the
@@ -242,39 +248,89 @@ const listDocuments = define({
   }
 })
 
-const proposeEdit = define({
-  name: 'propose_edit',
+/**
+ * Describe an edit in the coordinates `applyAssistantEdit` wants.
+ *
+ * Located by quoted text rather than offsets the model would have to count:
+ * models quote reliably and count badly. The quote must be unique, because a
+ * change to "the second one" is a change to whichever one the code found first.
+ */
+export function describeEdit(
+  context: ToolContext,
+  docId: string,
+  docPath: string,
+  ops: AssistantEditOp[]
+): AssistantEdit {
+  return {
+    id: ulid(),
+    runId: context.runId,
+    docId,
+    docPath,
+    authorId: context.assistant.id,
+    model: context.model,
+    at: new Date().toISOString(),
+    mode: 'suggest',
+    ops
+  }
+}
+
+const suggestEdit = define({
+  name: 'suggest_edit',
   description:
-    'Propose a change to a document. This does NOT change the document — it shows the author a suggestion they can accept or dismiss. Quote the existing text exactly in `find`.',
+    'Suggest a change to a document. This does NOT change the text — it appears as a tracked change the author accepts or rejects. Quote the existing text exactly in `find`, within one paragraph, with enough words that it occurs only once. Leave `find` empty to add new paragraphs at the end.',
   args: z.object({
     path: z.string().describe('Project-relative path of the document to change.'),
-    find: z.string().describe('The exact existing text to replace.'),
+    find: z.string().default('').describe('The exact existing text to replace. Empty to append.'),
     replace: z.string().describe('What to put in its place.'),
     reason: z.string().default('').describe('Why, in one sentence.')
   }),
-  run: async ({ path, find, replace, reason }, { session, onProposal }) => {
-    // Verified against the document before it is offered: a proposal quoting
-    // text that is not there cannot be applied, and finding that out when the
-    // author clicks accept is finding out too late.
+  run: async ({ path, find, replace, reason }, context) => {
+    let loaded
     try {
-      const loaded = await session.documents.read(path)
-      const text = extractPlainText(loaded.doc.content)
-      if (find && !text.includes(find)) {
-        return {
-          ok: false,
-          content: `That exact text is not in ${path}. Quote it exactly as it appears.`,
-          summary: `Proposed an edit to ${path} that did not match`
-        }
-      }
+      loaded = await context.session.documents.read(path)
     } catch {
       return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
     }
 
-    onProposal({ id: ulid(), docPath: path, find, replace, reason })
+    if (!find.trim()) {
+      if (!replace.trim()) return { ok: false, content: 'There is nothing to add.', summary: 'Empty suggestion' }
+      context.onEdit(describeEdit(context, loaded.doc.docId, path, [{ kind: 'append', text: replace, reason }]))
+      return {
+        ok: true,
+        content: 'The addition was suggested to the author as a tracked change. Do not repeat it.',
+        summary: `Suggested an addition to ${loaded.doc.title}`
+      }
+    }
+
+    // Checked against the document before it is offered: a suggestion quoting
+    // text that is not there cannot be placed, and finding that out after the
+    // author has read it is finding out too late.
+    const occurrences = findTextOccurrences(loaded.doc.content, find.trim())
+    if (occurrences.length === 0) {
+      return {
+        ok: false,
+        content: `That exact text is not in ${path}. Quote it exactly as it appears, within one paragraph.`,
+        summary: `Suggested an edit to ${loaded.doc.title} that did not match`
+      }
+    }
+    if (occurrences.length > 1) {
+      return {
+        ok: false,
+        content: `"${find.trim()}" occurs ${occurrences.length} times in ${path}. Include more of the surrounding words so it occurs once.`,
+        summary: `Suggested an ambiguous edit to ${loaded.doc.title}`
+      }
+    }
+
+    const [where] = occurrences
+    context.onEdit(
+      describeEdit(context, loaded.doc.docId, path, [
+        { kind: 'replace', blockIndex: where!.blockIndex, start: where!.start, end: where!.end, text: replace, reason }
+      ])
+    )
     return {
       ok: true,
-      content: 'The proposal was shown to the author, who will accept or dismiss it. Do not repeat it.',
-      summary: `Proposed an edit to ${path}`
+      content: 'The change was suggested to the author as a tracked change they will accept or reject. Do not repeat it.',
+      summary: `Suggested an edit to ${loaded.doc.title}`
     }
   }
 })
@@ -491,7 +547,7 @@ const TOOLS = [
   listDocuments,
   listRecords,
   readRecord,
-  proposeEdit,
+  suggestEdit,
   draftRecord,
   draftEnsemble,
   reviseRecord,

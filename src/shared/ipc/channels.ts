@@ -134,6 +134,7 @@ export const INVOKE_CHANNELS = [
   'ai:saveSettings',
   'ai:send',
   'ai:cancel',
+  'ai:applyEdit',
   'ai:keyStatus',
   'ai:setKey',
   'ai:listModels',

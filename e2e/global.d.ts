@@ -28,6 +28,7 @@ interface PubTestHook {
       openPath: (path: string) => Promise<string | null>
       save: (docId: string) => Promise<void>
       flushAll: () => Promise<void>
+      close: (docId: string) => void
       docs: Record<string, { docId: string; path: string; title: string; dirty: boolean }>
       activeDocId: string | null
       setActive: (docId: string | null) => void

@@ -11,7 +11,7 @@ export const FORMAT_VERSIONS = {
   beats: 1,
   maps: 1,
   layouts: 1,
-  chats: 4,
+  chats: 5, // 5 = the agent is no longer optional; `settings.agent` removed
   connections: 2,
   notes: 1,
   sources: 2, // 2 = Phase 15 provisional sources

@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
 import type { ChatFile } from '../src/shared/model/ai.js'
+import type { ReviewFile } from '../src/shared/model/review.js'
 
 let harness: Harness
 let server: http.Server | null = null
@@ -250,4 +252,47 @@ test('the next turn replays what the agent did, so it does not search twice', as
   const third = agent.requests()[2] as { messages: { role: string; tool_calls?: unknown[]; tool_call_id?: string }[] }
   expect(third.messages.some((message) => message.role === 'assistant' && message.tool_calls?.length)).toBe(true)
   expect(third.messages.some((message) => message.role === 'tool')).toBe(true)
+})
+
+test('a review comment lands in the margin as a thread by the Assistant, anchored to the quoted words', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'scene.pubdoc')
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.press('T')
+  await editor.pressSequentially('he harbour was quiet.')
+  await expect(editor).toContainText('The harbour was quiet.')
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+
+  const agent = await startAgentServer([
+    { call: { name: 'comment', args: { path: 'scene.pubdoc', quote: 'was quiet', text: 'Quiet how? Give us a sound that is missing.' } } },
+    { text: 'One comment in the margin.' }
+  ])
+  baseUrl = agent.url
+  await useAgent()
+  await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'AI'))
+  await ask('Review this scene.')
+  await expect(harness.page.getByTestId('chat-assistant').last()).toContainText('One comment in the margin.')
+
+  // The thread is the assistant's own file, never the writer's.
+  const reviewsDir = path.join(harness.projectDir, '.thepub', 'reviews', docId)
+  await waitFor(async () => (await fs.readdir(reviewsDir).catch(() => [])).length === 1, 'the review file')
+  const [file] = await fs.readdir(reviewsDir)
+  expect(file).toMatch(/^assistant-.*\.json$/)
+  const review = await readJson<ReviewFile>(path.join(reviewsDir, file!))
+  expect(review.threads[0]!.anchorText).toBe('was quiet')
+  expect(JSON.stringify(review.threads[0]!.body)).toContain('Quiet how?')
+
+  // The anchor reached the open editor, so the comment survives the next save
+  // rather than being orphaned by it.
+  await harness.page.evaluate((id) => {
+    const state = window.__pub.documents.getState().docs[id]!
+    window.__pub.layout.getState().openEditor(id, state.path, state.title)
+  }, docId)
+  await expect(editor.locator(`span[data-anchor-id="${review.threads[0]!.anchorId}"]`)).toContainText('was quiet')
+
+  // And the Review panel names it as the Assistant's.
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
+  await expect(harness.page.getByText('Quiet how? Give us a sound that is missing.')).toBeVisible()
+  await expect(harness.page.locator('[title="Assistant"]').first()).toBeVisible()
 })

@@ -424,6 +424,33 @@ describe('proofread', () => {
     expect(result.content).toContain('1 finding could not be placed')
   })
 
+  it('keeps the passes that finished when a later model call is refused, and says where to resume', async () => {
+    const documents = new DocumentService(adapter, new SnapshotService(adapter))
+    const created = await documents.create('long.pubdoc', 'Long')
+    const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+    await documents.write(
+      'long.pubdoc',
+      { ...created.doc, content: { type: 'doc', content: [paragraph(`She recieved it. ${'x'.repeat(5_990)}`), paragraph('y'.repeat(5_990))] } },
+      created.mtime
+    )
+    const edits: AssistantEdit[] = []
+    let calls = 0
+    const ctx = context({
+      session: { entities, sources, documents, manifest: { publication: {} } } as unknown as ProjectSession,
+      onEdit: (edit) => edits.push(edit),
+      complete: async () => {
+        calls += 1
+        if (calls > 1) throw new Error('budget spent')
+        return JSON.stringify([{ block: 0, find: 'recieved', replace: 'received', kind: 'spelling' }])
+      }
+    })
+    const result = await runTool('proofread', JSON.stringify({ path: 'long.pubdoc' }), ctx)
+
+    expect(result.ok).toBe(true)
+    expect(edits).toHaveLength(1)
+    expect(result.content).toContain('fromBlock=1')
+  })
+
   it('suggests nothing when the model finds nothing', async () => {
     const { context: ctx, edits } = await proofContext('[]', 'All is well.')
     const result = await runTool('proofread', JSON.stringify({ path: 'draft.pubdoc' }), ctx)

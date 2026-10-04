@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { StreamEvent } from '../../shared/model/ai.js'
 import { aiSettingsSchema, resolveSettings } from '../../shared/model/ai.js'
 import { AiRunner } from './aiRunner.js'
-import { runAgent, MAX_STEPS } from './agentRunner.js'
+import { runAgent, MAX_STEPS, MAX_TOOL_CALLS_PER_STEP, MAX_NESTED_COMPLETIONS, MAX_TOOL_RESULT_CHARS } from './agentRunner.js'
 import { toolSpecs } from './tools.js'
 import type { ProjectSession } from '../services/projectSession.js'
 
@@ -14,7 +14,8 @@ import type { ProjectSession } from '../services/projectSession.js'
  * tool-call parsing are exactly the parts most likely to break, and a mock one
  * level up would step over all three.
  */
-type Turn = { text?: string; call?: { id: string; name: string; args: string } }
+type Call = { id: string; name: string; args: string }
+type Turn = { text?: string; call?: Call; calls?: Call[] }
 
 function scripted(turns: Turn[]): { fetch: typeof globalThis.fetch; bodies: Record<string, unknown>[] } {
   const bodies: Record<string, unknown>[] = []
@@ -29,19 +30,18 @@ function scripted(turns: Turn[]): { fetch: typeof globalThis.fetch; bodies: Reco
     if (turn.text) {
       events.push(`data: ${JSON.stringify({ choices: [{ delta: { content: turn.text } }] })}\n`)
     }
-    if (turn.call) {
+    const calls = turn.calls ?? (turn.call ? [turn.call] : [])
+    if (calls.length) {
       events.push(
         `data: ${JSON.stringify({
           choices: [
             {
               delta: {
-                tool_calls: [
-                  {
-                    index: 0,
-                    id: turn.call.id,
-                    function: { name: turn.call.name, arguments: turn.call.args }
-                  }
-                ]
+                tool_calls: calls.map((call, index) => ({
+                  index,
+                  id: call.id,
+                  function: { name: call.name, arguments: call.args }
+                }))
               }
             }
           ]
@@ -299,5 +299,90 @@ describe('runAgent', () => {
     })
 
     expect(events.at(-1)).toMatchObject({ type: 'error' })
+  })
+
+  it('answers every call past the per-step cap with a refusal instead of running it', async () => {
+    const calls = Array.from({ length: MAX_TOOL_CALLS_PER_STEP + 2 }, (_, index) => ({
+      id: `call_${index}`,
+      name: 'search_manuscript',
+      args: '{"query":"harbour"}'
+    }))
+    const query = vi.fn(() => [{ path: 'ch1.pubdoc', blockIndex: 2, snippet: 'the harbour at dusk' }])
+    const { bodies } = await run([{ calls }, { text: 'Done.' }], fakeSession({ search: { query } }))
+
+    expect(query).toHaveBeenCalledTimes(MAX_TOOL_CALLS_PER_STEP)
+    const answers = (bodies[1]!.messages as { role: string; tool_call_id?: string; content?: string }[]).filter(
+      (message) => message.role === 'tool'
+    )
+    expect(answers).toHaveLength(calls.length)
+    expect(answers.at(-1)!.content).toContain('Make fewer calls')
+  })
+
+  it('clips a tool result before it goes back to the model', async () => {
+    const huge = 'harbour '.repeat(5_000)
+    const { bodies } = await run(
+      [{ call: { id: 'call_1', name: 'search_manuscript', args: '{"query":"harbour"}' } }, { text: 'Done.' }],
+      fakeSession({ search: { query: () => [{ path: 'ch1.pubdoc', blockIndex: 0, snippet: huge }] } })
+    )
+    const answer = (bodies[1]!.messages as { role: string; content?: string }[]).find((message) => message.role === 'tool')!
+    expect(answer.content!.length).toBeLessThan(MAX_TOOL_RESULT_CHARS + 100)
+    expect(answer.content).toContain('[…truncated…]')
+  })
+
+  it('stops tools asking the model questions once the run has spent its budget', async () => {
+    let toolSteps = 0
+    let nested = 0
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { tools?: unknown }
+      let event: unknown
+      if (!body.tools) {
+        nested += 1
+        event = { choices: [{ delta: { content: '[]' } }] }
+      } else if (toolSteps < 6) {
+        toolSteps += 1
+        event = {
+          choices: [
+            {
+              delta: {
+                tool_calls: Array.from({ length: MAX_TOOL_CALLS_PER_STEP }, (_, index) => ({
+                  index,
+                  id: `call_${toolSteps}_${index}`,
+                  function: { name: 'proofread', arguments: '{"path":"ch1.pubdoc"}' }
+                }))
+              }
+            }
+          ]
+        }
+      } else {
+        event = { choices: [{ delta: { content: 'Done.' } }] }
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`))
+            controller.close()
+          }
+        })
+      } as unknown as Response
+    }) as unknown as typeof globalThis.fetch
+
+    const events: StreamEvent[] = []
+    await runAgent(new AiRunner(), {
+      requestId: 'req-1',
+      settings,
+      system: '',
+      messages: [{ role: 'user', text: 'Proofread it, again and again.' }],
+      apiKey: null,
+      session: fakeSession(),
+      assistant,
+      onEvent: (event) => events.push(event)
+    })
+
+    expect(nested).toBe(MAX_NESTED_COMPLETIONS)
+    const refused = events.filter((event) => event.type === 'tool' && !event.call.ok)
+    expect(refused.length).toBeGreaterThan(0)
+    expect(refused[0]!.type === 'tool' && refused[0]!.call.content).toContain('model calls for tools')
   })
 })

@@ -789,13 +789,24 @@ const proofread = define({
 
     const placed: PlacedFinding[] = []
     let dropped = 0
+    let checked = 0
     for (const chunk of covered) {
       const prompt = proofreadPrompt(chunk, kinds, lang)
-      const reply = await context.complete(prompt.system, prompt.user, 2_048)
+      let reply: string
+      try {
+        reply = await context.complete(prompt.system, prompt.user, 2_048)
+      } catch (error) {
+        // Stopped partway — a budget, a dropped connection — the passes that
+        // finished are still worth delivering, with where to resume.
+        if (checked === 0) throw error
+        break
+      }
       const parsed = parseFindings(reply, chunk)
       placed.push(...parsed.placed)
       dropped += parsed.dropped
+      checked += 1
     }
+    covered.splice(checked)
 
     // One edit per mode for the whole pass: one undo step in the editor, one
     // write to a closed file, one row in the trail — not one of each per typo.

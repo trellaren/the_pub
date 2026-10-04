@@ -23,6 +23,34 @@ import type { OutboundMessage } from './providers.js'
  */
 export const MAX_STEPS = 12
 
+/**
+ * How many tool calls one step may make. A model that asks for forty searches
+ * at once is looping inside a step rather than across them, which the step
+ * budget alone would never catch.
+ */
+export const MAX_TOOL_CALLS_PER_STEP = 8
+
+/**
+ * How many model calls tools may make on their own behalf in one run. Each
+ * proofread pass is up to `MAX_PROOFREAD_CALLS` requests, so without a bound
+ * the step budget limits the visible requests and nothing limits the hidden ones.
+ */
+export const MAX_NESTED_COMPLETIONS = 36
+
+/**
+ * The most of one tool's result the model is sent. The tools clip their own
+ * bulk reads; this is the backstop for the ones whose size grows with the
+ * project — every comment, every beat — so a big book cannot overflow the
+ * context window through a listing.
+ */
+export const MAX_TOOL_RESULT_CHARS = 16_000
+
+function clipForModel(content: string): string {
+  return content.length > MAX_TOOL_RESULT_CHARS
+    ? `${content.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[…truncated…]`
+    : content
+}
+
 export interface AgentRunOptions {
   requestId: string
   settings: AiSettings
@@ -72,6 +100,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
   const performed: ToolCall[] = []
   const ensembleAttempts = new Map<string, number>()
   const taint = { tainted: false }
+  let nestedCompletions = 0
   let answer = ''
 
   try {
@@ -109,8 +138,19 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
       conversation.push({ role: 'assistant', text: outcome.text, toolCalls: outcome.toolCalls })
 
       const results: { id: string; content: string }[] = []
-      for (const call of outcome.toolCalls) {
+      for (const [position, call] of outcome.toolCalls.entries()) {
         if (controller.signal.aborted) break
+
+        // Every call still gets a result: providers reject a reply whose tool
+        // calls are not each answered.
+        if (position >= MAX_TOOL_CALLS_PER_STEP) {
+          const refusal = `Not run: at most ${MAX_TOOL_CALLS_PER_STEP} tool calls are allowed in one step. Make fewer calls, and repeat this one in a later step if you still need it.`
+          const record: ToolCall = { id: call.id, name: call.name, args: call.args, result: 'Skipped — too many calls in one step', content: refusal, ok: false }
+          performed.push(record)
+          onEvent({ type: 'tool', requestId, call: record })
+          results.push({ id: call.id, content: refusal })
+          continue
+        }
 
         const edits: AssistantEdit[] = []
         const result = await runTool(call.name, call.args, {
@@ -129,6 +169,12 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           onEdit: (edit) => edits.push(edit),
           onReviewChanged: (docId) => options.onReviewChanged?.(docId),
           complete: async (system, user, maxTokens) => {
+            if (nestedCompletions >= MAX_NESTED_COMPLETIONS) {
+              throw new Error(
+                `This conversation has used its ${MAX_NESTED_COMPLETIONS} model calls for tools. Tell the author what is left to do; they can ask again in a new message.`
+              )
+            }
+            nestedCompletions += 1
             const nested = await streamCompletion(
               {
                 settings: { ...settings, maxTokens },
@@ -158,7 +204,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
         onEvent({ type: 'tool', requestId, call: record })
         for (const edit of edits) onEvent({ type: 'edit', requestId, edit })
 
-        results.push({ id: call.id, content: result.content })
+        results.push({ id: call.id, content: clipForModel(result.content) })
       }
 
       if (controller.signal.aborted) {

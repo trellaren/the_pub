@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import dns from 'node:dns/promises'
 import { app, ipcMain, dialog, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ipcContract, type IpcInvokeChannel, type IpcReq, type IpcRes } from '../../shared/ipc/contract.js'
 import type { WindowManager } from '../windows/windowManager.js'
@@ -48,11 +49,15 @@ const MAX_PAGE_BYTES = 2 * 1024 * 1024
 
 /** `fetch` for the assistant's page reads: bounded in time and size, following no credentials. */
 async function fetchWithLimits(url: string): Promise<{ ok: boolean; status: number; text(): Promise<string> }> {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(WEB_TIMEOUT_MS),
-    credentials: 'omit',
-    headers: { accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' }
-  })
+  const response = await fetchPublic(
+    url,
+    {
+      signal: AbortSignal.timeout(WEB_TIMEOUT_MS),
+      credentials: 'omit',
+      headers: { accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' }
+    },
+    (hostname) => dns.lookup(hostname, { all: true })
+  )
   return {
     ok: response.ok,
     status: response.status,
@@ -95,7 +100,7 @@ import type { LlmEngine } from '../llm/engine.js'
 import { runAgent } from '../ai/agentRunner.js'
 import { historyToOutbound } from '../ai/history.js'
 import { describeProject, projectFacts } from '../ai/projectContext.js'
-import { buildWebGate, extractUrls } from '../ai/webGate.js'
+import { buildWebGate, extractUrls, fetchPublic } from '../ai/webGate.js'
 import { webSearch } from '../research/webSearch.js'
 import { searchKeyId, searchProviderInfo, type KeyId, type WebSearchHit } from '../../shared/model/webAccess.js'
 import { applyAssistantEdit } from '../../shared/pm/assistantEdits.js'
@@ -269,12 +274,17 @@ export function registerHandlers(context: HandlerContext): void {
     implementation: (payload: IpcReq<K>, event: IpcMainInvokeEvent) => Promise<IpcRes<K>> | IpcRes<K>
   ): void {
     ipcMain.handle(channel, async (event, raw) => {
+      // Only our own pages may call in. Nothing embeds a frame today; this keeps
+      // a future iframe or webview from inheriting the whole IPC surface.
+      const frameUrl = event.senderFrame?.url
+      if (!frameUrl || !windows.isInternalUrl(frameUrl)) {
+        throw new Error(`Refused ${channel} from ${frameUrl ?? 'an unknown frame'}`)
+      }
       const parsed = ipcContract.invoke[channel].req.parse(raw ?? {}) as IpcReq<K>
       return implementation(parsed, event)
     })
   }
 
-  /** Resolve the calling window's project, or fail loudly — there is no default. */
   /**
    * The stored key for a provider, bound to where it is about to be sent. A
    * renderer-chosen base URL on a host other than the provider's own only gets
@@ -306,6 +316,7 @@ export function registerHandlers(context: HandlerContext): void {
     return keys.get(id)
   }
 
+  /** Resolve the calling window's project, or fail loudly — there is no default. */
   function requireSession(event: IpcMainInvokeEvent): ProjectSession {
     const ownerId = windows.ownerWindowId(event.sender)
     const session = ownerId === null ? undefined : sessions.get(ownerId)
@@ -481,7 +492,6 @@ export function registerHandlers(context: HandlerContext): void {
     return { font: { id, family, file: relative } }
   }
 
-  handle('fonts:import', ({ file }, event) => importFontFile(requireSession(event), file))
   handle('fonts:importDialog', async (_payload, event) => {
     const session = requireSession(event)
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -496,7 +506,7 @@ export function registerHandlers(context: HandlerContext): void {
   handle('fonts:delete', async ({ file }, event) => {
     const session = requireSession(event)
     const relative = normalizeRelative(file)
-    // Only what fonts:import wrote. This channel must not become a generic
+    // Only what fonts:importDialog wrote. This channel must not become a generic
     // delete-anything-in-the-project with a friendlier name.
     if (!relative.startsWith(`${FONTS_DIR}/`)) throw new Error('That is not an imported font.')
     await session.adapter.delete(relative).catch(() => {})

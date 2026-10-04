@@ -98,7 +98,7 @@ export class WindowManager {
   }
 
   /** True for URLs belonging to the app's own renderer origin. */
-  private isInternalUrl(url: string): boolean {
+  isInternalUrl(url: string): boolean {
     if (!this.baseUrl) return false
     try {
       return new URL(url).origin === new URL(this.baseUrl).origin

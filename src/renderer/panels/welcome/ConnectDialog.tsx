@@ -40,7 +40,8 @@ const BLANK: Draft = {
   auth: 'password',
   privateKeyPath: '',
   remotePath: '/',
-  secure: false,
+  // On for new profiles: plain FTP sends the password in the clear.
+  secure: true,
   clientId: '',
   tenant: 'common',
   account: '',
@@ -558,6 +559,11 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   checked={draft.secure}
                   onChange={(secure) => setDraft((current) => ({ ...current, secure }))}
                 />
+                {!draft.secure ? (
+                  <p className="mt-1 text-xs text-amber-600" role="alert">
+                    Without TLS, your password and files cross the network unencrypted.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

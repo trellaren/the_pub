@@ -181,13 +181,14 @@ export const ipcContract = defineContract({
     },
 
     /**
-     * Copy a font file into the project and answer with its manifest entry.
-     * The renderer merges the entry into `manifest.fonts` and saves through
+     * Copy a font file the author picks in a native dialog into the project and
+     * answer with its manifest entry, or null when cancelled. The renderer
+     * merges the entry into `manifest.fonts` and saves through
      * `project:updateManifest`, the same division `templates:applyPreset`
-     * draws — this channel touches font files, never the manifest.
+     * draws — this channel touches font files, never the manifest. There is
+     * deliberately no variant taking a path: the renderer must not be able to
+     * name an arbitrary file on disk for main to read.
      */
-    'fonts:import': { req: z.object({ file: z.string() }), res: z.object({ font: projectFontSchema }) },
-    /** The same through a native file dialog; null when it is cancelled. */
     'fonts:importDialog': { req: empty, res: z.object({ font: projectFontSchema }).nullable() },
     /** Delete an imported font's file. Only paths under `.thepub/fonts/` are accepted. */
     'fonts:delete': { req: z.object({ file: z.string() }), res: ok },

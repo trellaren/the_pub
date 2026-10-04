@@ -103,5 +103,5 @@ export function assetMimeType(relativePath: string): string {
   return ASSET_TYPES[extension] ?? 'application/octet-stream'
 }
 
-/** The font extensions `fonts:import` accepts, shared with its file dialog. */
+/** The font extensions `fonts:importDialog` accepts. */
 export const FONT_EXTENSIONS = ['ttf', 'otf', 'woff', 'woff2'] as const

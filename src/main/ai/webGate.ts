@@ -81,8 +81,59 @@ export function isPublicHttpUrl(url: string): boolean {
     // IPv6: loopback, unspecified, link-local, unique-local and v4-mapped.
     const lower = host
     if (lower === '::1' || lower === '::' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return false
-    if (lower.startsWith('::ffff:')) return false
+    // Every `::`-prefixed form (v4-mapped, v4-compatible, unspecified) embeds
+    // or aliases a non-global address; no public IPv6 address starts that way.
+    if (lower.startsWith('::')) return false
     return true
   }
   return true
+}
+
+export type LookupAll = (hostname: string) => Promise<{ address: string }[]>
+
+/**
+ * `isPublicHttpUrl`, plus what the hostname actually resolves to. A public
+ * name can point at a private address (`127.0.0.1.nip.io`), which a check of
+ * the URL text alone lets through.
+ */
+export async function resolvesPublic(url: string, lookup: LookupAll): Promise<boolean> {
+  if (!isPublicHttpUrl(url)) return false
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
+  if (/^[\d.]+$/.test(host) || host.includes(':')) return true
+  let addresses: { address: string }[]
+  try {
+    addresses = await lookup(host)
+  } catch {
+    return false
+  }
+  return (
+    addresses.length > 0 &&
+    addresses.every(({ address }) => isPublicHttpUrl(address.includes(':') ? `http://[${address}]/` : `http://${address}/`))
+  )
+}
+
+const MAX_REDIRECTS = 5
+
+/**
+ * Fetch a page, re-checking every redirect hop. `fetch` follows redirects on
+ * its own by default, so a public page answering `302 Location:
+ * http://169.254.169.254/` would otherwise walk straight past the gate.
+ */
+export async function fetchPublic(
+  url: string,
+  init: RequestInit,
+  lookup: LookupAll,
+  fetchImpl: typeof fetch = fetch
+): Promise<Response> {
+  let current = url
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!(await resolvesPublic(current, lookup))) {
+      throw new Error(`Refused to fetch a non-public address: ${current}`)
+    }
+    const response = await fetchImpl(current, { ...init, redirect: 'manual' })
+    const location = response.headers.get('location')
+    if (response.status < 300 || response.status >= 400 || !location) return response
+    current = new URL(location, current).toString()
+  }
+  throw new Error('Too many redirects.')
 }

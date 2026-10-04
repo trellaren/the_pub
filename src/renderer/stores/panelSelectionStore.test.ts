@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// projectStore loads appStore, which needs the preload bridge.
+vi.mock('./appStore.js', () => ({ useAppStore: { getState: () => ({}) } }))
+
 import { usePanelSelectionStore } from './panelSelectionStore.js'
 import { useProjectStore } from './projectStore.js'
 import type { OpenProject } from '@shared/model/manifest.js'

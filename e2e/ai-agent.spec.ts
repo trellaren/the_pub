@@ -448,6 +448,16 @@ test('the task buttons offer what can run, and a task names the open document to
   await useAgent()
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'Assistant'))
 
+  // Opening an empty project lands the writer on a fresh page, so the
+  // document-scoped buttons are already on offer. Close that tab the way a
+  // writer would to reach the state with nothing open.
+  await harness.page.evaluate(() => {
+    const api = window.__pub.layout.getState().api!
+    for (const panel of api.panels.filter((candidate) => candidate.id.startsWith('editor:'))) {
+      api.removePanel(panel)
+    }
+  })
+
   // No document open: only the project-wide asks.
   const tasks = harness.page.getByTestId('assistant-tasks')
   await expect(tasks.getByTestId('task-prompt')).toBeVisible()

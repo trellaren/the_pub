@@ -26,7 +26,6 @@ export const ROLE_ITEMS: Record<MenuItemRole, { label: string; accelerator?: str
   paste: { label: 'Paste', accelerator: 'CmdOrCtrl+V' },
   selectAll: { label: 'Select All', accelerator: 'CmdOrCtrl+A' },
   toggleDevTools: { label: 'Toggle Developer Tools' },
-  reload: { label: 'Reload', accelerator: 'CmdOrCtrl+R' },
   resetZoom: { label: 'Actual Size', accelerator: 'CmdOrCtrl+0' },
   // Electron binds this role to `Plus`, which also fires on the unshifted key.
   // Shown as `=` because that is the key, and because it is a form the rest of

@@ -375,6 +375,9 @@ async function importFromWord(): Promise<void> {
 
 /** Write the open document out. Nothing open means nothing to export. */
 async function exportToWord(): Promise<void> {
+  // The exporter reads the file on disk, not the editor: unsaved typing would
+  // otherwise be missing from the export.
+  await useDocumentStore.getState().saveAll()
   const documents = useDocumentStore.getState()
   const active = documents.activeDocId
   const path = active ? documents.docs[active]?.path : undefined
@@ -408,6 +411,9 @@ async function importFromFountain(): Promise<void> {
 
 /** Write the open document out as `.fountain`. Nothing open means nothing to export. */
 async function exportToFountain(): Promise<void> {
+  // The exporter reads the file on disk, not the editor: unsaved typing would
+  // otherwise be missing from the export.
+  await useDocumentStore.getState().saveAll()
   const documents = useDocumentStore.getState()
   const active = documents.activeDocId
   const path = active ? documents.docs[active]?.path : undefined

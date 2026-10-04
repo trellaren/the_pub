@@ -33,7 +33,6 @@ export type MenuRole =
   | 'paste'
   | 'selectAll'
   | 'toggleDevTools'
-  | 'reload'
   | 'resetZoom'
   | 'zoomIn'
   | 'zoomOut'
@@ -202,8 +201,9 @@ export const MENU_MODEL: MenuTopLevel[] = [
           }))
         ])
       },
+      // No Reload role: it bypasses the flush closing the window waits for, so
+      // Ctrl+R would throw away the last few seconds of debounced typing.
       { kind: 'role', role: 'toggleDevTools' },
-      { kind: 'role', role: 'reload' },
       { kind: 'separator' },
       { kind: 'role', role: 'resetZoom' },
       { kind: 'role', role: 'zoomIn' },

@@ -208,6 +208,9 @@ export function ManuscriptPanel() {
     const warnings = await invoke('publish:warnings', { format })
     if (warnings.length > 0 && !window.confirm(`${warnings.join('\n\n')}\n\nContinue?`)) return
 
+    // The compiler reads chapters from disk; the last few seconds of typing
+    // are still in the editor until this lands.
+    await useDocumentStore.getState().saveAll()
     const result = await attempt(
       invoke('publish:exportDialog', { format, paths: [], items, suggestedName: project?.manifest.name }),
       format === 'print' ? 'Could not print the manuscript' : 'Could not compile the manuscript'

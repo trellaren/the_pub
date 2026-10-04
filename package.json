@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "An IDE-fashioned story planning and editing tool",
   "main": "./out/main/index.js",
+  "desktopName": "quoth.desktop",
   "author": "Quoth",
   "license": "MIT",
   "private": true,
@@ -18,7 +19,10 @@
     "e2e": "playwright test",
     "e2e:packaged": "playwright test -c playwright.packaged.config.ts",
     "package": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "basic-ftp": "^6.2.0",

@@ -234,21 +234,6 @@ export function App() {
     })
   }, [])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const modifier = event.metaKey || event.ctrlKey
-      if (modifier && event.shiftKey && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        setPalette('commands')
-      } else if (modifier && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        setPalette('files')
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
   return (
     <div className="flex h-full flex-col">
       <TitleBar onSearch={() => setPalette('files')} />

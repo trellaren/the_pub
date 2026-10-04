@@ -87,6 +87,8 @@ interface DocumentStore {
   flushAll: () => Promise<void>
   reload: (docId: string) => Promise<void>
   keepMine: (docId: string) => Promise<void>
+  /** Write an open buffer to a new path — for a tab whose file was deleted. */
+  saveAs: (docId: string, path: string) => Promise<boolean>
   handleExternalChanges: (paths: string[]) => Promise<void>
   renamePath: (from: string, to: string) => void
   /** Record assistant edits in the envelope's log, to ride out on the next save. */
@@ -329,6 +331,20 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     keepMine: async (docId) => {
       patch(docId, { mtime: null, conflict: false, dirty: true })
       await get().save(docId)
+    },
+
+    saveAs: async (docId, path) => {
+      if (!get().docs[docId]) return false
+      const existing = await invoke('vfs:stat', { path }).catch(() => null)
+      if (existing) {
+        reportError(`${path} already exists. Choose another name.`)
+        return false
+      }
+      // The same docId at a new path: links and layouts resolve documents by
+      // id, so everything that pointed at the deleted file follows the copy.
+      patch(docId, { path, missing: false, mtime: null, dirty: true, saveError: null })
+      await get().save(docId)
+      return !get().docs[docId]?.saveError
     },
 
     handleExternalChanges: async (paths) => {

@@ -17,6 +17,9 @@ import { currentSources } from '@renderer/stores/sourceStore.js'
 import { DiffView } from '../history/DiffView.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import type { PmDoc } from '@shared/model/document.js'
+import { validateFileName } from '@shared/model/filename.js'
+import { DOC_EXT } from '@shared/constants.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
 
 export interface EditorPanelParams {
   docId: string
@@ -133,7 +136,30 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   if (state.missing) {
     return (
       <PanelShell>
-        <EmptyState title="This file no longer exists" hint={state.path} />
+        <EmptyState
+          title="This file no longer exists"
+          hint={`${state.path} was deleted or moved outside Quoth. What you had open is still here.`}
+          action={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                data-testid="missing-save-as"
+                className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[12px] text-accent"
+                onClick={(event) => void saveMissingAs(docId, state.path, event.currentTarget.ownerDocument)}
+              >
+                Save as new file…
+              </button>
+              <button
+                type="button"
+                data-testid="missing-close"
+                className="rounded border border-border px-2 py-0.5 text-[12px] hover:bg-surface-3"
+                onClick={() => props.api.close()}
+              >
+                Close
+              </button>
+            </div>
+          }
+        />
       </PanelShell>
     )
   }
@@ -188,6 +214,24 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
       <StatusBar docId={docId} />
     </PanelShell>
   )
+}
+
+/** Offered beside the deleted file's own folder, under its own name, as the likeliest place it belongs. */
+async function saveMissingAs(docId: string, oldPath: string, ownerDocument: Document): Promise<void> {
+  const slash = oldPath.lastIndexOf('/')
+  const folder = slash === -1 ? '' : oldPath.slice(0, slash + 1)
+  const name = await promptForName({
+    title: 'Save as new file',
+    confirmLabel: 'Save',
+    defaultValue: oldPath.slice(slash + 1),
+    ownerDocument,
+    validate: (value) => {
+      const checked = validateFileName(value)
+      return checked.ok ? null : checked.reason
+    }
+  })
+  if (!name) return
+  await useDocumentStore.getState().saveAs(docId, `${folder}${name.endsWith(DOC_EXT) ? name : `${name}${DOC_EXT}`}`)
 }
 
 /** No keep-mine/reload choice here, unlike `ConflictBar` — overwriting is exactly what must not happen. */

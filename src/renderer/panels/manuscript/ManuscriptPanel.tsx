@@ -184,6 +184,18 @@ export function ManuscriptPanel() {
    * behind it.
    */
   const [format, setFormat] = useState<PublishFormat>('docx')
+  // A compile can take long enough on a big book to look like a dead click,
+  // and a second click would start a second compile and a second save dialog.
+  const [compiling, setCompiling] = useState(false)
+  const compileOnce = async (): Promise<void> => {
+    if (compiling) return
+    setCompiling(true)
+    try {
+      await compile()
+    } finally {
+      setCompiling(false)
+    }
+  }
 
   const compile = useCallback(async () => {
     const { items, skipped } = toExportItems(view.nodes)
@@ -268,8 +280,13 @@ export function ManuscriptPanel() {
           <option value="pdf">PDF</option>
           <option value="print">Print</option>
         </select>
-        <ToolbarButton label="Compile the manuscript" onClick={() => void compile()}>
-          Compile
+        <ToolbarButton
+          label="Compile the manuscript"
+          disabled={compiling}
+          aria-busy={compiling}
+          onClick={() => void compileOnce()}
+        >
+          {compiling ? 'Compiling…' : 'Compile'}
         </ToolbarButton>
       </PanelHeader>
 

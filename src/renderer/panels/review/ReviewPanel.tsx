@@ -270,7 +270,18 @@ function ThreadCard({
         {thread.authorId === me?.id ? (
           <ToolbarButton
             label="Delete comment"
-            onClick={() => void store.removeThread(docId, thread.id)}
+            onClick={() => {
+              const replies = thread.replies.length
+              if (
+                replies > 0 &&
+                !window.confirm(
+                  `Delete this comment and its ${replies} ${replies === 1 ? 'reply' : 'replies'}? This can't be undone.`
+                )
+              ) {
+                return
+              }
+              void store.removeThread(docId, thread.id)
+            }}
           >
             ✕
           </ToolbarButton>

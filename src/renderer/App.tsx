@@ -442,7 +442,14 @@ async function closeProject(): Promise<void> {
   const closed = await attempt(invoke('project:close', {}), 'Could not close the project')
   if (!closed) return
   useProjectStore.setState({ project: null })
-  if (api) restoreLayout(api, null)
+  if (api) {
+    // Clearing and re-adding a panel id in one tick lets the old panel's
+    // overlay teardown land on the new one, leaving Welcome hidden; rebuild a
+    // frame after the clear instead.
+    api.clear()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    restoreLayout(api, null)
+  }
   resetDocumentScopedStores()
   useDocumentStore.setState(useDocumentStore.getInitialState(), true)
   useEntityStore.setState(useEntityStore.getInitialState(), true)

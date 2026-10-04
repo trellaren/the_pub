@@ -101,17 +101,21 @@ test('a reply and a resolution are written to the same author’s file', async (
 test('suggesting mode proposes a deletion instead of performing one', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await createDocument(harness.page, 'chapter-01.pubdoc')
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
   await setText('The harbour was quiet that evening.')
 
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   await harness.page.getByLabel('Suggest changes instead of making them').check()
 
-  // Back into the editor first: the checkbox took focus, and a contenteditable
-  // that is focused without being clicked has no caret for Home to move.
+  // Selected through the editor rather than by arrow keys: a re-render that
+  // briefly takes focus mid-sequence collapses a keyboard selection, and what
+  // is under test here is the Backspace, not the selecting.
   const el = await editor()
   await el.click()
-  await selectRange(4, 12)
+  await harness.page.evaluate((id) => {
+    window.__pub.getEditor(id)!.chain().focus().setTextSelection({ from: 5, to: 13 }).run()
+  }, docId)
+  await expect.poll(() => harness.page.evaluate(() => window.getSelection()?.toString())).toBe('harbour ')
   await el.press('Backspace')
 
   // The whole point: the words are still there, struck through, waiting for a

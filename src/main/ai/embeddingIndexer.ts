@@ -77,6 +77,7 @@ export class EmbeddingIndexer {
     try {
       const { embedder, unavailable } = await this.deps.resolve(allowStart)
       this.lastUnavailable = unavailable
+      if (embedder) this.deps.index.useEmbedder(embedder.key)
       // Not an early return: the status a caller gets must be the one `finally`
       // leaves behind, or it reports a build still in progress that has already
       // stopped.

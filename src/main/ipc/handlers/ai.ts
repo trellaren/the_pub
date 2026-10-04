@@ -22,6 +22,7 @@ import { applyAssistantEdit } from '../../../shared/pm/assistantEdits.js'
 import { unionProvenance } from '../../../shared/model/provenance.js'
 import { RECORD_WRITING_TOOLS, SOURCE_WRITING_TOOLS, type RetrievalResult } from '../../ai/tools.js'
 import { capturePage } from '../../research/capture.js'
+import { EmbeddingMismatchError } from '../../services/searchIndexService.js'
 import {
   ASSISTANT_PREAMBLE,
   PROMPT_TIMEOUT_MS,
@@ -70,14 +71,23 @@ export function register(ctx: HandlerContext): void {
     query: string,
     limit: number
   ): Promise<RetrievalResult> {
-    const coverage = session.search.embeddingCoverage()
     // Allowed to start, because a person asked a question and is waiting: this
     // runs inside a reply they are watching stream, not in the background.
     const { embedder } = await resolveEmbedder(ownerId, true)
-    if (!embedder) return { hits: [], ...coverage }
+    if (!embedder) return { hits: [], ...session.search.embeddingCoverage() }
+    session.search.useEmbedder(embedder.key)
     const [vector] = await embedder.embed([query])
-    if (!vector) return { hits: [], ...coverage }
-    return { hits: session.search.nearestBlocks(vector, limit), ...coverage }
+    if (!vector) return { hits: [], ...session.search.embeddingCoverage() }
+    try {
+      return { hits: session.search.nearestBlocks(vector, limit), ...session.search.embeddingCoverage() }
+    } catch (error) {
+      if (!(error instanceof EmbeddingMismatchError)) throw error
+      // The loaded model changed under the same settings. The old vectors can
+      // answer nothing, so they go, and the coverage the tool reports says the
+      // index is now empty rather than that nothing matched.
+      session.search.clearEmbeddings()
+      return { hits: [], ...session.search.embeddingCoverage() }
+    }
   }
 
   handle('ai:list', (_payload, event) => requireSession(event).chats.snapshot())
@@ -288,7 +298,6 @@ export function register(ctx: HandlerContext): void {
         // The moment a model is warm is the cheapest moment to embed, so a
         // finished reply is what tops the index up. Still `false`: this is the
         // app noticing an opportunity, not the writer asking.
-        void session.retrieval.build(false).catch(() => {})
       }
     }
 

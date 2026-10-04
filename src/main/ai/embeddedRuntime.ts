@@ -130,7 +130,12 @@ export async function resolveEmbedder(
     }
   }
 
-  const config = embedderConfig({ ...settings, baseUrl }, apiKey)
+  const config = {
+    ...embedderConfig({ ...settings, baseUrl }, apiKey),
+    ...(settings.provider === 'embedded'
+      ? { identity: `embedded ${engine.status().model} ${settings.embedModel}` }
+      : {})
+  }
   const refusal = embedderRefusal(config, info.name)
   if (refusal) return { embedder: null, unavailable: refusal }
   return { embedder: new Embedder(config), unavailable: '' }

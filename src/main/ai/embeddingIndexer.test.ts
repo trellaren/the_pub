@@ -11,10 +11,15 @@ import type { RetrievalStatus } from '../../shared/model/retrieval.js'
  * here is the loop's behaviour — batching, staleness, cancellation — which a
  * fake makes visible without a database in the way.
  */
-function fakeIndex(texts: string[]): SearchIndexService & { vectors: Map<number, Float32Array> } {
+function fakeIndex(texts: string[]): SearchIndexService & { vectors: Map<number, Float32Array>; keys: string[] } {
   const vectors = new Map<number, Float32Array>()
+  const keys: string[] = []
   return {
     vectors,
+    keys,
+    useEmbedder: (key: string) => {
+      keys.push(key)
+    },
     pendingEmbeddings: (limit: number) =>
       texts
         .map((text, blockIndex) => ({ docId: 'doc', blockIndex, text }))
@@ -24,13 +29,14 @@ function fakeIndex(texts: string[]): SearchIndexService & { vectors: Map<number,
       vectors.set(blockIndex, vector)
     },
     embeddingCoverage: () => ({ embedded: vectors.size, total: texts.length })
-  } as unknown as SearchIndexService & { vectors: Map<number, Float32Array> }
+  } as unknown as SearchIndexService & { vectors: Map<number, Float32Array>; keys: string[] }
 }
 
 function embedderReturning(
   onBatch: (texts: readonly string[]) => void = () => {}
 ): Embedder {
   return {
+    key: 'fake model',
     embed: async (texts: readonly string[]) => {
       onBatch(texts)
       return texts.map(() => new Float32Array([1, 0]))
@@ -57,6 +63,12 @@ describe('EmbeddingIndexer', () => {
     const status = await indexer.build(true)
     expect(status).toMatchObject({ embedded: 3, total: 3, building: false, error: '' })
     expect(index.vectors.size).toBe(3)
+  })
+
+  it('binds the index to the embedder before writing anything', async () => {
+    const { index, indexer } = harness(['one'], embedderReturning())
+    await indexer.build(true)
+    expect(index.keys).toEqual(['fake model'])
   })
 
   it('embeds only what is still pending', async () => {

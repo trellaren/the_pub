@@ -30,6 +30,21 @@ const READ_AHEAD = 6
  * two incomparable numbers in one field. Nothing but the agent's retrieval tool
  * consumes these, so they stay in main rather than becoming a shared model.
  */
+/**
+ * A query vector that cannot be compared with the stored ones. Thrown rather
+ * than answered with no hits: "nothing in the book is about that" is a
+ * confident wrong answer, and the index needs rebuilding instead.
+ */
+export class EmbeddingMismatchError extends Error {
+  constructor(
+    readonly stored: number,
+    readonly query: number
+  ) {
+    super(`The retrieval index was built with a different embedding model (${stored} dimensions, not ${query}). Rebuild it.`)
+    this.name = 'EmbeddingMismatchError'
+  }
+}
+
 export interface SemanticHit {
   docId: string
   path: string
@@ -137,6 +152,11 @@ export class SearchIndexService {
         vector      BLOB    NOT NULL,
         PRIMARY KEY (doc_id, block_index)
       ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS embedder (
+        id        INTEGER PRIMARY KEY CHECK (id = 1),
+        key       TEXT    NOT NULL,
+        dimension INTEGER
+      );
     `)
     this.insertBlock = this.db.prepare('INSERT INTO blocks (text, doc_id, block_index) VALUES (?, ?, ?)')
     this.upsertFile = this.db.prepare(
@@ -177,6 +197,7 @@ export class SearchIndexService {
     if (Number(row?.user_version ?? 0) === SCHEMA_VERSION) return
     this.db.exec(`
       DROP TABLE IF EXISTS embeddings;
+      DROP TABLE IF EXISTS embedder;
       DROP TABLE IF EXISTS mentions;
       DROP TABLE IF EXISTS blocks;
       DROP TABLE IF EXISTS files;
@@ -436,7 +457,40 @@ export class SearchIndexService {
     return rows.map((row) => ({ docId: row.doc_id, blockIndex: row.block_index, text: row.text }))
   }
 
+  /**
+   * Bind the stored vectors to the embedder about to write or query them.
+   *
+   * Vectors from two models are not comparable even at the same width, so a
+   * different embedder means every stored vector is noise to it. An index with
+   * no recorded embedder predates this check, and its vectors are of unknown
+   * origin, so it is treated the same way.
+   */
+  useEmbedder(key: string): void {
+    const stored = this.embedderRow()
+    if (stored?.key === key) return
+    this.db.exec('DELETE FROM embeddings')
+    this.db
+      .prepare('INSERT INTO embedder (id, key, dimension) VALUES (1, ?, NULL) ON CONFLICT(id) DO UPDATE SET key = excluded.key, dimension = NULL')
+      .run(key)
+  }
+
+  private embedderRow(): { key: string; dimension: number | null } | undefined {
+    const row = this.db.prepare('SELECT key, dimension FROM embedder WHERE id = 1').get() as
+      | { key: string; dimension: number | bigint | null }
+      | undefined
+    return row ? { key: row.key, dimension: row.dimension === null ? null : Number(row.dimension) } : undefined
+  }
+
   writeEmbedding(docId: string, blockIndex: number, text: string, vector: Float32Array): void {
+    // The same key can still change width when it names "whatever the server
+    // has loaded" and the server now has another model: the old vectors go.
+    const dimension = this.embedderRow()?.dimension ?? null
+    if (dimension !== vector.length) {
+      if (dimension !== null) this.db.exec('DELETE FROM embeddings')
+      this.db
+        .prepare("INSERT INTO embedder (id, key, dimension) VALUES (1, '', ?) ON CONFLICT(id) DO UPDATE SET dimension = excluded.dimension")
+        .run(vector.length)
+    }
     this.insertEmbedding.run(docId, blockIndex, textHash(text), toBlob(vector))
   }
 
@@ -449,6 +503,7 @@ export class SearchIndexService {
 
   clearEmbeddings(): void {
     this.db.exec('DELETE FROM embeddings')
+    this.db.exec('UPDATE embedder SET dimension = NULL')
   }
 
   /**
@@ -463,6 +518,10 @@ export class SearchIndexService {
    * a full scan either way, and doing it once beats doing it per result.
    */
   nearestBlocks(query: Float32Array, limit: number): SemanticHit[] {
+    const dimension = this.embedderRow()?.dimension ?? null
+    if (dimension !== null && dimension !== query.length) {
+      throw new EmbeddingMismatchError(dimension, query.length)
+    }
     const scored: { docId: string; blockIndex: number; score: number }[] = []
     for (const row of this.db.prepare('SELECT doc_id, block_index, vector FROM embeddings').iterate() as Iterable<{
       doc_id: string

@@ -82,9 +82,15 @@ function NoteCard({
   const [tick, setTick] = useState(0)
   useEffect(() => {
     if (!editor || !note.orphaned) return
-    const bump = (): void => setTick((value) => value + 1)
+    // Debounced: each recount walks the whole document, once per orphaned note.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const bump = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setTick((value) => value + 1), 250)
+    }
     editor.on('transaction', bump)
     return () => {
+      if (timer) clearTimeout(timer)
       editor.off('transaction', bump)
     }
   }, [editor, note.orphaned])

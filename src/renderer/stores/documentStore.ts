@@ -47,6 +47,25 @@ interface SaveTimer {
 const timers = new Map<string, SaveTimer>()
 /** Documents whose save is in flight, to keep concurrent saves off the same file. */
 const saving = new Set<string>()
+/** Each in-flight save, resolving to the mtime it wrote, or null if it did not write. */
+const inflight = new Map<string, Promise<number | null>>()
+
+async function saveClosed(docId: string, state: OpenDocument, content: PmDoc): Promise<void> {
+  if (useProjectStore.getState().project?.readOnly) return
+  const written = await inflight.get(docId)
+  try {
+    const result = await invoke('doc:write', {
+      path: state.path,
+      doc: { ...state.envelope, content },
+      expectedMtime: written ?? state.mtime
+    })
+    if (!result.ok) {
+      reportError(`Could not save ${state.path} as its tab closed: the file changed on disk. Reopen it to compare.`)
+    }
+  } catch (error) {
+    reportError(`Could not save ${state.path}: ${errorMessage(error)}`)
+  }
+}
 
 interface DocumentStore {
   docs: Record<string, OpenDocument>
@@ -194,9 +213,15 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         timers.delete(docId)
       }
       const state = get().docs[docId]
-      // Never drop unsaved work just because a tab was closed.
-      if (state?.dirty) void get().save(docId)
-      editors.get(docId)?.destroy()
+      const editor = editors.get(docId)
+      // Never drop unsaved work just because a tab was closed. The content is
+      // taken now, before the editor goes: `save` itself needs the editor and
+      // the open-document entry, and when another save is already in flight it
+      // only reschedules — which, after teardown, would find neither.
+      if (state && editor && (state.dirty || saving.has(docId)) && !state.missing) {
+        void saveClosed(docId, state, editor.getJSON() as PmDoc)
+      }
+      editor?.destroy()
       editors.delete(docId)
       const { [docId]: _removed, ...rest } = get().docs
       set({ docs: rest, activeDocId: get().activeDocId === docId ? null : get().activeDocId })
@@ -216,6 +241,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         return
       }
       saving.add(docId)
+      let settle: (mtime: number | null) => void = () => {}
+      inflight.set(docId, new Promise((resolve) => (settle = resolve)))
       patch(docId, { saving: true, dirty: false })
 
       const content = editor.getJSON() as PmDoc
@@ -228,6 +255,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           expectedMtime: state.mtime
         })
         if (result.ok) {
+          settle(result.mtime)
           patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false })
           // Suggested-edit marks count as-if-accepted here too, since
           // `countWords` walks through `extractPlainText`, the one
@@ -249,6 +277,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         patch(docId, { saving: false, dirty: true })
         reportError(`Could not save ${state.path}: ${errorMessage(error)}`)
       } finally {
+        settle(null)
+        inflight.delete(docId)
         saving.delete(docId)
       }
     },

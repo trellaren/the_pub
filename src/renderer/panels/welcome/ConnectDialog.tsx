@@ -40,7 +40,8 @@ const BLANK: Draft = {
   auth: 'password',
   privateKeyPath: '',
   remotePath: '/',
-  secure: false,
+  // On for new profiles: plain FTP sends the password in the clear.
+  secure: true,
   clientId: '',
   tenant: 'common',
   account: '',
@@ -252,7 +253,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
 
   const signOut = async (): Promise<void> => {
     if (!draft.id) return
-    await invoke('connections:signOut', { id: draft.id }).catch(() => {})
+    await attempt(invoke('connections:signOut', { id: draft.id }), 'Could not sign out')
     setDraft((current) => ({ ...current, account: '', signedIn: false }))
     setStatus('Signed out on this machine.')
     await load()
@@ -558,6 +559,11 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   checked={draft.secure}
                   onChange={(secure) => setDraft((current) => ({ ...current, secure }))}
                 />
+                {!draft.secure ? (
+                  <p className="mt-1 text-xs text-amber-600" role="alert">
+                    Without TLS, your password and files cross the network unencrypted.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -707,7 +713,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   label={isOneDrive ? 'Forget this drive' : 'Forget this server'}
                   disabled={busy}
                   onClick={async () => {
-                    await invoke('connections:delete', { id: draft.id! }).catch(() => {})
+                    const deleted = await attempt(invoke('connections:delete', { id: draft.id! }), 'Could not forget it')
+                    if (deleted === null) return
                     setDraft(BLANK)
                     await load()
                   }}

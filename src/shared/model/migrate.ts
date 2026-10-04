@@ -198,6 +198,7 @@ export const MIGRATIONS: Record<FileKind, MigrationStep[]> = {
     { from: 1, to: 2, up: (raw) => raw }
   ],
   authors: [],
+  knownHosts: [],
   reviews: [],
   presence: [],
   highlights: [],

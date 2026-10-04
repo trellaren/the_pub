@@ -61,15 +61,18 @@ test('an imported font reaches the page, the manifest and the next session', asy
   const source = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'pub-font-src-')), 'Libre_Test-Font.ttf')
   await fs.writeFile(source, Buffer.from('not-really-a-font'))
 
-  const font = await harness.page.evaluate(async (file) => {
-    const result = await window.pub.invoke('fonts:import', { file })
+  await harness.app.evaluate(({ dialog }, chosen) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [chosen] })) as typeof dialog.showOpenDialog
+  }, source)
+  const font = await harness.page.evaluate(async () => {
+    const result = (await window.pub.invoke('fonts:importDialog', {}))!
     const state = window.__pub.project.getState()
     await state.updateManifest((manifest) => ({
       ...manifest,
       fonts: [...((manifest as { fonts?: unknown[] }).fonts ?? []), result.font]
     }) as typeof manifest)
     return result.font
-  }, source)
+  })
 
   // The filename, cleaned, is the family.
   expect(font.family).toBe('Libre Test Font')

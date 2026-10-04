@@ -10,6 +10,7 @@ import {
 } from '../../shared/model/connection.js'
 import { migrate } from '../../shared/model/migrate.js'
 import { FORMAT_VERSIONS } from '../../shared/constants.js'
+import { writeFileAtomicSync } from './atomicFile.js'
 
 interface StoredFile extends ConnectionFile {
   /** Encrypted secrets by profile id. Written here, never read by anything else. */
@@ -73,11 +74,10 @@ export class ConnectionStore {
         'Your saved servers were written by a newer version of Quoth, so they cannot be changed here.'
       )
     }
-    fs.mkdirSync(path.dirname(this.file()), { recursive: true })
-    fs.writeFileSync(
+    writeFileAtomicSync(
       this.file(),
       JSON.stringify({ ...stored, formatVersion: FORMAT_VERSIONS.connections }, null, 2),
-      { mode: 0o600 }
+      0o600
     )
   }
 

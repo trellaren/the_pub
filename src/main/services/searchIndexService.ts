@@ -19,6 +19,8 @@ import { basename } from '../vfs/paths.js'
 import { dot, fromBlob, toBlob } from '../ai/vectors.js'
 
 const SNIPPET_RADIUS = 60
+/** Document reads kept in flight during a sync; each may be a network round trip. */
+const READ_AHEAD = 6
 
 /**
  * A passage found by meaning rather than by words.
@@ -267,9 +269,6 @@ export class SearchIndexService {
   async syncAll(force = false): Promise<void> {
     this.setProgress({ indexing: true, done: 0, total: 0 })
     try {
-      if (force) {
-        this.db.exec('DELETE FROM embeddings; DELETE FROM mentions; DELETE FROM blocks; DELETE FROM files;')
-      }
       const files = (await this.adapter.walk('', IGNORED_DIRS)).filter((entry) =>
         entry.path.endsWith(DOC_EXT)
       )
@@ -284,14 +283,30 @@ export class SearchIndexService {
         known.set(row.path, { docId: row.doc_id, mtime: row.mtime })
       }
 
-      const seenPaths = new Set<string>()
-      let done = 0
-      for (const file of files) {
-        seenPaths.add(file.path)
+      // A forced rebuild re-indexes every file in place rather than emptying the
+      // tables first, so search keeps answering while it runs. Vectors survive
+      // where a block's text hash still matches, which is when they are valid.
+      const stale = files.filter((file) => {
         const existing = known.get(file.path)
-        if (!existing || existing.mtime !== (file.mtime ?? 0)) {
-          await this.indexDocument(file.path, file.mtime ?? 0)
-        }
+        return force || !existing || existing.mtime !== (file.mtime ?? 0)
+      })
+      const seenPaths = new Set(files.map((file) => file.path))
+
+      // Reads run a few ahead — each is a network round trip on SFTP, FTP or
+      // OneDrive — but documents are applied in walk order, so which of two
+      // files sharing a docId wins stays deterministic.
+      const reads = new Map<number, Promise<Buffer | null>>()
+      const prefetch = (i: number): void => {
+        const file = stale[i]
+        if (file && !reads.has(i)) reads.set(i, this.adapter.readFile(file.path).catch(() => null))
+      }
+      let done = files.length - stale.length
+      this.setProgress({ done })
+      for (let i = 0; i < stale.length; i++) {
+        for (let ahead = i; ahead < i + READ_AHEAD; ahead++) prefetch(ahead)
+        const file = stale[i]!
+        await this.indexDocument(file.path, file.mtime ?? 0, reads.get(i))
+        reads.delete(i)
         done += 1
         if (done % 25 === 0 || done === files.length) this.setProgress({ done })
       }
@@ -306,16 +321,25 @@ export class SearchIndexService {
       }[]) {
         if (!seenPaths.has(row.path)) this.removeDoc(row.doc_id)
       }
+      if (force) {
+        // What the old empty-everything rebuild cleared implicitly: rows left
+        // behind for a docId no file claims any more.
+        this.db.exec(`
+          DELETE FROM blocks WHERE doc_id NOT IN (SELECT doc_id FROM files);
+          DELETE FROM mentions WHERE doc_id NOT IN (SELECT doc_id FROM files);
+          DELETE FROM embeddings WHERE doc_id NOT IN (SELECT doc_id FROM files);
+        `)
+      }
     } finally {
       this.setProgress({ indexing: false })
     }
   }
 
   /** Re-index a single document. Called on every autosave and watcher event. */
-  async indexDocument(docPath: string, mtime?: number): Promise<void> {
+  async indexDocument(docPath: string, mtime?: number, preloaded?: Promise<Buffer | null>): Promise<void> {
     let parsed
     try {
-      const raw = await this.adapter.readFile(docPath)
+      const raw = (await preloaded) ?? (await this.adapter.readFile(docPath))
       parsed = pubDocumentSchema.parse(JSON.parse(raw.toString('utf8')))
     } catch {
       // Not a readable document (mid-write, or hand-edited into invalid JSON).
@@ -455,20 +479,23 @@ export class SearchIndexService {
     const top = scored.slice(0, limit)
     if (top.length === 0) return []
 
+    // Streamed, keeping only the winners' text: materialising every block of
+    // the manuscript into JS for a handful of hits was the cost here, not the scan.
+    const wanted = new Set(top.map((item) => `${item.docId} ${item.blockIndex}`))
     const texts = new Map<string, string>()
-    for (const row of this.db.prepare('SELECT doc_id, block_index, text FROM blocks').all() as {
+    for (const row of this.db.prepare('SELECT doc_id, block_index, text FROM blocks').iterate() as Iterable<{
       doc_id: string
       block_index: number
       text: string
-    }[]) {
-      texts.set(`${row.doc_id} ${row.block_index}`, row.text)
+    }>) {
+      const key = `${row.doc_id} ${row.block_index}`
+      if (wanted.has(key)) texts.set(key, row.text)
     }
 
+    const fileById = this.db.prepare('SELECT path, title FROM files WHERE doc_id = ?')
     const hits: SemanticHit[] = []
     for (const item of top) {
-      const file = this.db.prepare('SELECT path, title FROM files WHERE doc_id = ?').get(item.docId) as
-        | { path: string; title: string }
-        | undefined
+      const file = fileById.get(item.docId) as { path: string; title: string } | undefined
       if (!file) continue
       const text = texts.get(`${item.docId} ${item.blockIndex}`)
       if (text === undefined) continue
@@ -761,9 +788,10 @@ export class SearchIndexService {
 
 /** Ordinal of the occurrence at `start`, counting literal matches before it. */
 function ordinalIn(text: string, surface: string, start: number): number {
+  if (!surface) return 0
   let seen = 0
-  for (let i = 0; i + surface.length <= start; i++) {
-    if (text.startsWith(surface, i)) seen++
+  for (let i = text.indexOf(surface); i !== -1 && i + surface.length <= start; i = text.indexOf(surface, i + 1)) {
+    seen++
   }
   return seen
 }

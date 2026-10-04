@@ -107,7 +107,7 @@ export function StylesPanel() {
       ...manifest,
       fonts: manifest.fonts.filter((candidate) => candidate.id !== font.id)
     }))
-    await invoke('fonts:delete', { file: font.file }).catch(() => {})
+    await attempt(invoke('fonts:delete', { file: font.file }), 'Could not delete the font file')
   }
 
   const removeStyle = (): void => {

@@ -26,7 +26,6 @@ export const INVOKE_CHANNELS = [
   'templates:saveAs',
   'templates:delete',
   'templates:applyPreset',
-  'fonts:import',
   'fonts:importDialog',
   'fonts:delete',
   'vfs:list',

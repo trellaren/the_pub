@@ -39,6 +39,7 @@ import {
   parsePointLength
 } from './units.js'
 import { wordStyleFor } from './styleMap.js'
+import { rawBlockText } from '../../shared/pm/extractText.js'
 
 /**
  * Writing a `.docx`.
@@ -371,7 +372,9 @@ function blocksToDocx(nodes: PmNode[], options: ExportOptions, state: WalkState)
       case 'codeBlock':
         children.push(
           new Paragraph({
-            children: [new TextRun({ text: plainText(node), font: 'Courier New' })]
+            children: rawBlockText(node)
+              .split('\n')
+              .map((line, i) => new TextRun({ text: line, font: 'Courier New', break: i > 0 ? 1 : 0 }))
           })
         )
         break
@@ -649,11 +652,6 @@ function imageRun(node: PmNode, options: ExportOptions): ImageRun | null {
 }
 
 /* ----------------------------------------------------------------- shared */
-
-function plainText(node: PmNode): string {
-  if (node.type === 'text') return node.text ?? ''
-  return (node.content ?? []).map(plainText).join('')
-}
 
 function numberAttr(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null

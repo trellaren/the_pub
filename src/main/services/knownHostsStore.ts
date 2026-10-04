@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import { z } from 'zod'
-import { FORMAT_VERSION } from '../../shared/constants.js'
+import { FORMAT_VERSIONS } from '../../shared/constants.js'
+import { writeFileAtomicSync } from './atomicFile.js'
 import type { KnownHost, KnownHostsReader, PresentedHostKey } from '../vfs/hostKeys.js'
 
 const knownHostSchema = z.object({
@@ -12,7 +13,7 @@ const knownHostSchema = z.object({
 })
 
 const knownHostsFileSchema = z.object({
-  formatVersion: z.number().int().default(FORMAT_VERSION),
+  formatVersion: z.number().int().default(FORMAT_VERSIONS.knownHosts),
   hosts: z.record(z.string(), z.array(knownHostSchema)).default(() => ({}))
 })
 type KnownHostsFile = z.infer<typeof knownHostsFileSchema>
@@ -46,13 +47,16 @@ export class KnownHostsStore implements KnownHostsReader {
     } catch {
       // An unreadable store means nothing is trusted, which fails closed: every
       // connection is refused until the author accepts a fingerprint again.
-      return { formatVersion: FORMAT_VERSION, hosts: {} }
+      return { formatVersion: FORMAT_VERSIONS.knownHosts, hosts: {} }
     }
   }
 
   private write(stored: KnownHostsFile): void {
-    fs.mkdirSync(path.dirname(this.file()), { recursive: true })
-    fs.writeFileSync(this.file(), JSON.stringify(stored, null, 2), { mode: 0o600 })
+    writeFileAtomicSync(
+      this.file(),
+      JSON.stringify({ ...stored, formatVersion: FORMAT_VERSIONS.knownHosts }, null, 2),
+      0o600
+    )
   }
 
   get(hostId: string): KnownHost[] {

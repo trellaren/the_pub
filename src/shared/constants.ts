@@ -20,7 +20,11 @@ export const FORMAT_VERSIONS = {
   presence: 1,
   highlights: 1,
   pdfHighlights: 2, // 2 = capture highlights (kind/offset fields)
-  stats: 1
+  stats: 1,
+  // Starts at 10, not 1: before it had its own counter the known-hosts file was
+  // stamped through the deprecated `FORMAT_VERSION` alias, i.e. the document
+  // version, and existing files carry 10. Its next bump is 11.
+  knownHosts: 10
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
 

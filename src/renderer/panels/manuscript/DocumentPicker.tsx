@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
 import { TextInput, cx } from '@renderer/ui/primitives.js'
+import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 
 interface Candidate {
   path: string
@@ -60,6 +61,9 @@ export function DocumentPicker({
     setChecked(next)
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocusTrap(dialogRef, onCancel)
+
   const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
@@ -68,6 +72,10 @@ export function DocumentPicker({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === 'add' ? 'Add documents to the book' : 'Relink to a document'}
         data-testid="document-picker"
         className="flex h-[26rem] w-[26rem] flex-col gap-2 rounded border border-border bg-surface p-3"
       >

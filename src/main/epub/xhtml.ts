@@ -45,7 +45,10 @@ function blocksToXhtml(nodes: PmNode[], styles: NamedStyle[], state: WalkState, 
 
 function blockToXhtml(node: PmNode, styles: NamedStyle[], state: WalkState, prefix: string): string {
   const cls = styleClassFor(node, styles)
-  const classAttr = cls ? ` class="${cls}"` : ''
+  // An explicit right-to-left paragraph keeps its direction even when it opens
+  // with Latin text, which first-strong-character detection would get wrong.
+  const dirAttr = node.attrs?.dir === 'rtl' ? ' dir="rtl"' : ''
+  const classAttr = `${cls ? ` class="${cls}"` : ''}${dirAttr}`
   switch (node.type) {
     case 'paragraph':
       return `<p${classAttr}>${inlineToXhtml(node.content ?? [], state, prefix)}</p>`

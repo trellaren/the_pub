@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AssembledThread, ReviewReply } from '@shared/model/review.js'
 import type { PmDoc } from '@shared/model/document.js'
+import type { ProvenanceEntry } from '@shared/model/provenance.js'
 import { extractPlainText } from '@shared/pm/extractText.js'
 import { listSuggestions } from '@shared/pm/suggestions.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
@@ -25,6 +26,7 @@ import {
  */
 /** Shared, because a fresh `[]` from a selector re-renders forever — see `WelcomePanel`. */
 const NO_THREADS: AssembledThread[] = []
+const NO_ENTRIES: ProvenanceEntry[] = []
 
 export function ReviewPanel() {
   const docId = useDocumentStore((store) => store.activeDocId)
@@ -134,6 +136,8 @@ export function ReviewPanel() {
           </section>
         ) : null}
 
+        <ProvenanceSection docId={docId} editor={editor ?? null} />
+
         {threads.length === 0 ? (
           <EmptyState
             title="No comments yet"
@@ -146,6 +150,42 @@ export function ReviewPanel() {
         )}
       </div>
     </PanelShell>
+  )
+}
+
+/**
+ * What the assistant wrote here, from the envelope's append-only log.
+ *
+ * Listed from the log rather than from the marks in the text, because the
+ * marks go when the words go and this list is meant to say what was written
+ * even then. Jumping lands on the block it was in, which may now hold
+ * something else.
+ */
+function ProvenanceSection({ docId, editor }: { docId: string; editor: ReturnType<typeof getEditor> | null }) {
+  const entries = useDocumentStore((store) => store.docs[docId]?.envelope.provenance ?? NO_ENTRIES)
+  if (entries.length === 0) return null
+  return (
+    <section className="border-b border-border/60" data-testid="provenance-log">
+      <h3 className="px-2 py-1 text-[11px] uppercase tracking-wide text-faint">Written by the assistant</h3>
+      <p className="px-2 pb-1 text-[10px] text-faint">
+        A record of every change the assistant made here. It stays after the words are removed.
+      </p>
+      {entries.map((entry) => (
+        <button
+          key={entry.id}
+          type="button"
+          onClick={() => editor && entry.blockIndex !== null && revealBlock(editor, entry.blockIndex)}
+          className="flex w-full items-baseline gap-2 px-2 py-1 text-left text-[12px] hover:text-text"
+          title={entry.reason || undefined}
+        >
+          <span className="shrink-0 text-[10px] text-faint">{entry.at.slice(0, 10)}</span>
+          <span className="flex-1 truncate">{entry.excerpt || `${entry.chars} characters`}</span>
+          <span className="shrink-0 text-[10px] text-faint">
+            {entry.mode === 'direct' ? 'written' : 'suggested'} · {entry.model || 'assistant'}
+          </span>
+        </button>
+      ))}
+    </section>
   )
 }
 

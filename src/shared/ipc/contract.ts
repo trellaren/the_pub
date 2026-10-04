@@ -27,9 +27,10 @@ import {
   chatSchema,
   chatMessageSchema,
   aiSettingsSchema,
-  aiProviderIdSchema,
   streamEventSchema
 } from '../model/ai.js'
+import { assistantEditSchema } from '../pm/assistantEdits.js'
+import { keyIdSchema } from '../model/webAccess.js'
 import { llmStatusSchema, llmProgressSchema } from '../model/llm.js'
 import { retrievalStatusSchema } from '../model/retrieval.js'
 import { dailyPromptSchema } from '../model/writingPrompt.js'
@@ -118,6 +119,15 @@ export const ipcContract = defineContract({
      * app state from the renderer.
      */
     'app:setAiEnabled': { req: z.object({ enabled: z.boolean() }), res: appStateSchema },
+    'app:setAiWritePolicy': { req: z.object({ policy: appStateSchema.shape.aiWritePolicy }), res: appStateSchema },
+    'app:setAiWeb': {
+      req: z.object({
+        webAccess: appStateSchema.shape.aiWebAccess.optional(),
+        searchProvider: appStateSchema.shape.aiSearchProvider.optional(),
+        searchBaseUrl: z.string().optional()
+      }),
+      res: appStateSchema
+    },
     'app:setEmbeddedIdleMinutes': {
       req: z.object({ minutes: z.number().int().min(0).max(240) }),
       res: appStateSchema
@@ -637,18 +647,33 @@ export const ipcContract = defineContract({
       req: z.object({
         chatId: z.string(),
         text: z.string(),
-        context: z.string().default('')
+        context: z.string().default(''),
+        /** The document the writer is looking at, so the brief can count its open comments. */
+        activeDocId: z.string().default('')
       }),
       res: z.object({ requestId: z.string(), message: chatMessageSchema })
     },
     'ai:cancel': { req: z.object({ requestId: z.string() }), res: ok },
-    /** Which providers hold a key. Never the keys themselves. */
+    /**
+     * Apply an assistant edit to a document that is not open in any editor.
+     * The renderer applies edits to open documents itself, so autosave and
+     * undo behave as for any other change; this is the path for the rest, and
+     * it writes through the same conflict-guarded save as `doc:write`.
+     */
+    'ai:applyEdit': {
+      req: z.object({ edit: assistantEditSchema }),
+      res: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), failed: z.array(z.number().int()) }),
+        z.object({ ok: z.literal(false), reason: z.enum(['missing', 'conflict', 'format-too-new', 'no-match']) })
+      ])
+    },
+    /** Which providers — model and search — hold a key. Never the keys themselves. */
     'ai:keyStatus': {
       req: empty,
-      res: z.object({ configured: z.array(aiProviderIdSchema), secureStorage: z.boolean() })
+      res: z.object({ configured: z.array(keyIdSchema), secureStorage: z.boolean() })
     },
     'ai:setKey': {
-      req: z.object({ provider: aiProviderIdSchema, key: z.string() }),
+      req: z.object({ provider: keyIdSchema, key: z.string() }),
       res: z.object({ ok: z.boolean(), reason: z.string().optional() })
     },
     'ai:listModels': { req: z.object({ settings: aiSettingsSchema }), res: z.array(z.string()) },

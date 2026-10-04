@@ -28,6 +28,7 @@ interface PubTestHook {
       openPath: (path: string) => Promise<string | null>
       save: (docId: string) => Promise<void>
       flushAll: () => Promise<void>
+      close: (docId: string) => void
       docs: Record<string, { docId: string; path: string; title: string; dirty: boolean }>
       activeDocId: string | null
       setActive: (docId: string | null) => void
@@ -206,7 +207,7 @@ interface PubTestHook {
     term?: string
   }) => Promise<boolean>
   /** The live TipTap editor for an open document, exactly what `citeFromPdfHighlight` etc. below operate on. */
-  getEditor: (docId: string) => { getJSON: () => unknown } | undefined
+  getEditor: (docId: string) => import('@tiptap/core').Editor | undefined
   citeFromPdfHighlight: (
     editor: unknown,
     sourceId: string,

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { app, safeStorage } from 'electron'
-import type { AiProviderId } from '../../shared/model/ai.js'
+import type { KeyId } from '../../shared/model/webAccess.js'
 
 /**
  * API keys, encrypted at rest in the user's data directory.
@@ -17,7 +17,7 @@ import type { AiProviderId } from '../../shared/model/ai.js'
  * plaintext under a name that implies otherwise.
  */
 export class AiKeyStore {
-  private cache = new Map<AiProviderId, string>()
+  private cache = new Map<KeyId, string>()
 
   private file(): string {
     return path.join(app.getPath('userData'), 'ai-keys.json')
@@ -44,12 +44,12 @@ export class AiKeyStore {
     fs.writeFileSync(this.file(), JSON.stringify(stored, null, 2), { mode: 0o600 })
   }
 
-  /** Which providers have a key stored. Never the keys themselves. */
-  configured(): AiProviderId[] {
-    return Object.keys(this.read()) as AiProviderId[]
+  /** Which providers — model and search — have a key stored. Never the keys themselves. */
+  configured(): KeyId[] {
+    return Object.keys(this.read()) as KeyId[]
   }
 
-  get(provider: AiProviderId): string | null {
+  get(provider: KeyId): string | null {
     const cached = this.cache.get(provider)
     if (cached) return cached
     const encrypted = this.read()[provider]
@@ -64,7 +64,7 @@ export class AiKeyStore {
     }
   }
 
-  set(provider: AiProviderId, key: string): { ok: boolean; reason?: string } {
+  set(provider: KeyId, key: string): { ok: boolean; reason?: string } {
     const stored = this.read()
     if (!key) {
       delete stored[provider]

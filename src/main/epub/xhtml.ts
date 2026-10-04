@@ -267,5 +267,8 @@ export const XHTML_MARK_TYPES = new Set([
   'mention',
   'insertion',
   'deletion',
-  'lang'
+  'lang',
+  // Assistant attribution, like the review marks: a reader has no use for it,
+  // so it degrades to plain text and the document's own log keeps the record.
+  'aiAuthored'
 ])

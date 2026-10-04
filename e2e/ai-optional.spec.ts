@@ -120,7 +120,6 @@ test('the model picker offers variants, and a file on this computer can be used 
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: false,
       embedModel: ''
     })
   )
@@ -166,7 +165,6 @@ test('an embedded model that is not downloaded says so rather than starting a do
       temperature: 0.7,
       maxTokens: 512,
       systemPrompt: '',
-      agent: false,
       embedModel: ''
     })
   )

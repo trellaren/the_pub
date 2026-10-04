@@ -52,16 +52,15 @@ export function EntityPanel({ kind }: { kind: string }) {
   const discard = useEntityStore((store) => store.discard)
 
   /*
-   * Drafting is offered only where it can actually run: AI on, and the writer's
-   * own agent setting on. Nothing about this phase exists otherwise — not a
-   * disabled button, not a prompt to turn it on.
+   * Drafting is offered only where it can actually run: AI on. Nothing about
+   * this phase exists otherwise — not a disabled button, not a prompt to turn
+   * it on.
    */
   const aiEnabled = useAppStore((store) => store.state?.aiEnabled ?? false)
   const chatsLoaded = useChatStore((store) => store.loaded)
   const loadChats = useChatStore((store) => store.load)
-  const agentMode = useChatStore((store) => store.settings?.agent ?? false)
   const ask = useChatStore((store) => store.ask)
-  const canDraft = aiEnabled && agentMode
+  const canDraft = aiEnabled
 
   useEffect(() => {
     if (aiEnabled && !chatsLoaded) void loadChats()

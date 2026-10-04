@@ -77,22 +77,30 @@ export class ReviewService {
     return byAuthor
   }
 
-  private async mine(docId: string): Promise<ReviewFile> {
+  /**
+   * Whose file a write goes to: this person's, or their assistant's.
+   *
+   * The assistant is a second single-writer file per document, never a second
+   * writer of the person's own — the layout rule holds for it exactly as for a
+   * collaborator, which is what lets its threads be told apart and removed
+   * without touching anything a person wrote.
+   */
+  private async mine(docId: string, as: AuthorProfile = this.me()): Promise<ReviewFile> {
     const byAuthor = await this.loadDoc(docId)
-    const existing = byAuthor.get(this.me().id)
+    const existing = byAuthor.get(as.id)
     if (existing) return existing
     const empty: ReviewFile = structuredClone(EMPTY_REVIEW_FILE)
-    byAuthor.set(this.me().id, empty)
+    byAuthor.set(as.id, empty)
     return empty
   }
 
-  private async flush(docId: string): Promise<void> {
-    const file = (await this.loadDoc(docId)).get(this.me().id)
+  private async flush(docId: string, as: AuthorProfile = this.me()): Promise<void> {
+    const file = (await this.loadDoc(docId)).get(as.id)
     if (!file) return
     await this.adapter.mkdir(REVIEWS_DIR).catch(() => {})
     await this.adapter.mkdir(this.dirFor(docId)).catch(() => {})
     await this.adapter.writeFileAtomic(
-      this.pathFor(docId, this.me().id),
+      this.pathFor(docId, as.id),
       Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
     )
   }
@@ -106,15 +114,18 @@ export class ReviewService {
     docId: string,
     anchorId: string,
     anchorText: string,
-    blockIndex: number
+    blockIndex: number,
+    options: { as?: AuthorProfile; text?: string } = {}
   ): Promise<ReviewThread> {
-    const file = await this.mine(docId)
+    const as = options.as ?? this.me()
+    const file = await this.mine(docId, as)
     const now = new Date().toISOString()
     const thread: ReviewThread = reviewThreadSchema.parse({
       id: ulid(),
       docId,
       anchorId,
-      authorId: this.me().id,
+      authorId: as.id,
+      ...(options.text ? { body: paragraphDoc(options.text) } : {}),
       status: 'open',
       orphaned: false,
       anchorText,
@@ -123,7 +134,7 @@ export class ReviewService {
       modified: now
     })
     file.threads.push(thread)
-    await this.flush(docId)
+    await this.flush(docId, as)
     return thread
   }
 
@@ -182,23 +193,23 @@ export class ReviewService {
     docId: string,
     threadId: string,
     text = '',
-    sets: 'open' | 'resolved' | null = null
+    sets: 'open' | 'resolved' | null = null,
+    options: { as?: AuthorProfile } = {}
   ): Promise<ReviewReply> {
-    const file = await this.mine(docId)
+    const as = options.as ?? this.me()
+    const file = await this.mine(docId, as)
     const now = new Date().toISOString()
     const reply: ReviewReply = reviewReplySchema.parse({
       id: ulid(),
       threadId,
-      authorId: this.me().id,
+      authorId: as.id,
       sets,
-      ...(text
-        ? { body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } }
-        : {}),
+      ...(text ? { body: paragraphDoc(text) } : {}),
       created: now,
       modified: now
     })
     file.replies.push(reply)
-    await this.flush(docId)
+    await this.flush(docId, as)
     return reply
   }
 
@@ -290,4 +301,8 @@ export class ReviewService {
   invalidateAuthors(): void {
     this.authors = null
   }
+}
+
+function paragraphDoc(text: string): PmDoc {
+  return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }
 }

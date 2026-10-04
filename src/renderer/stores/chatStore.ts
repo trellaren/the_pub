@@ -1,15 +1,11 @@
 import { create } from 'zustand'
-import type {
-  Chat,
-  ChatMessage,
-  AiSettings,
-  AiProviderId,
-  ToolCall,
-  EditProposal
-} from '@shared/model/ai.js'
+import type { Chat, ChatMessage, AiSettings, ToolCall } from '@shared/model/ai.js'
+import type { KeyId } from '@shared/model/webAccess.js'
 import { modelChoice, type LlmStatus } from '@shared/model/llm.js'
 import type { RetrievalStatus } from '@shared/model/retrieval.js'
-import { invoke, attempt, on } from '@renderer/lib/ipc.js'
+import { invoke, attempt, on, reportError } from '@renderer/lib/ipc.js'
+import { applyAssistantEditLocally } from '@renderer/panels/ai/applyEdit.js'
+import { useDocumentStore } from '@renderer/stores/documentStore.js'
 
 interface ChatStore {
   chats: Chat[]
@@ -17,15 +13,7 @@ interface ChatStore {
   activeChatId: string | null
   /** The reply currently arriving, if any. */
   streaming: { requestId: string; chatId: string; text: string; toolCalls: ToolCall[] } | null
-  /**
-   * Edits the agent has proposed and the author has not yet acted on.
-   *
-   * Held here rather than applied: the agent has no write path to a document,
-   * and this list is the whole of what it can do to prose.
-   */
-  proposals: EditProposal[]
-  dismissProposal: (id: string) => void
-  keyStatus: { configured: AiProviderId[]; secureStorage: boolean }
+  keyStatus: { configured: KeyId[]; secureStorage: boolean }
   loaded: boolean
   load: () => Promise<void>
   setActive: (id: string | null) => void
@@ -45,7 +33,7 @@ interface ChatStore {
   ask: (text: string) => Promise<boolean>
   cancel: () => Promise<void>
   refreshKeys: () => Promise<void>
-  setKey: (provider: AiProviderId, key: string) => Promise<string | null>
+  setKey: (provider: KeyId, key: string) => Promise<string | null>
   /** Embedded models: what is downloaded, what this machine can run, engine state. */
   llm: LlmStatus | null
   /** Bytes so far per variant, for a download in flight. */
@@ -74,9 +62,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   settings: null,
   activeChatId: null,
   streaming: null,
-  proposals: [],
-  dismissProposal: (id) =>
-    set({ proposals: get().proposals.filter((proposal) => proposal.id !== id) }),
   keyStatus: { configured: [], secureStorage: false },
   loaded: false,
 
@@ -120,7 +105,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   send: async (chatId, text, context) => {
     const started = await attempt(
-      invoke('ai:send', { chatId, text, context }),
+      invoke('ai:send', { chatId, text, context, activeDocId: useDocumentStore.getState().activeDocId ?? '' }),
       'Could not send the message'
     )
     if (!started) return
@@ -271,11 +256,13 @@ export function listenForReplies(): () => void {
       return
     }
 
-    // Proposals outlive the run that produced them — they sit until accepted or
-    // dismissed — so they are kept beside the chat rather than inside the
-    // streaming state that is cleared on `done`.
-    if (event.type === 'proposal') {
-      useChatStore.setState({ proposals: [...useChatStore.getState().proposals, event.proposal] })
+    // An edit lands the moment it arrives — as suggestion marks the writer
+    // judges in the Review panel, which is where "accept or dismiss" lives.
+    // A card here would be a second, worse copy of that panel.
+    if (event.type === 'edit') {
+      void applyAssistantEditLocally(event.edit).then((outcome) => {
+        if (!outcome.ok) reportError(`The assistant's suggestion could not be placed (${outcome.reason}).`)
+      })
       return
     }
 

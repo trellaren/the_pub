@@ -6,6 +6,12 @@ import { toolSpecs, runTool, type RetrievalResult, type ToolContext } from './to
 import { EntityService } from '../services/entityService.js'
 import { SourceService } from '../services/sourceService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
+import { DocumentService } from '../services/documentService.js'
+import { SnapshotService } from '../services/snapshotService.js'
+import { ReviewService } from '../services/reviewService.js'
+import { BeatService } from '../services/beatService.js'
+import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
+import { buildWebGate } from './webGate.js'
 import { isProvisional } from '../../shared/model/source.js'
 import type { ProjectSession } from '../services/projectSession.js'
 
@@ -38,7 +44,15 @@ afterEach(async () => {
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     session: { entities, sources } as unknown as ProjectSession,
-    onProposal: () => {},
+    assistant: { id: 'assistant-owner', name: 'Assistant', color: '' },
+    runId: 'run-1',
+    model: 'stub',
+    writePolicy: 'suggest',
+    web: buildWebGate('none'),
+    captures: new Map(),
+    onEdit: () => {},
+    onReviewChanged: () => {},
+    complete: async () => '[]',
     ensembleAttempts: new Map(),
     ...overrides
   }
@@ -276,5 +290,248 @@ describe('add_source', () => {
 
     expect(result.ok).toBe(false)
     expect(sources.snapshot().sources).toEqual([])
+  })
+})
+
+describe('comment', () => {
+  const OWNER = { id: 'owner', name: 'Marta', color: '' }
+  const ASSISTANT = { id: 'assistant-owner', name: 'Assistant', color: '' }
+
+  async function reviewContext(): Promise<{ context: ToolContext; edits: AssistantEdit[]; reviews: ReviewService; changed: string[] }> {
+    const snapshots = new SnapshotService(adapter)
+    const documents = new DocumentService(adapter, snapshots)
+    const reviews = new ReviewService(adapter, () => OWNER)
+    const created = await documents.create('scene.pubdoc', 'Scene')
+    await documents.write(
+      'scene.pubdoc',
+      {
+        ...created.doc,
+        content: {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'The harbour was quiet. The harbour was dark.' }] }
+          ]
+        }
+      },
+      created.mtime
+    )
+    const edits: AssistantEdit[] = []
+    const changed: string[] = []
+    return {
+      reviews,
+      edits,
+      changed,
+      context: context({
+        session: { entities, sources, documents, reviews } as unknown as ProjectSession,
+        assistant: ASSISTANT,
+        onEdit: (edit) => edits.push(edit),
+        onReviewChanged: (docId) => changed.push(docId)
+      })
+    }
+  }
+
+  it('writes a thread under the assistant\'s own id and anchors it through an edit', async () => {
+    const { context: ctx, edits, reviews, changed } = await reviewContext()
+    const result = await runTool(
+      'comment',
+      JSON.stringify({ path: 'scene.pubdoc', quote: 'was dark', text: 'Dark how? Give us one detail.' }),
+      ctx
+    )
+
+    expect(result.ok).toBe(true)
+    const [thread] = await reviews.list((await ctx.session.documents.read('scene.pubdoc')).doc.docId)
+    expect(thread!.authorId).toBe('assistant-owner')
+    expect(thread!.anchorText).toBe('was dark')
+    expect(JSON.stringify(thread!.body)).toContain('Dark how?')
+    // The mark arrives the way a suggestion does, addressed to the same offsets.
+    expect(edits[0]!.ops).toEqual([{ kind: 'anchor', blockIndex: 0, start: 35, end: 43, anchorId: thread!.anchorId }])
+    expect(changed).toHaveLength(1)
+    // Only the assistant's file exists; nothing was written as the person.
+    const files = await fs.readdir(path.join(root, '.thepub', 'reviews', thread!.docId))
+    expect(files).toEqual(['assistant-owner.json'])
+  })
+
+  it('refuses a quote that occurs more than once rather than guessing', async () => {
+    const { context: ctx, edits } = await reviewContext()
+    const result = await runTool('comment', JSON.stringify({ path: 'scene.pubdoc', quote: 'The harbour', text: 'x' }), ctx)
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('occurs 2 times')
+    expect(edits).toHaveLength(0)
+  })
+
+  it('lists and replies by thread id, as the assistant', async () => {
+    const { context: ctx, reviews } = await reviewContext()
+    await runTool('comment', JSON.stringify({ path: 'scene.pubdoc', quote: 'was quiet', text: 'Too quiet?' }), ctx)
+    const listed = await runTool('list_comments', JSON.stringify({ path: 'scene.pubdoc' }), ctx)
+    expect(listed.content).toContain('Too quiet?')
+    const threadId = listed.content.split(' · ')[0]!.trim()
+
+    const replied = await runTool('reply_comment', JSON.stringify({ path: 'scene.pubdoc', threadId, text: 'Agreed.' }), ctx)
+    expect(replied.ok).toBe(true)
+    const docId = (await ctx.session.documents.read('scene.pubdoc')).doc.docId
+    const [thread] = await reviews.list(docId)
+    expect(thread!.replies[0]).toMatchObject({ authorId: 'assistant-owner' })
+
+    const missing = await runTool('reply_comment', JSON.stringify({ path: 'scene.pubdoc', threadId: 'nope', text: 'x' }), ctx)
+    expect(missing.ok).toBe(false)
+  })
+})
+
+describe('proofread', () => {
+  async function proofContext(reply: string, text: string): Promise<{ context: ToolContext; edits: AssistantEdit[]; asked: string[] }> {
+    const documents = new DocumentService(adapter, new SnapshotService(adapter))
+    const created = await documents.create('draft.pubdoc', 'Draft')
+    await documents.write(
+      'draft.pubdoc',
+      { ...created.doc, lang: 'en-GB', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } },
+      created.mtime
+    )
+    const edits: AssistantEdit[] = []
+    const asked: string[] = []
+    return {
+      edits,
+      asked,
+      context: context({
+        session: { entities, sources, documents, manifest: { publication: {} } } as unknown as ProjectSession,
+        onEdit: (edit) => edits.push(edit),
+        complete: async (system, user) => {
+          asked.push(`${system}\n${user}`)
+          return reply
+        }
+      })
+    }
+  }
+
+  it('asks the model about numbered paragraphs and suggests every placed correction as one edit', async () => {
+    const { context: ctx, edits, asked } = await proofContext(
+      JSON.stringify([
+        { block: 0, find: 'recieved', replace: 'received', reason: 'misspelt', kind: 'spelling' },
+        { block: 0, find: 'nowhere', replace: 'anywhere', kind: 'grammar' }
+      ]),
+      'She recieved no answer.'
+    )
+    const result = await runTool('proofread', JSON.stringify({ path: 'draft.pubdoc' }), ctx)
+
+    expect(result.ok).toBe(true)
+    expect(asked[0]).toContain('[0] She recieved no answer.')
+    expect(asked[0]).toContain('en-GB')
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.ops).toEqual([
+      { kind: 'replace', blockIndex: 0, start: 4, end: 12, text: 'received', reason: 'spelling: misspelt' }
+    ])
+    expect(result.summary).toBe('Proofread Draft — 1 suggestion (1 spelling)')
+    expect(result.content).toContain('1 finding could not be placed')
+  })
+
+  it('suggests nothing when the model finds nothing', async () => {
+    const { context: ctx, edits } = await proofContext('[]', 'All is well.')
+    const result = await runTool('proofread', JSON.stringify({ path: 'draft.pubdoc' }), ctx)
+    expect(result.ok).toBe(true)
+    expect(edits).toHaveLength(0)
+    expect(result.content).toContain('nothing to correct')
+  })
+})
+
+describe('the web tools', () => {
+  const page = { url: 'https://example.org/docks', title: 'Lisbon docks', text: 'Dockworkers earned little in 1954.', accessed: '2026-10-02' }
+
+  it('are offered only to the extent the writer allowed', () => {
+    const names = (web: 'none' | 'urls' | 'search') => toolSpecs({ retrieval: false, web }).map((spec) => spec.name)
+    expect(names('none')).not.toContain('fetch_page')
+    expect(names('none')).not.toContain('web_search')
+    expect(names('urls')).toContain('fetch_page')
+    expect(names('urls')).toContain('cite_page')
+    expect(names('urls')).not.toContain('web_search')
+    expect(names('search')).toContain('web_search')
+  })
+
+  it('refuses to fetch a page the writer did not name under the urls level, and reads one they did', async () => {
+    const fetched: string[] = []
+    const ctx = context({
+      web: buildWebGate('urls', ['https://example.org/docks']),
+      fetchPage: async (url) => {
+        fetched.push(url)
+        return { ok: true, capture: page }
+      }
+    })
+    const refused = await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/other' }), ctx)
+    expect(refused.ok).toBe(false)
+    expect(fetched).toEqual([])
+
+    const read = await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/docks' }), ctx)
+    expect(read.ok).toBe(true)
+    expect(read.content).toContain('Dockworkers earned little')
+    expect(ctx.captures.get('https://example.org/docks')).toEqual(page)
+  })
+
+  it('cites only a page it has read, as a draft source with the capture attached', async () => {
+    const ctx = context({ web: buildWebGate('urls', ['https://example.org/docks']), fetchPage: async () => ({ ok: true, capture: page }) })
+    const unread = await runTool('cite_page', JSON.stringify({ url: 'https://example.org/docks', claim: 'Wages were low.' }), ctx)
+    expect(unread.ok).toBe(false)
+    expect(sources.snapshot().sources).toHaveLength(0)
+
+    await runTool('fetch_page', JSON.stringify({ url: 'https://example.org/docks' }), ctx)
+    const cited = await runTool('cite_page', JSON.stringify({ url: 'https://example.org/docks', claim: 'Wages were low.', year: '1954' }), ctx)
+    expect(cited.ok).toBe(true)
+    const [source] = sources.snapshot().sources
+    expect(isProvisional(source!)).toBe(true)
+    expect(source!.URL).toBe('https://example.org/docks')
+    expect(source!.accessed).toEqual({ 'date-parts': [[2026, 10, 2]] })
+    expect(JSON.stringify(source)).toContain('"kind":"capture"')
+  })
+
+  it("searches through the writer's provider and reports a missing key plainly", async () => {
+    const searching = context({ web: buildWebGate('search'), search: async () => ({ ok: true, hits: [{ title: 'Docks', url: 'https://example.org/docks', snippet: 'Wages.' }] }) })
+    const found = await runTool('web_search', JSON.stringify({ query: 'lisbon docks 1954' }), searching)
+    expect(found.ok).toBe(true)
+    expect(found.content).toContain('https://example.org/docks')
+
+    const unkeyed = context({ web: buildWebGate('search'), search: async () => ({ ok: false, reason: 'no-key' }) })
+    const failed = await runTool('web_search', JSON.stringify({ query: 'x' }), unkeyed)
+    expect(failed.ok).toBe(false)
+    expect(failed.content).toContain('No key')
+
+    const forbidden = await runTool('web_search', JSON.stringify({ query: 'x' }), context({ web: buildWebGate('urls') }))
+    expect(forbidden.ok).toBe(false)
+  })
+})
+
+describe('the planning tools', () => {
+  async function planningContext(): Promise<ToolContext> {
+    const beats = new BeatService(adapter)
+    await beats.load()
+    const aurelio = await entities.create('character', 'Aurelio')
+    const storm = await beats.create({ title: 'The storm' })
+    await beats.save({ ...storm, summary: 'The boat does not come back.', entityIds: [aurelio.id], when: { label: 'Night 3', sort: 3 } })
+    const calm = await beats.create({ title: 'The calm' })
+    await beats.save({ ...calm, status: 'done' })
+    return context({
+      session: {
+        entities,
+        sources,
+        beats,
+        search: { resolvePath: () => null },
+        manuscript: { view: () => ({ nodes: [{ kind: 'document', title: 'One', resolvedPath: 'one.pubdoc', missing: false }], resolving: false }) }
+      } as unknown as ProjectSession
+    })
+  }
+
+  it('lists beats with their cast by name and filters by status', async () => {
+    const ctx = await planningContext()
+    const all = await runTool('list_beats', '{}', ctx)
+    expect(all.content).toContain('The storm [outline]')
+    expect(all.content).toContain('with: Aurelio')
+    expect(all.content).toContain('when: Night 3')
+    const outline = await runTool('list_beats', JSON.stringify({ status: 'outline' }), ctx)
+    expect(outline.content).not.toContain('The calm')
+  })
+
+  it('reads the outline as manuscript order plus the board by column', async () => {
+    const ctx = await planningContext()
+    const result = await runTool('read_outline', '{}', ctx)
+    expect(result.content).toContain('Manuscript:')
+    expect(result.content).toContain('One — one.pubdoc')
+    expect(result.content).toContain('Storyboard:')
+    expect(result.content).toContain('- The storm [outline] — The boat does not come back.')
   })
 })

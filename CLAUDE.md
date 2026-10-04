@@ -25,7 +25,8 @@ npm run build        # typecheck + electron-vite build
 bash ci/run-checks.sh --skip-package   # the pre-merge gate; see below
 ```
 
-On a headless box, e2e needs a virtual display: `xvfb-run -a npm run e2e`.
+On a headless box, e2e needs a virtual display: `xvfb-run -a npm run e2e`. On a desktop, set
+`QUOTH_E2E_HIDDEN=1` so the app windows each test launches stay off-screen and unfocused.
 
 **Before considering any change done**, run `npm run typecheck`, `npm test`, and — for anything
 touching the editor, IPC, or a user-facing flow — the relevant `e2e/*.spec.ts` file(s) under

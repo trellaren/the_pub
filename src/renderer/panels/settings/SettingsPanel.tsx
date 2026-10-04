@@ -54,6 +54,10 @@ export function SettingsPanel() {
     if (storageKey === 'theme') void store.setTheme(value as never)
     else if (storageKey === 'timelineOrientation') void store.setTimelineOrientation(value as never)
     else if (storageKey === 'aiEnabled') void store.setAiEnabled(value as boolean)
+    else if (storageKey === 'aiWritePolicy') void store.setAiWritePolicy(value as never)
+    else if (storageKey === 'aiWebAccess') void store.setAiWeb({ webAccess: value as never })
+    else if (storageKey === 'aiSearchProvider') void store.setAiWeb({ searchProvider: value as never })
+    else if (storageKey === 'aiSearchBaseUrl') void store.setAiWeb({ searchBaseUrl: String(value ?? '') })
     else if (storageKey === 'embeddedIdleMinutes') void store.setEmbeddedIdleMinutes(value as number)
     else if (storageKey === 'statsIdleTimeoutMinutes') void store.setStatsIdleTimeoutMinutes(value as number)
   }

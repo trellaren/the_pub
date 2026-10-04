@@ -570,6 +570,7 @@ function everythingForSchemaCheck(): PmDoc {
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Heading' }] },
     para('text', undefined, [{ type: 'bold' }]),
     para('texte', undefined, [{ type: 'lang', attrs: { lang: 'fr' } }]),
+    para('drafted', undefined, [{ type: 'aiAuthored', attrs: { runId: 'r', model: 'm', at: '', authorId: 'assistant-a' } }]),
     { type: 'paragraph', content: [{ type: 'image', attrs: { src: 'x' } }, { type: 'hardBreak' }] },
     {
       type: 'paragraph',

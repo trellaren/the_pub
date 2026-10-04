@@ -46,15 +46,24 @@ export function ContextMenu({
 
   // Clamp into the viewport before paint: a menu opened near the bottom of the
   // tree would otherwise hang off the window, with its items unreachable.
+  //
+  // `fixed` is not always viewport-relative: a transformed ancestor becomes the
+  // containing block, and dockview's render overlay is one. So place the menu
+  // at the requested point first, measure where it actually landed, and fold
+  // that offset into the clamped position rather than trusting `left`/`top`.
   useLayoutEffect(() => {
     const element = panel.current
     if (!element) return
     const view = element.ownerDocument.defaultView ?? window
+    element.style.left = `${x}px`
+    element.style.top = `${y}px`
     const box = element.getBoundingClientRect()
+    const offsetX = box.left - x
+    const offsetY = box.top - y
     const left = Math.max(0, Math.min(x, view.innerWidth - box.width))
     const top = Math.max(0, Math.min(y, view.innerHeight - box.height))
-    element.style.left = `${left}px`
-    element.style.top = `${top}px`
+    element.style.left = `${left - offsetX}px`
+    element.style.top = `${top - offsetY}px`
   }, [x, y])
 
   return (

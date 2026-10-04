@@ -1,7 +1,16 @@
-import type { AiSettings, StreamEvent, ToolCall, EditProposal } from '../../shared/model/ai.js'
+import type { AiSettings, StreamEvent, ToolCall } from '../../shared/model/ai.js'
+import { MAX_TOOL_CONTENT_CHARS } from '../../shared/model/ai.js'
+import type { AuthorProfile } from '../../shared/model/author.js'
+import type { WritePolicy } from '../../shared/model/provenance.js'
+import type { Capture } from '../../shared/model/research.js'
+import { buildWebGate, type WebGate } from './webGate.js'
+import type { AssistantEdit } from '../../shared/pm/assistantEdits.js'
 import type { ProjectSession } from '../services/projectSession.js'
 import { streamCompletion, assistantMessage, type AiRunner } from './aiRunner.js'
-import { toolSpecs, runTool, type RetrievalResult } from './tools.js'
+import { toolSpecs, runTool, type RetrievalResult, type ToolContext } from './tools.js'
+
+type ToolContextSearch = NonNullable<ToolContext['search']>
+type ToolContextFetch = NonNullable<ToolContext['fetchPage']>
 import type { OutboundMessage } from './providers.js'
 
 /**
@@ -21,6 +30,14 @@ export interface AgentRunOptions {
   messages: OutboundMessage[]
   apiKey: string | null
   session: ProjectSession
+  /** Who the assistant is in this project — see `assistantProfile`. */
+  assistant: AuthorProfile
+  /** How its edits may land; `suggest` when unset. */
+  writePolicy?: WritePolicy
+  /** What it may reach on the web; nothing when unset. */
+  web?: WebGate
+  search?: ToolContextSearch
+  fetchPage?: ToolContextFetch
   /**
    * Semantic retrieval, when this project has an index to search. Passed in
    * rather than reached for, because building the query vector needs the same
@@ -28,6 +45,8 @@ export interface AgentRunOptions {
    */
   findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
   onEvent: (event: StreamEvent) => void
+  /** A comment landed; the panel showing that document's threads should reload. */
+  onReviewChanged?: (docId: string) => void
 }
 
 /**
@@ -45,7 +64,9 @@ export interface AgentRunOptions {
 export async function runAgent(runner: AiRunner, options: AgentRunOptions): Promise<void> {
   const { requestId, settings, session, onEvent } = options
   const controller = runner.track(requestId)
-  const tools = toolSpecs({ retrieval: Boolean(options.findPassages) })
+  const web = options.web ?? buildWebGate('none')
+  const tools = toolSpecs({ retrieval: Boolean(options.findPassages), web: web.level })
+  const captures = new Map<string, Capture>()
 
   const conversation: OutboundMessage[] = [...options.messages]
   const performed: ToolCall[] = []
@@ -90,12 +111,35 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
       for (const call of outcome.toolCalls) {
         if (controller.signal.aborted) break
 
-        const proposals: EditProposal[] = []
+        const edits: AssistantEdit[] = []
         const result = await runTool(call.name, call.args, {
           session,
+          assistant: options.assistant,
+          runId: requestId,
+          model: settings.model,
+          writePolicy: options.writePolicy ?? 'suggest',
+          web,
+          search: options.search,
+          fetchPage: options.fetchPage,
+          captures,
           findPassages: options.findPassages,
           ensembleAttempts,
-          onProposal: (proposal) => proposals.push(proposal)
+          onEdit: (edit) => edits.push(edit),
+          onReviewChanged: (docId) => options.onReviewChanged?.(docId),
+          complete: async (system, user, maxTokens) => {
+            const nested = await streamCompletion(
+              {
+                settings: { ...settings, maxTokens },
+                system,
+                messages: [{ role: 'user', text: user }],
+                apiKey: options.apiKey
+              },
+              controller.signal,
+              () => {}
+            )
+            if (nested.error) throw new Error(nested.error)
+            return nested.text
+          }
         })
 
         const record: ToolCall = {
@@ -103,13 +147,14 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           name: call.name,
           args: call.args,
           result: result.summary,
+          content: result.content.slice(0, MAX_TOOL_CONTENT_CHARS),
           ok: result.ok
         }
         performed.push(record)
         // Emitted as it happens rather than at the end: an agent that spends
         // twenty seconds searching should say so while it searches.
         onEvent({ type: 'tool', requestId, call: record })
-        for (const proposal of proposals) onEvent({ type: 'proposal', requestId, proposal })
+        for (const edit of edits) onEvent({ type: 'edit', requestId, edit })
 
         results.push({ id: call.id, content: result.content })
       }

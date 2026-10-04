@@ -69,7 +69,11 @@ test('the app runs from its own binary, with the renderer left unpacked', async 
    * and every other test would still pass. This is the only assertion that
    * would notice.
    */
-  const entry = asar.statFile(paths.appPath, 'out/renderer/index.html') as { unpacked?: boolean }
+  // Platform separators: the asar reader splits the lookup on `path.sep`, so a
+  // forward-slash path resolves on Linux and macOS and nowhere on Windows.
+  const entry = asar.statFile(paths.appPath, path.join('out', 'renderer', 'index.html')) as {
+    unpacked?: boolean
+  }
   expect(entry.unpacked).toBe(true)
 })
 

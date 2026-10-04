@@ -87,21 +87,28 @@ slips through — because a noisy suggestion list is how a feature like this get
   mountains, ruins, harbours and the rest — and dragged to a new spot without losing what they are
   linked to. Stroke width and region fill are yours to set, and stay with the shape.
 
-- **AI assistance** from Anthropic, OpenAI, Hugging Face or a local LM Studio server, with as
-  many conversations as you like. Ask about the selection or the whole document, watch the reply
-  stream in, and insert it into the manuscript as an ordinary, undoable edit. Keys are yours:
-  they are encrypted into the app's own data directory, never the project folder, and no channel
+- **An assistant, from Anthropic, OpenAI, Hugging Face, a local LM Studio server or a model the
+  app runs itself**, with as many conversations as you like. It always has the project in hand:
+  it can search and read your documents and records, and it is told the shape of the book —
+  its people, its places, the beats still at outline stage — before every question, so a writing
+  prompt or a "what comes next" starts from your story rather than from a generic one. Keys are
+  yours: encrypted into the app's own data directory, never the project folder, and no channel
   hands one back to the interface.
 
-- **An assistant that drafts, and never commits.** With the agent turned on it can search the
-  project, propose prose edits as suggestions, and draft story records — one character, or a whole
-  ensemble asked for as a group ("a crew of eight, no two from the same town, exactly one lying
-  about why they signed on") and checked against those constraints before any of it is written.
-  What it writes arrives as a *draft*: a real record you can search, mention and link to a beat,
-  visibly marked, that you accept or discard. Accepting is the only thing that makes it yours —
-  and once you have, the assistant cannot change it again. Researched citations come in the same
-  way and say so on the card: it cannot browse, so a reference it attributes is unverified until
-  you have checked it.
+- **It reviews, proofreads and suggests, and you decide.** Ask it to review a chapter and it
+  leaves comments in the margin under its own name, beside any human reviewer's, and offers line
+  edits as tracked changes you accept or reject in the Review panel. Ask it to proofread and
+  every correction arrives the same way. It can also draft story records — one character, or a
+  whole ensemble checked as a group against the constraints you gave it — as drafts you accept or
+  discard. If you would rather it apply trivial fixes, or everything, directly, that is a setting
+  of yours; and whatever it writes directly is underlined in the text and logged in the document
+  itself, a record that stays after the words are gone.
+
+- **Research on your terms.** Out of the box the assistant does not browse, and a source it
+  attributes is marked unverified until you have checked it. Let it read pages whose address you
+  gave it, or let it search the web through Brave, Tavily or your own SearXNG, and a page it has
+  actually read can be cited into the bibliography with its text attached and the date it was
+  read — never a page it has not.
 
 - **Projects on a server.** Open a project over SFTP or FTP and everything works unchanged —
   the tree, the editor, autosave, snapshots, search, records, maps. Saved servers keep their

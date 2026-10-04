@@ -175,7 +175,7 @@ export const MENU_MODEL: MenuTopLevel[] = [
       { kind: 'command', commandId: 'panel.storyboard', label: 'Storyboard' },
       { kind: 'command', commandId: 'panel.manuscript', label: 'Manuscript' },
       { kind: 'command', commandId: 'panel.maps', label: 'Maps' },
-      { kind: 'command', commandId: 'panel.ai', label: 'AI' },
+      { kind: 'command', commandId: 'panel.ai', label: 'Assistant' },
       { kind: 'command', commandId: 'panel.notes', label: 'Notes' },
       { kind: 'command', commandId: 'panel.review', label: 'Review' },
       { kind: 'command', commandId: 'panel.sources', label: 'Sources' },

@@ -66,13 +66,21 @@ export function pickAngle(previous: string, random: () => number = Math.random):
   return choices[Math.floor(random() * choices.length)] ?? PROMPT_ANGLES[0]
 }
 
-/** What the model is asked. Kept here so a test can assert on it. */
-export function promptRequest(angle: string): string {
+/**
+ * What the model is asked. Kept here so a test can assert on it.
+ *
+ * With a project brief, the prompt is for *this* writer: rooted in their
+ * people and places rather than in a generic locked door and a letter.
+ */
+export function promptRequest(angle: string, brief = ''): string {
   return [
     'Write one writing prompt for a fiction writer, two sentences at most.',
     `Build it around this angle: ${angle}.`,
+    brief ? `It is for the writer of this project: ${brief} Root the prompt in that world without retelling it.` : '',
     'Give the prompt only — no preamble, no title, no quotation marks.'
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**

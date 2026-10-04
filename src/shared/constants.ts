@@ -4,14 +4,14 @@
  * migration — on every `.pubdoc` that never touched the changed part.
  */
 export const FORMAT_VERSIONS = {
-  document: 9, // 8 = Phase 14 lang mark/attr, 9 = per-side section margins
+  document: 10, // 8 = Phase 14 lang mark/attr, 9 = per-side section margins, 10 = aiAuthored mark + provenance log
   manifest: 9, // 7 = Phase 12 publication block, 8 = Phase 13 goals, 9 = per-side page margins
   manuscript: 1,
   entities: 2, // 2 = Phase 15 provisional flag
   beats: 1,
   maps: 1,
   layouts: 1,
-  chats: 4,
+  chats: 5, // 5 = the agent is no longer optional; `settings.agent` removed
   connections: 2,
   notes: 1,
   sources: 2, // 2 = Phase 15 provisional sources

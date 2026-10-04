@@ -7,6 +7,7 @@ import {
   type LoadedDocument
 } from '../../shared/model/document.js'
 import { countWords } from '../../shared/pm/extractText.js'
+import { unionProvenance } from '../../shared/model/provenance.js'
 import { migrate } from '../../shared/model/migrate.js'
 import { FORMAT_VERSIONS, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
 import { basename } from '../vfs/paths.js'
@@ -68,6 +69,7 @@ export class DocumentService {
       return { ok: false, reason: 'conflict', diskMtime: stat.mtime }
     }
 
+    let provenance = incoming.provenance
     if (stat) {
       const previousRaw = await this.adapter.readFile(docPath)
       let previousJson: unknown
@@ -88,7 +90,12 @@ export class DocumentService {
           return { ok: false, reason: 'format-too-new', diskVersion }
         }
         try {
-          await this.snapshots.maybeSnapshot(pubDocumentSchema.parse(value))
+          const previous = pubDocumentSchema.parse(value)
+          await this.snapshots.maybeSnapshot(previous)
+          // The one place the log is enforced: whatever the caller sends, the
+          // entries already on disk come along. A renderer with a stale
+          // envelope, or one that dropped the field, cannot shorten it.
+          provenance = unionProvenance(previous.provenance, incoming.provenance)
         } catch {
           // Unparseable previous version: nothing worth archiving.
         }
@@ -97,6 +104,7 @@ export class DocumentService {
 
     const doc: PubDocument = {
       ...incoming,
+      ...(provenance ? { provenance } : {}),
       formatVersion: FORMAT_VERSIONS.document,
       modified: new Date().toISOString(),
       wordCount: countWords(incoming.content)

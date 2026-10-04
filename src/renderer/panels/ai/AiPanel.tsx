@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AiProviderId, ToolCall, EditProposal } from '@shared/model/ai.js'
-import { PROVIDERS, PROMPT_PRESETS, providerInfo, resolveSettings } from '@shared/model/ai.js'
+import type { AiProviderId, ToolCall } from '@shared/model/ai.js'
+import { PROVIDERS, providerInfo, resolveSettings } from '@shared/model/ai.js'
+import { availableTasks, type AssistantTask } from '@shared/model/assistantTasks.js'
+import { pickAngle } from '@shared/model/writingPrompt.js'
 import { EMBEDDED_MODELS, isSideloadedModel } from '@shared/model/llm.js'
 import { ModelManager } from './ModelManager.js'
 import { RetrievalManager } from './RetrievalManager.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useChatStore, listenForReplies } from '@renderer/stores/chatStore.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
+import { applyAssistantEditLocally } from './applyEdit.js'
+import { ulid } from 'ulid'
+import type { AssistantEdit } from '@shared/pm/assistantEdits.js'
+import { useReviewStore } from '@renderer/stores/reviewStore.js'
+import { useAppStore } from '@renderer/stores/appStore.js'
+import { useLayoutStore } from '@renderer/stores/layoutStore.js'
+import { SEARCH_PROVIDERS, searchProviderInfo, searchKeyId } from '@shared/model/webAccess.js'
+import { assistantProfile } from '@shared/model/author.js'
 import {
   PanelShell,
   PanelHeader,
@@ -36,11 +46,16 @@ export function AiPanel() {
   const settings = useChatStore((store) => store.settings)
   const activeChatId = useChatStore((store) => store.activeChatId)
   const streaming = useChatStore((store) => store.streaming)
-  const proposals = useChatStore((store) => store.proposals)
   const keyStatus = useChatStore((store) => store.keyStatus)
 
+  const activeDocId = useDocumentStore((store) => store.activeDocId)
+  const activeDoc = useDocumentStore((store) => (store.activeDocId ? store.docs[store.activeDocId] : undefined))
+  const webAccess = useAppStore((store) => store.state?.aiWebAccess ?? 'none')
   const [draft, setDraft] = useState('')
   const [useSelection, setUseSelection] = useState(true)
+  // Re-read on each render rather than subscribed: a selection changes on
+  // every keystroke, and the chips only need to be right when looked at.
+  const hasSelection = hasEditorSelection(activeDocId)
   const [showSettings, setShowSettings] = useState(false)
   const [replyAnnouncement, setReplyAnnouncement] = useState('')
   const threadEnd = useRef<HTMLDivElement>(null)
@@ -58,6 +73,11 @@ export function AiPanel() {
   }, [project?.root])
 
   useEffect(() => listenForReplies(), [])
+  // The insert button stamps the assistant's marks with an id derived from
+  // the writer's own, so their profile has to be known before it is pressed.
+  useEffect(() => {
+    if (project && !useReviewStore.getState().me) void useReviewStore.getState().loadMe()
+  }, [project?.root])
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ block: 'end' })
@@ -70,19 +90,23 @@ export function AiPanel() {
     wasStreaming.current = Boolean(streaming)
   }, [streaming])
 
-  const send = async (prompt: string): Promise<void> => {
+  const send = async (prompt: string, attach = useSelection): Promise<void> => {
     if (!prompt.trim() || streaming) return
     let target = chat
     if (!target) target = await useChatStore.getState().createChat()
     if (!target) return
     setDraft('')
-    await useChatStore.getState().send(target.id, prompt, useSelection ? manuscriptContext() : '')
+    await useChatStore.getState().send(target.id, prompt, attach ? manuscriptContext() : '')
+  }
+
+  const runTask = (task: AssistantTask): void => {
+    void send(task.prompt({ docPath: activeDoc?.path ?? '', angle: pickAngle('') }), task.attach)
   }
 
   if (!project) {
     return (
       <PanelShell>
-        <PanelHeader>AI</PanelHeader>
+        <PanelHeader>Assistant</PanelHeader>
         <EmptyState title="No project open" />
       </PanelShell>
     )
@@ -95,7 +119,7 @@ export function AiPanel() {
     <PanelShell>
       <PanelHeader>
         <RavenMark variant="bust" size={14} className="shrink-0 text-faint" />
-        <span className="flex-1">AI</span>
+        <span className="flex-1">Assistant</span>
         <Select
           value={activeChatId ?? ''}
           onChange={(event) => useChatStore.getState().setActive(event.target.value || null)}
@@ -137,8 +161,8 @@ export function AiPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="chat-thread">
         {!chat || chat.messages.length === 0 ? (
           <EmptyState
-            title="Ask about the manuscript"
-            hint="The selected text, or the open document, is sent with your question."
+            title="Ask the assistant"
+            hint="It can read and search the project, review and proofread, and suggest changes you accept or reject. The selected text, or the open document, is sent with your question."
           />
         ) : (
           chat.messages.map((message) => (
@@ -159,8 +183,8 @@ export function AiPanel() {
               {message.role === 'assistant' && message.text ? (
                 <div className="mt-1 flex gap-1">
                   <ToolbarButton
-                    label="Insert this at the cursor"
-                    onClick={() => insertIntoDocument(message.text)}
+                    label="Insert this at the cursor, as a tracked change"
+                    onClick={() => void insertIntoDocument(message.text, message.model)}
                   >
                     insert
                   </ToolbarButton>
@@ -186,22 +210,20 @@ export function AiPanel() {
           </article>
         ) : null}
 
-        {proposals.map((proposal) => (
-          <EditProposalCard key={proposal.id} proposal={proposal} />
-        ))}
         <div ref={threadEnd} />
       </div>
 
       <div className="shrink-0 border-t border-border p-2">
-        <div className="mb-1 flex flex-wrap gap-1">
-          {PROMPT_PRESETS.map((preset) => (
+        <div className="mb-1 flex flex-wrap gap-1" data-testid="assistant-tasks">
+          {availableTasks({ hasDocument: Boolean(activeDoc), hasSelection, web: webAccess }).map((task) => (
             <ToolbarButton
-              key={preset.id}
-              label={preset.prompt}
+              key={task.id}
+              label={task.title}
               disabled={Boolean(streaming)}
-              onClick={() => void send(preset.prompt)}
+              onClick={() => runTask(task)}
+              data-testid={`task-${task.id}`}
             >
-              {preset.title}
+              {task.title}
             </ToolbarButton>
           ))}
         </div>
@@ -404,121 +426,194 @@ function SettingsForm() {
         />
       </Field>
 
-      <label className="mb-1 flex items-center gap-1 text-[11px] text-muted">
-        <input
-          type="checkbox"
-          checked={settings.agent}
-          onChange={(event) => patch({ agent: event.target.checked })}
-          data-testid="ai-agent"
-        />
-        Let it search the project before answering
-      </label>
-      {/* Off by default: an ordinary question should cost one request, and a
-          writer who has not asked for an assistant that goes looking through
-          their project should not get one. */}
       <p className="mb-2 text-[10px] text-faint">
-        It can search and read your documents and records, and suggest edits for you to accept —
-        it never changes a document itself.
+        It can search and read your documents and records, and suggest edits that appear as tracked
+        changes for you to accept or reject — it never changes a document itself.
       </p>
 
-      {settings.agent ? <RetrievalManager /> : null}
+      <WritePolicyField />
+      <WebAccessFields />
+
+      <RetrievalManager />
 
       {settings.provider === 'embedded' ? <ModelManager /> : null}
     </div>
   )
 }
 
-/** What the agent did, above the answer it did it for. */
+/**
+ * The writer's standing choice about how the assistant's prose may land. The
+ * same app-scoped setting the Settings panel shows; offered here because this
+ * is where someone wonders why a change arrived as a suggestion.
+ */
+function WritePolicyField() {
+  const policy = useAppStore((store) => store.state?.aiWritePolicy ?? 'suggest')
+  return (
+    <Field label="Its changes">
+      <Select
+        value={policy}
+        onChange={(event) => void useAppStore.getState().setAiWritePolicy(event.target.value as typeof policy)}
+        data-testid="ai-write-policy"
+      >
+        <option value="suggest">Suggest everything as tracked changes</option>
+        <option value="direct-trivial">Apply trivial fixes, suggest the rest</option>
+        <option value="direct">Apply directly, marked and logged</option>
+      </Select>
+    </Field>
+  )
+}
+
+/**
+ * How far the assistant may reach on the web, and through whom.
+ *
+ * App-scoped like the write policy, and keyed like a model provider: a search
+ * key is encrypted into the same store, under a `search:` prefix, and the
+ * renderer learns only that one is present.
+ */
+function WebAccessFields() {
+  const level = useAppStore((store) => store.state?.aiWebAccess ?? 'none')
+  const provider = useAppStore((store) => store.state?.aiSearchProvider ?? 'brave')
+  const baseUrl = useAppStore((store) => store.state?.aiSearchBaseUrl ?? '')
+  const keyStatus = useChatStore((store) => store.keyStatus)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const info = searchProviderInfo(provider)
+  const keyId = searchKeyId(provider)
+  const stored = keyStatus.configured.includes(keyId)
+
+  return (
+    <>
+      <Field label="On the web">
+        <Select
+          value={level}
+          onChange={(event) => void useAppStore.getState().setAiWeb({ webAccess: event.target.value as typeof level })}
+          data-testid="ai-web-access"
+        >
+          <option value="none">Nothing — it never browses</option>
+          <option value="urls">Pages you name</option>
+          <option value="search">Search and fetch</option>
+        </Select>
+      </Field>
+      {level === 'search' ? (
+        <>
+          <Field label="Search provider">
+            <Select
+              value={provider}
+              onChange={(event) =>
+                void useAppStore.getState().setAiWeb({ searchProvider: event.target.value as typeof provider })
+              }
+              data-testid="ai-search-provider"
+            >
+              {SEARCH_PROVIDERS.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {info.needsKey ? (
+            <>
+              <Field label={stored ? 'Search key (stored)' : 'Search key'}>
+                <TextInput
+                  type="password"
+                  value={keyDraft}
+                  placeholder={stored ? '••••••••' : 'key'}
+                  onChange={(event) => setKeyDraft(event.target.value)}
+                  data-testid="ai-search-key"
+                />
+              </Field>
+              <div className="mb-2 flex gap-1">
+                <ToolbarButton
+                  label="Save the search key"
+                  onClick={async () => {
+                    setKeyError(await useChatStore.getState().setKey(keyId, keyDraft))
+                    setKeyDraft('')
+                  }}
+                >
+                  save key
+                </ToolbarButton>
+                {stored ? (
+                  <ToolbarButton
+                    label="Forget the stored search key"
+                    onClick={() => void useChatStore.getState().setKey(keyId, '')}
+                  >
+                    forget
+                  </ToolbarButton>
+                ) : null}
+              </div>
+              {keyError ? <p className="mb-2 text-[11px] text-danger">{keyError}</p> : null}
+            </>
+          ) : (
+            <Field label="Search server address">
+              <TextInput
+                value={baseUrl}
+                placeholder="http://searx.home:8080"
+                onChange={(event) => void useAppStore.getState().setAiWeb({ searchBaseUrl: event.target.value })}
+              />
+            </Field>
+          )}
+        </>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * What the agent did, above the answer it did it for.
+ *
+ * A call that touched a document links to it: a suggestion or a comment is
+ * something to go and look at, and the panel that judges it is the editor's
+ * Review panel, not this one.
+ */
 function ToolTrail({ calls }: { calls: ToolCall[] }) {
   return (
     <ul className="mb-1 border-l-2 border-border pl-2" data-testid="tool-trail">
-      {calls.map((call) => (
-        <li key={call.id} className={cx('text-[10px]', call.ok ? 'text-faint' : 'text-danger')}>
-          {call.result || call.name}
-        </li>
-      ))}
+      {calls.map((call) => {
+        const path = documentPathOf(call)
+        return (
+          <li key={call.id} className={cx('text-[10px]', call.ok ? 'text-faint' : 'text-danger')}>
+            {call.result || call.name}
+            {path && call.ok ? (
+              <button
+                type="button"
+                className="ml-1 text-accent hover:underline"
+                onClick={() => void openDocumentFromTrail(path, call.name)}
+                aria-label={`Open ${path}`}
+              >
+                open
+              </button>
+            ) : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
 
-/**
- * An edit the agent has proposed.
- *
- * Applying it is an ordinary editor command the author runs — the agent has no
- * write path to a document, and this card is the whole of its reach into prose.
- * When Phase 9's suggestion marks exist, "apply" becomes "insert as a
- * suggestion" and this is the only place that changes.
- */
-function EditProposalCard({ proposal }: { proposal: EditProposal }) {
-  const [error, setError] = useState<string | null>(null)
+const DOCUMENT_TOOLS = new Set(['suggest_edit', 'comment', 'reply_comment', 'proofread', 'read_document'])
 
-  return (
-    <article
-      className="mb-2 rounded border border-accent bg-surface-2 px-2 py-1.5 text-[12px]"
-      data-testid="edit-proposal"
-    >
-      <div className="mb-1 text-[10px] text-faint">Suggested change to {proposal.docPath}</div>
-      {proposal.find ? (
-        <div className="mb-1 whitespace-pre-wrap text-danger line-through">{proposal.find}</div>
-      ) : null}
-      <div className="mb-1 whitespace-pre-wrap text-text">{proposal.replace}</div>
-      {proposal.reason ? <div className="mb-1 text-[10px] text-muted">{proposal.reason}</div> : null}
-      {error ? <div className="mb-1 text-[11px] text-danger">{error}</div> : null}
-      <div className="flex gap-1">
-        <ToolbarButton
-          label="Make this change"
-          onClick={() => {
-            const failure = applyProposal(proposal)
-            if (failure) {
-              setError(failure)
-              return
-            }
-            useChatStore.getState().dismissProposal(proposal.id)
-          }}
-          data-testid="proposal-apply"
-        >
-          apply
-        </ToolbarButton>
-        <ToolbarButton
-          label="Discard this suggestion"
-          onClick={() => useChatStore.getState().dismissProposal(proposal.id)}
-        >
-          dismiss
-        </ToolbarButton>
-      </div>
-    </article>
-  )
-}
-
-/**
- * Apply a proposal to the open document, as one undoable edit.
- *
- * Matched against the document's *current* text rather than what the agent saw:
- * the author may have written since, and silently replacing the wrong range is
- * far worse than refusing.
- */
-function applyProposal(proposal: EditProposal): string | null {
-  const docId = useDocumentStore.getState().activeDocId
-  if (!docId) return 'Open the document first.'
-  const editor = getEditor(docId)
-  if (!editor) return 'Open the document first.'
-
-  if (!proposal.find) {
-    editor.chain().focus().insertContentAt(editor.state.doc.content.size, proposal.replace).run()
+function documentPathOf(call: ToolCall): string | null {
+  if (!DOCUMENT_TOOLS.has(call.name)) return null
+  try {
+    const args = JSON.parse(call.args || '{}') as { path?: unknown }
+    return typeof args.path === 'string' && args.path ? args.path : null
+  } catch {
     return null
   }
+}
 
-  let range: { from: number; to: number } | null = null
-  editor.state.doc.descendants((node, pos) => {
-    if (range || !node.isText || !node.text) return true
-    const index = node.text.indexOf(proposal.find)
-    if (index !== -1) range = { from: pos + index, to: pos + index + proposal.find.length }
-    return true
-  })
+async function openDocumentFromTrail(path: string, tool: string): Promise<void> {
+  const docId = await useDocumentStore.getState().openPath(path)
+  if (!docId) return
+  const state = useDocumentStore.getState().docs[docId]
+  if (state) useLayoutStore.getState().openEditor(docId, state.path, state.title)
+  // A comment or a suggestion is judged in the Review panel, so it comes along.
+  if (tool !== 'read_document') useLayoutStore.getState().showPanel('review', 'Review')
+}
 
-  if (!range) return 'That text is no longer in this document.'
-  editor.chain().focus().insertContentAt(range, proposal.replace).run()
-  return null
+function hasEditorSelection(docId: string | null): boolean {
+  const editor = docId ? getEditor(docId) : undefined
+  return Boolean(editor && editor.state.selection.from !== editor.state.selection.to)
 }
 
 /**
@@ -535,18 +630,48 @@ function manuscriptContext(): string {
   return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n\n')
 }
 
-/** Put a reply into the manuscript at the cursor. */
-function insertIntoDocument(text: string): void {
+/**
+ * Put a reply into the manuscript at the cursor — as a tracked change.
+ *
+ * Through the same path a tool's suggestion takes, so no button in this panel
+ * writes assistant prose into a document without the insertion mark that says
+ * where it came from.
+ */
+async function insertIntoDocument(text: string, model: string): Promise<void> {
   const docId = useDocumentStore.getState().activeDocId
   if (!docId) return
   const editor = getEditor(docId)
-  if (!editor) return
-  // Inserted as plain paragraphs at the selection, so it is an ordinary edit
-  // the author can undo in one step.
-  editor.chain().focus().insertContent(text.split('\n\n').map((block) => ({
-    type: 'paragraph',
-    content: block ? [{ type: 'text', text: block }] : []
-  }))).run()
+  const state = useDocumentStore.getState().docs[docId]
+  const me = useReviewStore.getState().me
+  if (!editor || !state || !me) return
+  const assistant = assistantProfile(me)
+
+  const { from } = editor.state.selection
+  const $from = editor.state.doc.resolve(from)
+  // The block the cursor is in, and how far into its text: `textBetween` over
+  // the block's own range measures the same characters the walker does for a
+  // plain paragraph, which is the case a cursor insertion serves.
+  const blockIndex = $from.index(0)
+  const blockStart = $from.start(1)
+  const offset = editor.state.doc.textBetween(blockStart, from, '\n').replace(/\n+/g, ' ').length
+  const paragraphs = text.split(/\n{2,}/).filter((part) => part.trim())
+
+  const ops: AssistantEdit['ops'] = [
+    { kind: 'replace', blockIndex, start: offset, end: offset, text: paragraphs[0] ?? text, reason: '' }
+  ]
+  for (const paragraph of paragraphs.slice(1)) ops.push({ kind: 'append', text: paragraph, reason: '' })
+
+  await applyAssistantEditLocally({
+    id: ulid(),
+    runId: 'insert',
+    docId,
+    docPath: state.path,
+    authorId: assistant.id,
+    model,
+    at: new Date().toISOString(),
+    mode: 'suggest',
+    ops
+  })
 }
 
 /** The file name of a sideloaded model, on either platform's separator. */

@@ -1,9 +1,26 @@
 import { z } from 'zod'
 import { ulid } from 'ulid'
 import type { ProjectSession } from '../services/projectSession.js'
-import type { EditProposal } from '../../shared/model/ai.js'
 import type { SemanticHit } from '../services/searchIndexService.js'
-import { extractPlainText } from '../../shared/pm/extractText.js'
+import type { AuthorProfile } from '../../shared/model/author.js'
+import { extractPlainText, extractBlocks } from '../../shared/pm/extractText.js'
+import {
+  PROOFREAD_KINDS,
+  MAX_PROOFREAD_CALLS,
+  chunkBlocks,
+  proofreadPrompt,
+  parseFindings,
+  describeFindings,
+  type PlacedFinding,
+  type ProofreadKind
+} from './proofread.js'
+import { findTextOccurrences } from '../../shared/pm/anchors.js'
+import type { AssistantEdit, AssistantEditOp } from '../../shared/pm/assistantEdits.js'
+import { isTrivial, type WritePolicy } from '../../shared/model/provenance.js'
+import type { WebSearchHit } from '../../shared/model/webAccess.js'
+import type { Capture } from '../../shared/model/research.js'
+import { applyCaptureToCslFields, type CaptureResult, type CaptureFailure } from '../research/capture.js'
+import type { WebGate } from './webGate.js'
 import {
   ensembleConstraintsSchema,
   draftedRecordSchema,
@@ -20,15 +37,15 @@ import type { ToolSpec } from './providers.js'
  * it only gets to ask for it.
  *
  * The rule the whole design rests on: **nothing here writes to a document.**
- * `proposeEdit` returns a proposal for the author to accept or dismiss, and
- * that is the entire extent of the agent's reach into prose. Accept/reject,
- * attribution and undo are worth inheriting rather than rebuilding, and until
- * Phase 9's suggestion marks exist a proposal is reviewed in the panel; when
- * they do, this is the one place that changes.
+ * `suggest_edit` describes a change as an `AssistantEdit` and hands it to
+ * whoever holds the document, where it lands as Phase 9 suggestion marks for
+ * the writer to judge. Accept/reject, attribution, undo and the Word
+ * round-trip are inherited from there rather than rebuilt here.
  */
 
 const MAX_SEARCH_HITS = 12
 const MAX_DOCUMENT_CHARS = 12_000
+const MAX_PAGE_CHARS = 12_000
 
 /** What a semantic search came back with, and how much of the book it covered. */
 export interface RetrievalResult {
@@ -39,8 +56,38 @@ export interface RetrievalResult {
 
 export interface ToolContext {
   session: ProjectSession
-  /** Collects proposals as they are made, so the loop can stream them out. */
-  onProposal: (proposal: EditProposal) => void
+  /** Who the assistant is in this project, for every mark and record it stamps. */
+  assistant: AuthorProfile
+  /** The run these calls belong to, recorded on every edit for provenance. */
+  runId: string
+  model: string
+  /** The writer's standing choice: suggest everything, apply trivial fixes, or apply directly. */
+  writePolicy: WritePolicy
+  /** What the writer has allowed on the web; see `webGate.ts`. */
+  web: WebGate
+  /** A web search, when `web.canSearch`. */
+  search?: (query: string, limit: number) => Promise<{ ok: true; hits: WebSearchHit[] } | { ok: false; reason: string }>
+  /** Fetch one page as readable text, through the gate. */
+  fetchPage?: (url: string) => Promise<CaptureResult | CaptureFailure>
+  /**
+   * Pages fetched during this run, by URL. `cite_page` refuses a URL that is
+   * not here: a citation is only ever written for a page the assistant has
+   * actually read, which is the whole difference between this and `add_source`.
+   */
+  captures: Map<string, Capture>
+  /** Collects edits as they are described, so the loop can stream them out. */
+  onEdit: (edit: AssistantEdit) => void
+  /** A comment or reply landed on this document; the Review panel should reload. */
+  onReviewChanged: (docId: string) => void
+  /**
+   * One plain request to the same model, outside the tool loop.
+   *
+   * For tools whose work *is* a model call — proofreading a chapter chunk by
+   * chunk — rather than a lookup. Bound by the loop to the run's settings, key
+   * and abort signal, so a tool cannot reach a provider the writer did not
+   * choose or outlive a run they cancelled.
+   */
+  complete: (system: string, user: string, maxTokens: number) => Promise<string>
   /**
    * How many times each ensemble has been attempted in this run, so a group
    * that fails its constraints is redrafted once and then written with the
@@ -242,39 +289,528 @@ const listDocuments = define({
   }
 })
 
-const proposeEdit = define({
-  name: 'propose_edit',
+/**
+ * Describe an edit in the coordinates `applyAssistantEdit` wants.
+ *
+ * Located by quoted text rather than offsets the model would have to count:
+ * models quote reliably and count badly. The quote must be unique, because a
+ * change to "the second one" is a change to whichever one the code found first.
+ */
+export function describeEdit(
+  context: ToolContext,
+  docId: string,
+  docPath: string,
+  ops: AssistantEditOp[],
+  mode: AssistantEdit['mode'] = 'suggest'
+): AssistantEdit {
+  return {
+    id: ulid(),
+    runId: context.runId,
+    docId,
+    docPath,
+    authorId: context.assistant.id,
+    model: context.model,
+    at: new Date().toISOString(),
+    mode,
+    ops
+  }
+}
+
+/**
+ * Which way one change lands, under the writer's policy.
+ *
+ * Decided here, in main, per change — never by the model, which is told only
+ * what happened. `trivial` is the caller's judgement of this particular
+ * change (a spelling fix, a comma); it only matters under `direct-trivial`.
+ */
+export function modeFor(policy: WritePolicy, trivial: boolean): AssistantEdit['mode'] {
+  if (policy === 'direct') return 'direct'
+  if (policy === 'direct-trivial' && trivial) return 'direct'
+  return 'suggest'
+}
+
+/** Split ops by the mode each should land in, so one call can suggest some and apply others. */
+function emitByMode(
+  context: ToolContext,
+  docId: string,
+  docPath: string,
+  items: { op: AssistantEditOp; trivial: boolean }[]
+): { direct: number; suggested: number } {
+  const direct = items.filter((item) => modeFor(context.writePolicy, item.trivial) === 'direct').map((item) => item.op)
+  const suggested = items.filter((item) => modeFor(context.writePolicy, item.trivial) !== 'direct').map((item) => item.op)
+  if (direct.length) context.onEdit(describeEdit(context, docId, docPath, direct, 'direct'))
+  if (suggested.length) context.onEdit(describeEdit(context, docId, docPath, suggested, 'suggest'))
+  return { direct: direct.length, suggested: suggested.length }
+}
+
+const suggestEdit = define({
+  name: 'suggest_edit',
   description:
-    'Propose a change to a document. This does NOT change the document — it shows the author a suggestion they can accept or dismiss. Quote the existing text exactly in `find`.',
+    'Suggest a change to a document. This does NOT change the text — it appears as a tracked change the author accepts or rejects. Quote the existing text exactly in `find`, within one paragraph, with enough words that it occurs only once. Leave `find` empty to add new paragraphs at the end.',
   args: z.object({
     path: z.string().describe('Project-relative path of the document to change.'),
-    find: z.string().describe('The exact existing text to replace.'),
+    find: z.string().default('').describe('The exact existing text to replace. Empty to append.'),
     replace: z.string().describe('What to put in its place.'),
     reason: z.string().default('').describe('Why, in one sentence.')
   }),
-  run: async ({ path, find, replace, reason }, { session, onProposal }) => {
-    // Verified against the document before it is offered: a proposal quoting
-    // text that is not there cannot be applied, and finding that out when the
-    // author clicks accept is finding out too late.
+  run: async ({ path, find, replace, reason }, context) => {
+    let loaded
     try {
-      const loaded = await session.documents.read(path)
-      const text = extractPlainText(loaded.doc.content)
-      if (find && !text.includes(find)) {
-        return {
-          ok: false,
-          content: `That exact text is not in ${path}. Quote it exactly as it appears.`,
-          summary: `Proposed an edit to ${path} that did not match`
-        }
-      }
+      loaded = await context.session.documents.read(path)
     } catch {
       return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
     }
 
-    onProposal({ id: ulid(), docPath: path, find, replace, reason })
+    if (!find.trim()) {
+      if (!replace.trim()) return { ok: false, content: 'There is nothing to add.', summary: 'Empty suggestion' }
+      const landed = emitByMode(context, loaded.doc.docId, path, [{ op: { kind: 'append', text: replace, reason }, trivial: false }])
+      return landed.direct
+        ? { ok: true, content: 'The addition was written into the document, marked as yours. Do not repeat it.', summary: `Added to ${loaded.doc.title}` }
+        : {
+            ok: true,
+            content: 'The addition was suggested to the author as a tracked change. Do not repeat it.',
+            summary: `Suggested an addition to ${loaded.doc.title}`
+          }
+    }
+
+    // Checked against the document before it is offered: a suggestion quoting
+    // text that is not there cannot be placed, and finding that out after the
+    // author has read it is finding out too late.
+    const occurrences = findTextOccurrences(loaded.doc.content, find.trim())
+    if (occurrences.length === 0) {
+      return {
+        ok: false,
+        content: `That exact text is not in ${path}. Quote it exactly as it appears, within one paragraph.`,
+        summary: `Suggested an edit to ${loaded.doc.title} that did not match`
+      }
+    }
+    if (occurrences.length > 1) {
+      return {
+        ok: false,
+        content: `"${find.trim()}" occurs ${occurrences.length} times in ${path}. Include more of the surrounding words so it occurs once.`,
+        summary: `Suggested an ambiguous edit to ${loaded.doc.title}`
+      }
+    }
+
+    const [where] = occurrences
+    const landed = emitByMode(context, loaded.doc.docId, path, [
+      {
+        op: { kind: 'replace', blockIndex: where!.blockIndex, start: where!.start, end: where!.end, text: replace, reason },
+        trivial: isTrivial(find, replace)
+      }
+    ])
+    return landed.direct
+      ? { ok: true, content: 'The change was made in the document, marked as yours. Do not repeat it.', summary: `Changed ${loaded.doc.title}` }
+      : {
+          ok: true,
+          content: 'The change was suggested to the author as a tracked change they will accept or reject. Do not repeat it.',
+          summary: `Suggested an edit to ${loaded.doc.title}`
+        }
+  }
+})
+
+/*
+ * The planning tools.
+ *
+ * Read-only views of the storyboard, so "what comes next" and "set me an
+ * exercise" can be asked of this book rather than of a book. There is no
+ * tool that writes a beat: beats have no `provisional` flag, so the service
+ * could not enforce Phase 15's rule that a tool changes only what it drafted
+ * — and a rule the service cannot enforce is a request, not a rule.
+ */
+
+const listBeats = define({
+  name: 'list_beats',
+  description:
+    'List the story beats on the storyboard — title, summary, when it happens, which document it is in, who is in it, and how far along it is (outline, draft, revised, done).',
+  args: z.object({
+    status: z.enum(['outline', 'draft', 'revised', 'done', 'all']).default('all')
+  }),
+  run: async ({ status }, { session }) => {
+    const { beats, columns } = session.beats.snapshot()
+    const names = new Map(session.entities.snapshot().entities.map((entity) => [entity.id, entity.name]))
+    const columnName = new Map(columns.map((column) => [column.id, column.name]))
+    const wanted = beats.filter((beat) => status === 'all' || beat.status === status)
+    if (wanted.length === 0) {
+      return { ok: true, content: `No ${status === 'all' ? '' : `${status} `}beats.`, summary: `Listed beats — none` }
+    }
+    const content = wanted
+      .map((beat) => {
+        const cast = beat.entityIds.map((id) => names.get(id)).filter(Boolean).join(', ')
+        return [
+          `- ${beat.title} [${beat.status}]${columnName.get(beat.columnId) ? ` · ${columnName.get(beat.columnId)}` : ''}${beat.when.label ? ` · when: ${beat.when.label}` : ''}`,
+          beat.summary ? `  ${beat.summary}` : '',
+          cast ? `  with: ${cast}` : '',
+          beat.docId ? `  in document ${session.search.resolvePath(beat.docId) ?? beat.docId}` : ''
+        ]
+          .filter(Boolean)
+          .join('\n')
+      })
+      .join('\n')
+    return { ok: true, content, summary: `Listed ${wanted.length} beat${wanted.length === 1 ? '' : 's'}` }
+  }
+})
+
+const readOutline = define({
+  name: 'read_outline',
+  description:
+    'The shape of the book: the manuscript in order (parts and documents, with word counts) and the storyboard columns with their beats. Use it before proposing what comes next.',
+  args: z.object({}),
+  run: async (_args, { session }) => {
+    const view = session.manuscript.view()
+    const manuscript = view.nodes
+      .map((node) =>
+        node.kind === 'part'
+          ? `${node.title}`
+          : `  ${node.title}${node.missing ? ' (missing)' : ''}${node.resolvedPath ? ` — ${node.resolvedPath}` : ''}`
+      )
+      .join('\n')
+    const { beats, columns } = session.beats.snapshot()
+    const board = [...columns]
+      .sort((a, b) => a.order - b.order)
+      .map((column) => {
+        const inColumn = beats.filter((beat) => beat.columnId === column.id).sort((a, b) => a.order - b.order)
+        return `${column.name}:\n${inColumn.length ? inColumn.map((beat) => `  - ${beat.title} [${beat.status}]${beat.summary ? ` — ${beat.summary}` : ''}`).join('\n') : '  (empty)'}`
+      })
+      .join('\n')
     return {
       ok: true,
-      content: 'The proposal was shown to the author, who will accept or dismiss it. Do not repeat it.',
-      summary: `Proposed an edit to ${path}`
+      content: `Manuscript:\n${manuscript || '  (no documents yet)'}\n\nStoryboard:\n${board || '  (no columns)'}`,
+      summary: 'Read the outline'
+    }
+  }
+})
+
+/*
+ * The review tools.
+ *
+ * Comments are the other half of a peer review, and they already have a home:
+ * `ReviewService`'s one-file-per-(document, author) threads, which the
+ * assistant writes under its own id. A comment is anchored the way a person's
+ * is — an `anchor` mark delivered through the same edit routing as a
+ * suggestion — so orphan recovery, the panel and the Word export all treat it
+ * as an ordinary thread by someone called Assistant.
+ */
+
+function locateQuote(
+  content: Parameters<typeof findTextOccurrences>[0],
+  quote: string,
+  path: string
+): { blockIndex: number; start: number; end: number } | ToolResult {
+  const wanted = quote.trim()
+  if (!wanted) return { ok: false, content: 'Quote the passage the comment is about.', summary: 'Empty quote' }
+  const occurrences = findTextOccurrences(content, wanted)
+  if (occurrences.length === 0) {
+    return {
+      ok: false,
+      content: `That exact text is not in ${path}. Quote it exactly as it appears, within one paragraph.`,
+      summary: `Quoted text not found in ${path}`
+    }
+  }
+  if (occurrences.length > 1) {
+    return {
+      ok: false,
+      content: `"${wanted}" occurs ${occurrences.length} times in ${path}. Include more of the surrounding words so it occurs once.`,
+      summary: `Ambiguous quote in ${path}`
+    }
+  }
+  return occurrences[0]!
+}
+
+const comment = define({
+  name: 'comment',
+  description:
+    'Leave a review comment on a passage of a document, as a reviewer would in the margin. It appears in the Review panel attached to the quoted text. Quote the passage exactly, within one paragraph, with enough words that it occurs only once. Use suggest_edit instead when you have a concrete rewording.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    quote: z.string().describe('The exact passage the comment is about.'),
+    text: z.string().min(1).describe('The comment itself.')
+  }),
+  run: async ({ path, quote, text }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const where = locateQuote(loaded.doc.content, quote, path)
+    if ('ok' in where) return where
+
+    // The thread first, then the mark. A mark that never lands leaves a thread
+    // the next reconcile marks orphaned — with its text intact and recoverable,
+    // which is the failure the review system was already built to survive. A
+    // mark with no thread would be an anchor pointing at nothing.
+    const anchorId = ulid()
+    const thread = await context.session.reviews.createThread(
+      loaded.doc.docId,
+      anchorId,
+      quote.trim(),
+      where.blockIndex,
+      { as: context.assistant, text }
+    )
+    context.onEdit(
+      describeEdit(context, loaded.doc.docId, path, [
+        { kind: 'anchor', blockIndex: where.blockIndex, start: where.start, end: where.end, anchorId }
+      ])
+    )
+    context.onReviewChanged(loaded.doc.docId)
+    return {
+      ok: true,
+      content: `Comment ${thread.id} was left on "${quote.trim()}". The author will see it in the Review panel.`,
+      summary: `Commented on ${loaded.doc.title}: "${quote.trim().slice(0, 40)}${quote.trim().length > 40 ? '…' : ''}"`
+    }
+  }
+})
+
+const listComments = define({
+  name: 'list_comments',
+  description:
+    'List the review comments on a document — yours and every other reviewer\'s — with their ids, status, the passage each is attached to, and any replies.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    status: z.enum(['open', 'resolved', 'all']).default('open')
+  }),
+  run: async ({ path, status }, { session }) => {
+    let loaded
+    try {
+      loaded = await session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const threads = (await session.reviews.list(loaded.doc.docId)).filter(
+      (thread) => status === 'all' || thread.status === status
+    )
+    if (threads.length === 0) {
+      return { ok: true, content: `No ${status === 'all' ? '' : `${status} `}comments on ${path}.`, summary: `Listed comments on ${loaded.doc.title} — none` }
+    }
+    const content = threads
+      .map((thread) => {
+        const replies = thread.replies.map((reply) => `    ↳ ${reply.authorId}: ${extractPlainText(reply.body)}`)
+        return [
+          `${thread.id} · ${thread.authorId} · ${thread.status}${thread.orphaned ? ' · passage no longer found' : ''}`,
+          `  on: "${thread.anchorText}"`,
+          `  ${extractPlainText(thread.body) || '(no text)'}`,
+          ...replies
+        ].join('\n')
+      })
+      .join('\n\n')
+    return { ok: true, content, summary: `Listed ${threads.length} comment${threads.length === 1 ? '' : 's'} on ${loaded.doc.title}` }
+  }
+})
+
+const replyComment = define({
+  name: 'reply_comment',
+  description: 'Reply to an existing review comment, by its id from list_comments.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    threadId: z.string(),
+    text: z.string().min(1)
+  }),
+  run: async ({ path, threadId, text }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const threads = await context.session.reviews.list(loaded.doc.docId)
+    if (!threads.some((thread) => thread.id === threadId)) {
+      return { ok: false, content: `There is no comment ${threadId} on ${path}.`, summary: `No comment ${threadId}` }
+    }
+    await context.session.reviews.reply(loaded.doc.docId, threadId, text, null, { as: context.assistant })
+    context.onReviewChanged(loaded.doc.docId)
+    return { ok: true, content: 'Replied.', summary: `Replied to a comment on ${loaded.doc.title}` }
+  }
+})
+
+/*
+ * The web tools.
+ *
+ * Offered only to the extent the writer allowed (see `toolSpecs`), gated
+ * again at call time, and never allowed to turn a search result into a
+ * citation without the page having been read: `cite_page` wants a capture,
+ * and a capture is only ever made by `fetch_page` succeeding. The source it
+ * writes is still provisional — a person accepts it — but it arrives with the
+ * page's text attached and the access date filled in, which `add_source`'s
+ * "attributed, unverified" cards never can.
+ */
+
+const webSearchTool = define({
+  name: 'web_search',
+  description:
+    'Search the web. Returns titles, addresses and snippets. Nothing is cited from a search result alone: fetch_page the ones that matter, then cite_page.',
+  args: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(10).default(5)
+  }),
+  run: async ({ query, limit }, { web, search }) => {
+    if (!web.canSearch || !search) {
+      return { ok: false, content: 'The author has not allowed web search.', summary: 'Web search not allowed' }
+    }
+    const result = await search(query, limit)
+    if (!result.ok) {
+      const why =
+        result.reason === 'no-key'
+          ? 'No key is saved for the search provider. Tell the author to add one in the AI panel settings.'
+          : result.reason === 'no-url'
+            ? 'No address is set for the search server. Tell the author to add one in the AI panel settings.'
+            : `The search failed (${result.reason}).`
+      return { ok: false, content: why, summary: `Web search failed — ${result.reason}` }
+    }
+    if (result.hits.length === 0) return { ok: true, content: `Nothing found for "${query}".`, summary: `Searched the web for "${query}" — nothing` }
+    const content = result.hits.map((hit, index) => `${index + 1}. ${hit.title}\n   ${hit.url}\n   ${hit.snippet}`).join('\n\n')
+    return { ok: true, content, summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
+  }
+})
+
+const fetchPageTool = define({
+  name: 'fetch_page',
+  description:
+    'Read a web page as text. Only pages the author has allowed: under "pages you name", only addresses they gave you; under "search", any public page. Fetch before you cite.',
+  args: z.object({ url: z.string().url() }),
+  run: async ({ url }, context) => {
+    if (!context.web.allows(url) || !context.fetchPage) {
+      return {
+        ok: false,
+        content:
+          context.web.level === 'urls'
+            ? 'The author has only allowed pages whose address they gave you. Ask them for the address if you need this one.'
+            : 'That address is not one the assistant may fetch.',
+        summary: `Refused to fetch ${url}`
+      }
+    }
+    const result = await context.fetchPage(url)
+    if (!result.ok) {
+      return { ok: false, content: `Could not read ${url} (${result.reason}).`, summary: `Could not fetch ${url}` }
+    }
+    context.captures.set(url, result.capture)
+    const text = result.capture.text
+    const clipped = text.length > MAX_PAGE_CHARS ? `${text.slice(0, MAX_PAGE_CHARS)}\n\n[…truncated…]` : text
+    return {
+      ok: true,
+      content: `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`,
+      summary: `Read ${result.capture.title || url}`
+    }
+  }
+})
+
+const citePageTool = define({
+  name: 'cite_page',
+  description:
+    'Add a web page you have fetched in this conversation to the bibliography as a DRAFT source, with its text attached and the date you read it. The author accepts it. Refused for any page you have not fetched.',
+  args: z.object({
+    url: z.string().url(),
+    claim: z.string().min(1).describe('What the page supports, in a sentence.'),
+    title: z.string().default('').describe('Override the page title if it is better stated.'),
+    author: z.string().default(''),
+    year: z.string().default('')
+  }),
+  run: async ({ url, claim, title, author, year }, context) => {
+    const capture = context.captures.get(url)
+    if (!capture) {
+      return {
+        ok: false,
+        content: 'You have not fetched that page in this conversation. Call fetch_page first; a citation is only written for a page you have read.',
+        summary: `Refused to cite an unread page`
+      }
+    }
+    const issued = Number(year)
+    try {
+      const source = await context.session.sources.addProvisional({
+        id: ulid(),
+        type: 'webpage',
+        title: title || capture.title || url,
+        ...(author ? { author: [{ literal: author }] } : {}),
+        ...(Number.isFinite(issued) && year ? { issued: { 'date-parts': [[issued]] } } : {}),
+        ...applyCaptureToCslFields(url, capture.accessed),
+        note: `Captured by the assistant: ${claim}`
+      })
+      await context.session.sources.addCaptureAttachment(source.id, capture, url)
+      return {
+        ok: true,
+        content: `Added "${source.title}" to the bibliography as a draft, with the page's text attached. Tell the author it is there to check.`,
+        summary: `Cited "${source.title}" (captured)`
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, content: message, summary: 'Could not add the source' }
+    }
+  }
+})
+
+const proofread = define({
+  name: 'proofread',
+  description:
+    'Proofread a document for spelling, grammar and punctuation (and, if asked, style), suggesting every correction as a tracked change the author accepts or rejects. Works through the whole document in passes; a long document reports where it stopped so you can call again with fromBlock.',
+  args: z.object({
+    path: z.string().describe('Project-relative path of the document.'),
+    kinds: z
+      .array(z.enum(PROOFREAD_KINDS))
+      .default((): ProofreadKind[] => ['spelling', 'grammar', 'punctuation'])
+      .describe('Which problems to look for. Add "style" only when the author asked for it.'),
+    fromBlock: z.number().int().min(0).default(0).describe('First paragraph to check; use what a previous call reported.'),
+    toBlock: z.number().int().min(0).optional().describe('Last paragraph to check, inclusive.')
+  }),
+  run: async ({ path, kinds, fromBlock, toBlock }, context) => {
+    let loaded
+    try {
+      loaded = await context.session.documents.read(path)
+    } catch {
+      return { ok: false, content: `No document at ${path}.`, summary: `Could not read ${path}` }
+    }
+    const blocks = extractBlocks(loaded.doc.content).filter(
+      (block) => block.index >= fromBlock && (toBlock === undefined || block.index <= toBlock)
+    )
+    const chunks = chunkBlocks(blocks)
+    const covered = chunks.slice(0, MAX_PROOFREAD_CALLS)
+    const lang = loaded.doc.lang ?? context.session.manifest.publication.language ?? ''
+
+    const placed: PlacedFinding[] = []
+    let dropped = 0
+    for (const chunk of covered) {
+      const prompt = proofreadPrompt(chunk, kinds, lang)
+      const reply = await context.complete(prompt.system, prompt.user, 2_048)
+      const parsed = parseFindings(reply, chunk)
+      placed.push(...parsed.placed)
+      dropped += parsed.dropped
+    }
+
+    // One edit per mode for the whole pass: one undo step in the editor, one
+    // write to a closed file, one row in the trail — not one of each per typo.
+    // Under `direct-trivial`, spelling and punctuation are the trivial kinds.
+    const landed = emitByMode(
+      context,
+      loaded.doc.docId,
+      path,
+      placed.map((finding) => ({
+        op: finding.op,
+        trivial: (finding.kind === 'spelling' || finding.kind === 'punctuation') && isTrivial(
+          blocks.find((block) => block.index === finding.op.blockIndex)?.text.slice(finding.op.start, finding.op.end) ?? '',
+          finding.op.text
+        )
+      }))
+    )
+
+    const lastChecked = covered.at(-1)?.at(-1)?.index
+    const remaining = chunks.length > covered.length ? chunks[covered.length]![0]!.index : null
+    const described = describeFindings(placed)
+    const notes = [
+      placed.length > 0
+        ? landed.suggested === 0
+          ? `Applied ${described} directly, each marked as yours. Do not repeat them in your reply.`
+          : landed.direct === 0
+            ? `Suggested ${described} as tracked changes; the author will accept or reject each. Do not repeat them in your reply.`
+            : `Applied ${landed.direct} trivial correction${landed.direct === 1 ? '' : 's'} directly and suggested ${landed.suggested} as tracked changes (${described} in all). Do not repeat them in your reply.`
+        : `Found nothing to correct${lastChecked !== undefined ? ` in paragraphs ${fromBlock}–${lastChecked}` : ''}.`,
+      dropped > 0 ? `${dropped} finding${dropped === 1 ? '' : 's'} could not be placed and were dropped.` : '',
+      remaining !== null
+        ? `Stopped after paragraph ${lastChecked}; call proofread again with fromBlock=${remaining} to continue.`
+        : ''
+    ].filter(Boolean)
+    return {
+      ok: true,
+      content: notes.join(' '),
+      summary: `Proofread ${loaded.doc.title} — ${described}${remaining !== null ? ` (through paragraph ${lastChecked})` : ''}`
     }
   }
 })
@@ -482,7 +1018,9 @@ const addSource = define({
  * drafted cast the writer will assume failed.
  */
 export const RECORD_WRITING_TOOLS = ['draft_record', 'draft_ensemble', 'revise_record']
-export const SOURCE_WRITING_TOOLS = ['add_source']
+export const SOURCE_WRITING_TOOLS = ['add_source', 'cite_page']
+export const WEB_TOOLS = ['web_search', 'fetch_page', 'cite_page']
+export const REVIEW_WRITING_TOOLS = ['comment', 'reply_comment']
 
 const TOOLS = [
   searchManuscript,
@@ -491,7 +1029,16 @@ const TOOLS = [
   listDocuments,
   listRecords,
   readRecord,
-  proposeEdit,
+  listBeats,
+  readOutline,
+  suggestEdit,
+  comment,
+  listComments,
+  replyComment,
+  proofread,
+  webSearchTool,
+  fetchPageTool,
+  citePageTool,
   draftRecord,
   draftEnsemble,
   reviseRecord,
@@ -508,8 +1055,18 @@ const TOOLS = [
  * rather than being offered one that always refuses: a described tool is one
  * the model will spend a step calling.
  */
-export function toolSpecs(options: { retrieval: boolean } = { retrieval: false }): ToolSpec[] {
-  return TOOLS.filter((tool) => options.retrieval || tool.name !== 'find_passages').map((tool) => ({
+export function toolSpecs(
+  options: { retrieval: boolean; web?: WebGate['level'] } = { retrieval: false }
+): ToolSpec[] {
+  const web = options.web ?? 'none'
+  return TOOLS.filter((tool) => {
+    if (tool.name === 'find_passages') return options.retrieval
+    // Not offered rather than offered-and-refused, as with `find_passages`:
+    // a described tool is one the model will spend a step calling.
+    if (tool.name === 'web_search') return web === 'search'
+    if (tool.name === 'fetch_page' || tool.name === 'cite_page') return web !== 'none'
+    return true
+  }).map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: z.toJSONSchema(tool.args, { target: 'draft-7' }) as Record<string, unknown>

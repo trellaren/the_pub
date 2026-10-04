@@ -104,3 +104,44 @@ describe('DocumentService', () => {
     expect(loaded.doc.title).toBe('Readable')
   })
 })
+
+describe('the provenance log', () => {
+  const entry = (id: string) => ({
+    id,
+    runId: 'r',
+    authorId: 'assistant-a',
+    model: 'm',
+    at: '2026-10-02T00:00:00.000Z',
+    mode: 'direct' as const,
+    blockIndex: 0,
+    chars: 3,
+    excerpt: 'abc',
+    reason: ''
+  })
+
+  it('cannot be shortened by a write — entries on disk come along whatever the caller sends', async () => {
+    const created = await documents.create(`chapter${DOC_EXT}`)
+    const first = await documents.write(created.path, { ...created.doc, provenance: [entry('a')] }, created.mtime)
+    expect(first.ok).toBe(true)
+
+    // A renderer holding a stale envelope with no log at all.
+    const stale = await documents.write(created.path, { ...created.doc }, first.ok ? first.mtime : null)
+    expect(stale.ok).toBe(true)
+    expect((await documents.read(created.path)).doc.provenance?.map((item) => item.id)).toEqual(['a'])
+
+    // A later write adds, in order, without duplicating.
+    const more = await documents.write(
+      created.path,
+      { ...created.doc, provenance: [entry('a'), entry('b')] },
+      stale.ok ? stale.mtime : null
+    )
+    expect(more.ok).toBe(true)
+    expect((await documents.read(created.path)).doc.provenance?.map((item) => item.id)).toEqual(['a', 'b'])
+  })
+
+  it('leaves a document that never had assistant prose without a log', async () => {
+    const created = await documents.create(`plain${DOC_EXT}`)
+    await documents.write(created.path, created.doc, created.mtime)
+    expect((await documents.read(created.path)).doc.provenance).toBeUndefined()
+  })
+})

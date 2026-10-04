@@ -3,6 +3,7 @@ import type { Editor } from '@tiptap/core'
 import type { PubDocument, PmDoc } from '@shared/model/document.js'
 import { AUTOSAVE_DEBOUNCE_MS, AUTOSAVE_MAX_WAIT_MS } from '@shared/constants.js'
 import { countWords } from '@shared/pm/extractText.js'
+import { unionProvenance, type ProvenanceEntry } from '@shared/model/provenance.js'
 import { invoke, attempt, reportError, errorMessage } from '@renderer/lib/ipc.js'
 import { createEditor } from '@renderer/panels/editor/createEditor.js'
 import { useProjectStore, currentStyles } from './projectStore.js'
@@ -65,6 +66,8 @@ interface DocumentStore {
   keepMine: (docId: string) => Promise<void>
   handleExternalChanges: (paths: string[]) => Promise<void>
   renamePath: (from: string, to: string) => void
+  /** Record assistant edits in the envelope's log, to ride out on the next save. */
+  appendProvenance: (docId: string, entries: ProvenanceEntry[]) => void
 }
 
 export const useDocumentStore = create<DocumentStore>((set, get) => {
@@ -311,6 +314,14 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     renamePath: (from, to) => {
       const state = Object.values(get().docs).find((candidate) => candidate.path === from)
       if (state) patch(state.docId, { path: to, missing: false })
+    },
+
+    appendProvenance: (docId, entries) => {
+      const state = get().docs[docId]
+      if (!state || entries.length === 0) return
+      const provenance = unionProvenance(state.envelope.provenance, entries)
+      patch(docId, { envelope: { ...state.envelope, ...(provenance ? { provenance } : {}) }, dirty: true })
+      schedule(docId)
     }
   }
 })

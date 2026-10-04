@@ -38,8 +38,12 @@ export interface ExportOptions {
 }
 
 const OEBPS = 'OEBPS'
-/** Zip's DOS date field only covers 1980-2099; earliest valid, and fixed so exports are deterministic. */
-const FIXED_MTIME = new Date('1980-01-01T00:00:00Z')
+/**
+ * Zip's DOS date field only covers 1980-2099; earliest valid, and fixed so exports are
+ * deterministic. Built from local-time components, not UTC: fflate encodes the field with
+ * local getters, so a UTC midnight would read as 1979 west of Greenwich and be rejected.
+ */
+const FIXED_MTIME = new Date(1980, 0, 1, 0, 0, 0)
 
 export async function exportEpub(options: ExportOptions): Promise<Buffer> {
   const modified = options.modified ?? '1970-01-01T00:00:00Z'

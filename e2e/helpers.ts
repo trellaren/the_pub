@@ -34,6 +34,12 @@ export async function launch(
       `--user-data-dir=${userDataDir}`
     ],
     cwd: REPO_ROOT,
+    // Opt in with QUOTH_E2E_HIDDEN=1 to park every test window off-screen and
+    // unfocused — the suite launches the app once per test, and on a desktop
+    // without a virtual display that is otherwise a window in your face per
+    // test. The app reads the flag under its own name so that nothing but the
+    // harness can set it by accident.
+    env: { ...process.env, ...(process.env.QUOTH_E2E_HIDDEN === '1' ? { QUOTH_HIDDEN_WINDOWS: '1' } : {}) },
     ...(options.executablePath ? { executablePath: options.executablePath } : {})
   })
 

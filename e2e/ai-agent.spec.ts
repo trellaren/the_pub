@@ -450,13 +450,19 @@ test('the task buttons offer what can run, and a task names the open document to
 
   // Opening an empty project lands the writer on a fresh page, so the
   // document-scoped buttons are already on offer. Close that tab the way a
-  // writer would to reach the state with nothing open.
+  // writer would to reach the state with nothing open. `ensureDocumentOpen`
+  // lands that page on a delay, so wait for it: a close that runs first
+  // removes nothing, and the page then arrives under the assertions.
+  await harness.page.waitForFunction(() =>
+    window.__pub.layout.getState().api?.panels.some((panel) => panel.id.startsWith('editor:'))
+  )
   await harness.page.evaluate(() => {
     const api = window.__pub.layout.getState().api!
     for (const panel of api.panels.filter((candidate) => candidate.id.startsWith('editor:'))) {
       api.removePanel(panel)
     }
   })
+  await harness.page.waitForFunction(() => window.__pub.documents.getState().activeDocId === null)
 
   // No document open: only the project-wide asks.
   const tasks = harness.page.getByTestId('assistant-tasks')

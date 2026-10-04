@@ -30,7 +30,10 @@ export function register(ctx: HandlerContext): void {
 
   handle('project:close', async (_payload, event) => {
     const ownerId = windows.ownerWindowId(event.sender)
-    if (ownerId !== null) await sessions.close(ownerId)
+    if (ownerId !== null) {
+      await sessions.close(ownerId)
+      for (const window of windows.windowsForSession(ownerId)) window.setTitle('Quoth')
+    }
     return { ok: true as const }
   })
 

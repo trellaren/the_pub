@@ -114,7 +114,15 @@ export function register(ctx: HandlerContext): void {
     const session = ownerId === null ? undefined : sessions.get(ownerId)
     const settings = resolveSettings(session?.chats.settings() ?? aiSettingsSchema.parse({}))
     const info = providerInfo(settings.provider)
-    const apiKey = await keyFor(settings.provider, settings.baseUrl, info.defaultBaseUrl, info.name)
+    // A refresh is a click; the first load is the welcome screen opening, which
+    // must not greet anyone with a dialog about a feature they did not touch.
+    const apiKey = await keyFor(
+      settings.provider,
+      settings.baseUrl,
+      info.defaultBaseUrl,
+      info.name,
+      refresh ? event : undefined
+    )
     if (info.needsKey && !apiKey) return EMPTY_DAILY_PROMPT
 
     let baseUrl = settings.baseUrl

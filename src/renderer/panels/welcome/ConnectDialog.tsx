@@ -1,68 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import type {
-  ConnectionProfile,
-  ConnectionProtocol,
-  DbEngine,
-  UntrustedHostKey
-} from '@shared/model/connection.js'
-import { defaultPort, projectUri, describeConnection } from '@shared/model/connection.js'
-import { invoke, attempt } from '@renderer/lib/ipc.js'
-import { useProjectStore } from '@renderer/stores/projectStore.js'
-import { Field, TextInput, Select, ToolbarButton, Checkbox, cx } from '@renderer/ui/primitives.js'
+import { useRef } from 'react'
+import type { ConnectionProtocol, DbEngine } from '@shared/model/connection.js'
+import { defaultPort, describeConnection } from '@shared/model/connection.js'
+import { Field, TextInput, Select, ToolbarButton, cx } from '@renderer/ui/primitives.js'
 import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
-
-interface Draft {
-  id?: string
-  name: string
-  protocol: ConnectionProtocol
-  host: string
-  port: number
-  user: string
-  auth: 'password' | 'key'
-  privateKeyPath: string
-  remotePath: string
-  secure: boolean
-  clientId: string
-  tenant: string
-  account: string
-  signedIn: boolean
-  engine: DbEngine
-  database: string
-  schema: string
-}
-
-const BLANK: Draft = {
-  name: '',
-  protocol: 'sftp',
-  host: '',
-  port: 22,
-  user: '',
-  auth: 'password',
-  privateKeyPath: '',
-  remotePath: '/',
-  // On for new profiles: plain FTP sends the password in the clear.
-  secure: true,
-  clientId: '',
-  tenant: 'common',
-  account: '',
-  signedIn: false,
-  engine: 'postgres',
-  database: '',
-  schema: 'thepub'
-}
-
-/** What a server is called when nobody has named it. */
-function defaultName(draft: Draft): string {
-  if (draft.protocol === 'onedrive') {
-    return draft.account ? `OneDrive — ${draft.account}` : 'OneDrive'
-  }
-  if (draft.protocol === 'db') {
-    return draft.engine === 'sqlite'
-      ? draft.host || 'SQLite database'
-      : `${draft.database || 'database'} on ${draft.host || 'host'}`
-  }
-  return `${draft.user || 'user'}@${draft.host || 'host'}`
-}
+import { useConnectionDraft, defaultName } from './useConnectionDraft.js'
+import { OneDriveSignIn } from './OneDriveSignIn.js'
+import { ServerCredentialsFields, FtpTlsField } from './ServerCredentialsFields.js'
 
 /**
  * Saved servers, and opening a project on one.
@@ -72,216 +15,34 @@ function defaultName(draft: Draft): string {
  * leaving the box empty keeps whatever is already stored.
  */
 export function ConnectDialog({ onClose }: { onClose: () => void }) {
-  const [profiles, setProfiles] = useState<ConnectionProfile[]>([])
-  const [secureStorage, setSecureStorage] = useState(true)
-  const [draft, setDraft] = useState<Draft>(BLANK)
-  const [secret, setSecret] = useState('')
-  const [status, setStatus] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  /** A sign-in handed to the browser and not yet come back. */
-  const [signingIn, setSigningIn] = useState(false)
-  /** The SSH identity awaiting a decision, when a test refused one. */
-  const [hostKey, setHostKey] = useState<UntrustedHostKey | null>(null)
-  const isOneDrive = draft.protocol === 'onedrive'
-  const isDb = draft.protocol === 'db'
-  // SQLite is a file on this machine: no host to dial, no user, no password.
-  const isSqlite = isDb && draft.engine === 'sqlite'
-  /** Set when a test found the server reachable but holding no project yet. */
-  const [needsCreate, setNeedsCreate] = useState(false)
-
-  const load = async (): Promise<void> => {
-    const result = await attempt(invoke('connections:list', {}), 'Could not load saved servers')
-    if (!result) return
-    setProfiles(result.connections)
-    setSecureStorage(result.secureStorage)
-  }
-
-  useEffect(() => {
-    void load()
-  }, [])
-
-  const edit = (profile: ConnectionProfile): void => {
-    setDraft({
-      id: profile.id,
-      name: profile.name,
-      protocol: profile.protocol,
-      host: profile.host,
-      port: profile.port,
-      user: profile.user,
-      auth: profile.auth,
-      privateKeyPath: profile.privateKeyPath,
-      remotePath: profile.remotePath,
-      secure: profile.secure,
-      clientId: profile.clientId,
-      tenant: profile.tenant,
-      account: profile.account,
-      signedIn: profile.hasSecret,
-      engine: profile.engine,
-      database: profile.database,
-      schema: profile.schema
-    })
-    setSecret('')
-    setStatus(null)
-    setHostKey(null)
-    setNeedsCreate(false)
-  }
-
-  const save = async (): Promise<ConnectionProfile | null> => {
-    if (isOneDrive && !draft.clientId.trim()) {
-      setStatus('An Application (client) ID is needed.')
-      return null
-    }
-    if (isDb) {
-      if (!draft.host.trim()) {
-        setStatus(isSqlite ? 'A path to a database file is needed.' : 'A host is needed.')
-        return null
-      }
-      if (!isSqlite && !draft.database.trim()) {
-        setStatus('A database name is needed.')
-        return null
-      }
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.schema.trim())) {
-        // Interpolated into DDL, where no placeholder is allowed. Said here so
-        // it is caught while it is still being typed rather than on connect.
-        setStatus('The schema name must be letters, digits and underscores, starting with a letter.')
-        return null
-      }
-    } else if (!isOneDrive && (!draft.host.trim() || !draft.user.trim())) {
-      setStatus('A host and a user are needed.')
-      return null
-    }
-    const saved = await attempt(
-      invoke('connections:save', {
-        profile: {
-          ...draft,
-          name: draft.name.trim() || defaultName(draft),
-          port: draft.port || defaultPort(draft.protocol, draft.engine)
-        },
-        // Undefined keeps the stored secret; the field is only sent when typed.
-        // A OneDrive profile's secret is its refresh token, which only signing
-        // in can produce, so this dialog never sends one for it.
-        ...(secret && !isOneDrive ? { secret } : {})
-      }),
-      'Could not save the server'
-    )
-    if (saved) {
-      setSecret('')
-      setDraft((current) => ({ ...current, id: saved.id }))
-      await load()
-    }
-    return saved
-  }
-
-  const test = async (): Promise<void> => {
-    setBusy(true)
-    const saved = await save()
-    if (saved) {
-      const result = await invoke('connections:test', { id: saved.id }).catch(() => null)
-      setStatus(
-        result
-          ? result.ok
-            ? isDb
-              ? result.message
-              : `${result.message} ${result.entries} items in the folder.`
-            : result.message
-          : 'Could not reach the server.'
-      )
-      setHostKey(result?.hostKey ?? null)
-      setNeedsCreate(result?.needsCreate ?? false)
-    }
-    setBusy(false)
-  }
-
-  /**
-   * Accept the fingerprint the author has just read, then try again.
-   *
-   * Retrying immediately is the point: accepting an identity is only ever
-   * interesting as a step towards a connection, and finishing here means the
-   * author sees whether the *rest* of the profile is right in the same breath
-   * rather than pressing test twice.
-   */
-  const acceptHostKey = async (): Promise<void> => {
-    if (!draft.id || !hostKey) return
-    setBusy(true)
-    const result = await invoke('connections:trustHostKey', {
-      id: draft.id,
-      fingerprint: hostKey.fingerprint
-    }).catch(() => null)
-    setBusy(false)
-    if (!result?.ok) {
-      setStatus(result?.message ?? 'That fingerprint could not be accepted.')
-      return
-    }
-    setHostKey(null)
-    await test()
-  }
-
-  /**
-   * Sign in, in the person's own browser.
-   *
-   * The profile is saved first because sign-in works against a stored profile:
-   * the client id and tenant it needs are exactly what is being typed here, and
-   * the token it produces has to have somewhere to go.
-   *
-   * The wait is held in `signingIn` rather than `busy` deliberately. A sign-in
-   * the browser refuses — a client id with a typo, a registration missing its
-   * desktop platform — produces nothing here until the listener times out
-   * minutes later, and disabling the dialog for that whole time takes away the
-   * fields that would have fixed it.
-   */
-  const signIn = async (): Promise<void> => {
-    setBusy(true)
-    const saved = await save()
-    setBusy(false)
-    if (!saved) return
-
-    setSigningIn(true)
-    setStatus('Finish signing in in your browser…')
-    const result = await invoke('connections:signIn', { id: saved.id }).catch(() => null)
-    setSigningIn(false)
-    setStatus(result ? result.message : 'The sign-in could not be started.')
-    if (result?.ok) {
-      setDraft((current) => ({ ...current, account: result.account, signedIn: true }))
-      await load()
-    }
-  }
-
-  const cancelSignIn = async (): Promise<void> => {
-    if (!draft.id) return
-    await invoke('connections:cancelSignIn', { id: draft.id }).catch(() => {})
-  }
-
-  const signOut = async (): Promise<void> => {
-    if (!draft.id) return
-    await attempt(invoke('connections:signOut', { id: draft.id }), 'Could not sign out')
-    setDraft((current) => ({ ...current, account: '', signedIn: false }))
-    setStatus('Signed out on this machine.')
-    await load()
-  }
-
-  /**
-   * Create a project's tables, having said so.
-   *
-   * A button of its own, never a step folded into opening: writing DDL into
-   * someone's database is not something to discover afterwards, and the
-   * sentence above it names the schema it is about to create.
-   */
-  const createDatabase = async (): Promise<void> => {
-    const saved = await save()
-    if (!saved) return
-    setBusy(true)
-    const result = await invoke('connections:createDatabase', { id: saved.id }).catch(() => null)
-    setBusy(false)
-    setStatus(result?.message ?? 'The project could not be created.')
-    if (result?.ok) setNeedsCreate(false)
-  }
-
-  const openThere = async (profile: ConnectionProfile): Promise<void> => {
-    setBusy(true)
-    const opened = await useProjectStore.getState().open(projectUri(profile))
-    setBusy(false)
-    if (opened) onClose()
-  }
+  const {
+    profiles,
+    secureStorage,
+    draft,
+    setDraft,
+    secret,
+    setSecret,
+    status,
+    setStatus,
+    busy,
+    signingIn,
+    hostKey,
+    needsCreate,
+    isOneDrive,
+    isDb,
+    isSqlite,
+    edit,
+    startNew,
+    save,
+    test,
+    acceptHostKey,
+    signIn,
+    cancelSignIn,
+    signOut,
+    createDatabase,
+    openThere,
+    forget
+  } = useConnectionDraft(onClose)
 
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalFocusTrap(dialogRef, onClose)
@@ -327,12 +88,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               <ToolbarButton
                 label="New server"
                 className="w-full justify-start"
-                onClick={() => {
-                  setDraft(BLANK)
-                  setSecret('')
-                  setStatus(null)
-                  setHostKey(null)
-                }}
+                onClick={startNew}
               >
                 ＋ new server
               </ToolbarButton>
@@ -394,51 +150,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               ) : null}
             </div>
 
-            {isOneDrive ? (
-              <>
-                {/*
-                  The client id is asked for rather than shipped. One baked into
-                  a desktop binary is a public value anyone can lift and spend
-                  someone else's tenant quota with, and it cannot be rotated
-                  without shipping a new build — the same reasoning as the AI
-                  keys, and the same answer.
-                */}
-                <p className="mb-2 text-[11px] text-muted">
-                  OneDrive needs an app registration of your own. In the Azure portal, register an
-                  application, add a <em>Mobile and desktop</em> platform with the redirect URI{' '}
-                  <code className="text-text">http://localhost</code>, and paste its Application
-                  (client) ID below.
-                </p>
-
-                <Field label="Application (client) ID">
-                  <TextInput
-                    value={draft.clientId}
-                    placeholder="00000000-0000-0000-0000-000000000000"
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, clientId: event.target.value }))
-                    }
-                    data-testid="connect-client-id"
-                  />
-                </Field>
-
-                <Field label="Directory (tenant)">
-                  <TextInput
-                    value={draft.tenant}
-                    placeholder="common"
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, tenant: event.target.value }))
-                    }
-                    data-testid="connect-tenant"
-                  />
-                </Field>
-
-                <p className="mb-2 text-[11px] text-muted" data-testid="connect-account">
-                  {draft.signedIn
-                    ? `Signed in${draft.account ? ` as ${draft.account}` : ''}.`
-                    : 'Not signed in on this machine.'}
-                </p>
-              </>
-            ) : null}
+            {isOneDrive ? <OneDriveSignIn draft={draft} setDraft={setDraft} /> : null}
 
             {!isOneDrive ? (
               <Field label={isSqlite ? 'Database file' : 'Host'}>
@@ -475,59 +187,14 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
               </Field>
             ) : null}
 
-            {!isOneDrive && !isSqlite ? (
-              <Field label="User">
-                <TextInput
-                  value={draft.user}
-                  onChange={(event) => setDraft((current) => ({ ...current, user: event.target.value }))}
-                  data-testid="connect-user"
-                />
-              </Field>
-            ) : null}
-
-            {draft.protocol === 'sftp' ? (
-              <Field label="Authentication">
-                <Select
-                  value={draft.auth}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, auth: event.target.value as 'password' | 'key' }))
-                  }
-                >
-                  <option value="password">Password</option>
-                  <option value="key">Private key</option>
-                </Select>
-              </Field>
-            ) : null}
-
-            {draft.protocol === 'sftp' && draft.auth === 'key' ? (
-              <Field label="Private key file">
-                <TextInput
-                  value={draft.privateKeyPath}
-                  placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, privateKeyPath: event.target.value }))
-                  }
-                />
-              </Field>
-            ) : null}
-
-            {!isOneDrive && !isSqlite ? (
-              <Field
-                label={
-                  draft.auth === 'key'
-                    ? 'Key passphrase (leave blank to keep)'
-                    : 'Password (leave blank to keep)'
-                }
-              >
-                <TextInput
-                  type="password"
-                  value={secret}
-                  placeholder="••••••••"
-                  onChange={(event) => setSecret(event.target.value)}
-                  data-testid="connect-secret"
-                />
-              </Field>
-            ) : null}
+            <ServerCredentialsFields
+              draft={draft}
+              setDraft={setDraft}
+              secret={secret}
+              setSecret={setSecret}
+              isOneDrive={isOneDrive}
+              isSqlite={isSqlite}
+            />
 
             {isDb ? (
               // A database project has no folder: the schema is the whole of
@@ -552,20 +219,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
             </Field>
             )}
 
-            {draft.protocol === 'ftp' ? (
-              <div className="mb-2">
-                <Checkbox
-                  label="Explicit TLS (FTPS)"
-                  checked={draft.secure}
-                  onChange={(secure) => setDraft((current) => ({ ...current, secure }))}
-                />
-                {!draft.secure ? (
-                  <p className="mt-1 text-xs text-amber-600" role="alert">
-                    Without TLS, your password and files cross the network unencrypted.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
+            {draft.protocol === 'ftp' ? <FtpTlsField draft={draft} setDraft={setDraft} /> : null}
 
             <Field label="Name">
               <TextInput
@@ -712,12 +366,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                 <ToolbarButton
                   label={isOneDrive ? 'Forget this drive' : 'Forget this server'}
                   disabled={busy}
-                  onClick={async () => {
-                    const deleted = await attempt(invoke('connections:delete', { id: draft.id! }), 'Could not forget it')
-                    if (deleted === null) return
-                    setDraft(BLANK)
-                    await load()
-                  }}
+                  onClick={() => void forget()}
                 >
                   forget
                 </ToolbarButton>

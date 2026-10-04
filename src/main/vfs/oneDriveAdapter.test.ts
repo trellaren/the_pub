@@ -32,6 +32,10 @@ class FakeDrive {
   failUploadChunks = false
   /** Destinations a move is refused for, by something other than a name clash. */
   failMovesTo = new Set<string>()
+  /** Requests for a cursor answered with a throttle, to stand in for opening offline. */
+  refuseCursor = 0
+  /** Delta pages answered with 410 resyncRequired. */
+  expireCursor = 0
   private sessions = new Map<string, { target: string; chunks: Buffer[] }>()
 
   fetch: HttpFetch = async (url, init) => {
@@ -47,7 +51,7 @@ class FakeDrive {
     })
 
     if (raw!.startsWith('https://upload.example/')) return this.upload(raw!, init)
-    if (suffix.startsWith('/delta')) return json(this.deltaPage(query))
+    if (suffix.startsWith('/delta')) return this.deltaPage(query)
 
     if (init.method === 'GET' && suffix === '/children') return json(this.children(path, query))
     if (init.method === 'GET' && suffix === '/content') return this.content(path)
@@ -55,7 +59,7 @@ class FakeDrive {
     if (init.method === 'PUT' && suffix === '/content') return this.put(path, init.body)
     if (init.method === 'POST' && suffix === '/createUploadSession') return this.openSession(path)
     if (init.method === 'POST' && suffix === '/children') return this.create(path, init.body)
-    if (init.method === 'PATCH' && !suffix) return this.move(path, init.body)
+    if (init.method === 'PATCH' && !suffix) return this.move(path, init.body, query)
     if (init.method === 'DELETE' && !suffix) return this.remove(path)
     return error(400, 'invalidRequest', `Unhandled ${init.method} ${raw}`)
   }
@@ -105,13 +109,15 @@ class FakeDrive {
     return json(this.item(path))
   }
 
-  private move(from: string, body: unknown): HttpResponse {
+  private move(from: string, body: unknown, query: string): HttpResponse {
     const request = JSON.parse(String(body)) as { name: string; parentReference: { path: string } }
     const parent = request.parentReference.path.replace(/^\/drive\/root:\/?/, '')
     const to = parent ? `${parent}/${request.name}` : request.name
     if (this.failMovesTo.has(to)) return error(403, 'accessDenied', 'Access denied')
-    // Real OneDrive refuses a move onto an existing name, which is what the
-    // shared delete-then-rename fallback exists for.
+    const replace = new URLSearchParams(query).get('@microsoft.graph.conflictBehavior') === 'replace'
+    if (replace && this.files.has(to) && this.files.has(from)) this.files.delete(to)
+    // Real OneDrive refuses a move onto an existing name unless told to
+    // replace, which is what the shared move-aside fallback exists for.
     if (this.files.has(to) || this.folders.has(to)) {
       return error(409, 'nameAlreadyExists', 'An item with that name already exists')
     }
@@ -154,15 +160,23 @@ class FakeDrive {
     return json({ id })
   }
 
-  private deltaPage(query: string): unknown {
+  private deltaPage(query: string): HttpResponse {
     const params = new URLSearchParams(query)
     // `token=latest` is a cursor with no enumeration behind it.
     if (params.get('token') === 'latest') {
-      return { value: [], '@odata.deltaLink': `${DRIVE}/root/delta?token=${++this.deltaToken}` }
+      if (this.refuseCursor > 0) {
+        this.refuseCursor -= 1
+        return error(400, 'invalidRequest', 'Not now')
+      }
+      return json({ value: [], '@odata.deltaLink': `${DRIVE}/root/delta?token=${++this.deltaToken}` })
+    }
+    if (this.expireCursor > 0) {
+      this.expireCursor -= 1
+      return error(410, 'resyncRequired', 'Resync required')
     }
     const value = this.delta
     this.delta = []
-    return { value, '@odata.deltaLink': `${DRIVE}/root/delta?token=${++this.deltaToken}` }
+    return json({ value, '@odata.deltaLink': `${DRIVE}/root/delta?token=${++this.deltaToken}` })
   }
 
   private item(path: string): DriveItem {
@@ -289,15 +303,16 @@ describe('OneDriveAdapter', () => {
     expect(create).toBeTruthy()
   })
 
-  it('saves through a temporary sibling, even when the rename is refused', async () => {
-    // OneDrive refuses a move onto an existing name, so the shared fallback has
-    // to delete first — and a save that lost the file here would lose a chapter.
+  it('saves through a temporary sibling that replaces the old file in one move', async () => {
     const { drive, adapter } = build()
     await adapter.writeFile('ch1.pubdoc', Buffer.from('first draft'))
     await adapter.writeFileAtomic('ch1.pubdoc', Buffer.from('second draft'))
 
     expect(drive.files.get('ch1.pubdoc')!.toString('utf8')).toBe('second draft')
     expect([...drive.files.keys()]).toEqual(['ch1.pubdoc'])
+    const moves = drive.calls.filter((call) => call.method === 'PATCH')
+    expect(moves).toHaveLength(1)
+    expect(moves[0]!.query).toBe('@microsoft.graph.conflictBehavior=replace')
   })
 
   it('never destroys the previous draft when a save fails', async () => {
@@ -466,5 +481,31 @@ describe('watching through the delta feed', () => {
     const after = drive.calls.length
     await settle()
     expect(drive.calls).toHaveLength(after)
+  })
+
+  it('keeps asking for a cursor when the first request for one failed', async () => {
+    const { drive, adapter } = build()
+    drive.refuseCursor = 1
+    const { events, stop } = await collect(adapter, '')
+    await settle()
+    drive.delta = [{ name: 'ch1.pubdoc', file: {}, parentReference: { path: '/drive/root:' } }]
+    await settle()
+    await stop()
+    expect(events).toEqual([{ type: 'change', path: 'ch1.pubdoc', mtime: 0 }])
+  })
+
+  it('starts again from a fresh cursor and reports everything when the old one expires', async () => {
+    const { drive, adapter } = build()
+    drive.files.set('ch1.pubdoc', Buffer.from('x'))
+    drive.folders.add('parts')
+    drive.files.set('parts/ch2.pubdoc', Buffer.from('y'))
+    const { events, stop } = await collect(adapter, '')
+    const latestBefore = drive.calls.filter((call) => call.query === 'token=latest').length
+    drive.expireCursor = 1
+    await settle()
+    await stop()
+    expect(drive.calls.filter((call) => call.query === 'token=latest').length).toBe(latestBefore + 1)
+    expect(events.map((event) => event.path).sort()).toEqual(['ch1.pubdoc', 'parts/ch2.pubdoc'])
+    expect(events.every((event) => event.type === 'change')).toBe(true)
   })
 })

@@ -101,17 +101,21 @@ test('a reply and a resolution are written to the same author’s file', async (
 test('suggesting mode proposes a deletion instead of performing one', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
-  await createDocument(harness.page, 'chapter-01.pubdoc')
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
   await setText('The harbour was quiet that evening.')
 
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   await harness.page.getByLabel('Suggest changes instead of making them').check()
 
-  // Back into the editor first: the checkbox took focus, and a contenteditable
-  // that is focused without being clicked has no caret for Home to move.
+  // Selected through the editor rather than by arrow keys: a re-render that
+  // briefly takes focus mid-sequence collapses a keyboard selection, and what
+  // is under test here is the Backspace, not the selecting.
   const el = await editor()
   await el.click()
-  await selectRange(4, 12)
+  await harness.page.evaluate((id) => {
+    window.__pub.getEditor(id)!.chain().focus().setTextSelection({ from: 5, to: 13 }).run()
+  }, docId)
+  await expect.poll(() => harness.page.evaluate(() => window.getSelection()?.toString())).toBe('harbour ')
   await el.press('Backspace')
 
   // The whole point: the words are still there, struck through, waiting for a
@@ -120,4 +124,58 @@ test('suggesting mode proposes a deletion instead of performing one', async () =
   // this mark now also renders.
   await expect(harness.page.locator('.pub-deletion')).toContainText('harbour')
   await expect(el).toContainText('harbour')
+})
+
+test('rejecting one suggestion leaves the same author’s others pending', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
+  await setText('Alpha beta.')
+  // The editor's own text, not the DOM's: each suggestion also renders a
+  // screen-reader label that would interleave with the words.
+  const plain = () => harness.page.evaluate((id) => window.__pub.getEditor(id)!.getText(), docId)
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
+  await harness.page.getByLabel('Suggest changes instead of making them').check()
+
+  const el = await editor()
+  await el.click()
+  await el.press('End')
+  for (const key of [' ', 'o', 'n', 'e']) await el.press(key)
+  await expect.poll(plain).toBe('Alpha beta. one')
+  await el.press('Home')
+  for (const key of ['t', 'w', 'o', ' ']) await el.press(key)
+  await expect.poll(plain).toBe('two Alpha beta. one')
+
+  // Listed live, without the panel being poked: two edits by one author.
+  const rows = harness.page.getByTestId('suggestion-row')
+  await expect(rows).toHaveCount(2)
+
+  await rows.first().getByRole('button', { name: 'Reject' }).click()
+  await expect(rows).toHaveCount(1)
+  await expect.poll(plain).toBe('Alpha beta. one')
+  await expect(harness.page.locator('.pub-insertion').first()).toBeVisible()
+
+  await harness.page.getByTestId('suggestions-accept-all').click()
+  await expect(rows).toHaveCount(0)
+  await expect(harness.page.locator('.pub-insertion')).toHaveCount(0)
+  await expect.poll(plain).toBe('Alpha beta. one')
+})
+
+test('suggesting mode follows into editors opened after it was turned on', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+  await setText('First chapter.')
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
+  await harness.page.getByLabel('Suggest changes instead of making them').check()
+
+  await createDocument(harness.page, 'chapter-02.pubdoc')
+  const el = await editor()
+  await el.click()
+  for (const key of ['N', 'e', 'w']) await el.press(key)
+
+  await expect(harness.page.locator('.pub-sheet:visible .pub-insertion').first()).toBeVisible()
+  await expect(harness.page.getByTestId('suggesting-indicator').filter({ visible: true })).toBeVisible()
 })

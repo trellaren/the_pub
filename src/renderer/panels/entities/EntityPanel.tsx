@@ -28,6 +28,7 @@ import {
   draftInstruction,
   type EnsembleRequest
 } from './EnsembleDialog.js'
+import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 
 /**
  * Master/detail editor for story records, in StylesPanel's shape.
@@ -76,7 +77,7 @@ export function EntityPanel({ kind }: { kind: string }) {
   }
 
   const mine = useMemo(() => entities.filter((entity) => entity.kind === kind), [entities, kind])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = usePanelSelection<string | null>(`records.${kind}`, null)
   const selected = mine.find((entity) => entity.id === selectedId) ?? mine[0] ?? null
 
   const addRecord = async (owner?: Document): Promise<void> => {

@@ -4,6 +4,7 @@ import { findPluginKey, getFindState, type FindOptions } from './extensions/find
 import { suggestionModeKey } from './extensions/suggestions.js'
 import { resolveSuggestions, resolveSuggestionAt } from '@shared/pm/suggestions.js'
 import type { PmDoc } from '@shared/model/document.js'
+import { ANCHOR_MARK } from '@shared/model/anchor.js'
 
 /** Start (or clear) a find. Matches are recomputed by the plugin. */
 export function setFind(editor: Editor, options: FindOptions): void {
@@ -43,6 +44,16 @@ export function replaceCurrent(editor: Editor, replacement: string): boolean {
       return true
     })
     .run()
+  // The plugin recomputes matches and keeps the same index, which now points
+  // at whatever followed — unless the replacement itself matches, in which
+  // case it points back at the text just written. Either way, the next match
+  // is the first one starting after the replacement.
+  const after = match.from + replacement.length
+  const remaining = getFindState(editor.state).matches
+  const next = remaining.findIndex((candidate) => candidate.from >= after)
+  const current = remaining.length === 0 ? -1 : next === -1 ? 0 : next
+  editor.view.dispatch(editor.state.tr.setMeta(findPluginKey, { current }))
+  focusCurrentMatch(editor)
   return true
 }
 
@@ -95,6 +106,26 @@ export function setSuggesting(editor: Editor, enabled: boolean, authorId: string
   editor.view.dispatch(
     editor.state.tr.setMeta(suggestionModeKey, { enabled: enabled && Boolean(authorId), authorId })
   )
+}
+
+/**
+ * Take one anchor back off the text, wherever it now is — the selection it
+ * was set on may have moved while the sidecar write was awaited.
+ */
+export function removeAnchor(editor: Editor, anchorId: string): void {
+  const transaction = editor.state.tr
+  editor.state.doc.descendants((node, position) => {
+    for (const mark of node.marks) {
+      if (mark.type.name === ANCHOR_MARK && mark.attrs.anchorId === anchorId) {
+        transaction.removeMark(position, position + node.nodeSize, mark)
+      }
+    }
+  })
+  if (!transaction.docChanged) return
+  // Through the suggesting-mode meta like `replaceDocument`: retracting an
+  // anchor is not an edit anyone should be asked to review.
+  transaction.setMeta(suggestionModeKey, suggestionModeKey.getState(editor.state) ?? { authorId: '', enabled: false })
+  editor.view.dispatch(transaction)
 }
 
 /**

@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { OpenProject } from '@shared/model/manifest.js'
+// The store module loads appStore, which needs the preload bridge.
+vi.mock('./appStore.js', () => ({ useAppStore: { getState: () => ({}) } }))
+
 import { survivorOf } from './projectStore.js'
 
 const project = { uri: '/novel' } as OpenProject

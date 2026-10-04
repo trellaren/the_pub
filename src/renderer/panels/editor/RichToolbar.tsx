@@ -17,7 +17,8 @@ import { ToolbarButton, Divider, Select, cx } from '@renderer/ui/primitives.js'
 import { previewStyle, defaultStyleFor } from './extensions/namedStyles.js'
 import { headingEntries, insertCrossReference, insertOrRefreshTableOfContents } from './fieldActions.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
-import { invoke } from '@renderer/lib/ipc.js'
+import { invoke, attempt } from '@renderer/lib/ipc.js'
+import { removeAnchor } from './editorActions.js'
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 
 const FONTS = [
@@ -88,7 +89,10 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
       const buffer = await file.arrayBuffer()
       const base64 = bytesToBase64(new Uint8Array(buffer))
       const extension = file.name.split('.').pop() ?? 'png'
-      const asset = await invoke('doc:writeAsset', { dataBase64: base64, ext: extension }).catch(() => null)
+      const asset = await attempt(
+        invoke('doc:writeAsset', { dataBase64: base64, ext: extension }),
+        `Could not insert ${file.name}`
+      )
       if (asset) editor.chain().focus().setImage({ src: asset.url }).run()
     }
     input.click()
@@ -101,7 +105,13 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
     const location = findAnchor(editor.getJSON() as PmDoc, anchorId)
     if (!location) return
     const note = await useNoteStore.getState().create(docId, anchorId, location.text, location.blockIndex)
-    if (note) useLayoutStore.getState().showPanel('notes', 'Notes')
+    // An anchor nothing points at is invisible clutter that rides along in the
+    // file forever; the store has already said why the note wasn't made.
+    if (!note) {
+      removeAnchor(editor, anchorId)
+      return
+    }
+    useLayoutStore.getState().showPanel('notes', 'Notes')
   }
 
   /** The review counterpart of `addNote`: anchor a comment thread to the selection. */
@@ -110,7 +120,11 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
     editor.chain().focus().setAnchor({ anchorId }).run()
     const location = findAnchor(editor.getJSON() as PmDoc, anchorId)
     if (!location) return
-    await useReviewStore.getState().createThread(docId, anchorId, location.text, location.blockIndex)
+    const created = await useReviewStore.getState().createThread(docId, anchorId, location.text, location.blockIndex)
+    if (!created) {
+      removeAnchor(editor, anchorId)
+      return
+    }
     useLayoutStore.getState().showPanel('review', 'Review')
   }
 

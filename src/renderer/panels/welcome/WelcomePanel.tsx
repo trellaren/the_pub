@@ -6,7 +6,7 @@ import { PanelShell } from '@renderer/ui/primitives.js'
 import { RavenMark } from '@renderer/ui/RavenMark.js'
 import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
-import { invoke } from '@renderer/lib/ipc.js'
+import { invoke, reportError, errorMessage } from '@renderer/lib/ipc.js'
 import type { DailyPrompt } from '@shared/model/writingPrompt.js'
 import { defaultVariantFor, findVariant, formatBytes } from '@shared/model/llm.js'
 import { aiSettingsSchema } from '@shared/model/ai.js'
@@ -19,10 +19,20 @@ export function WelcomePanel() {
   const openDialog = useProjectStore((store) => store.openDialog)
   const open = useProjectStore((store) => store.open)
   const opening = useProjectStore((store) => store.opening)
+  const forgetRecent = useProjectStore((store) => store.forgetRecent)
   // Shared constant rather than a fresh `[]`: zustand compares selector results
   // by identity, so a new array every render loops forever.
   const recents = useAppStore((store) => store.state?.recentProjects) ?? NO_RECENTS
   const [connecting, setConnecting] = useState(false)
+
+  const openRecent = async (recent: RecentProject): Promise<void> => {
+    if (await open(recent.uri, recent.name)) return
+    // A project that has moved or been deleted stays in the list forever
+    // otherwise, failing the same way every time it is clicked.
+    if (window.confirm(`"${recent.name}" could not be opened. Remove it from Recent?`)) {
+      await forgetRecent(recent.uri)
+    }
+  }
 
   return (
     <PanelShell className="bg-bg">
@@ -79,16 +89,27 @@ export function WelcomePanel() {
             <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Recent</h2>
             <ul className="flex flex-col">
               {recents.slice(0, 8).map((recent) => (
-                <li key={recent.uri}>
+                <li key={recent.uri} className="group flex items-center" data-testid="recent-project">
                   <button
                     type="button"
-                    onClick={() => void open(recent.uri, recent.name)}
+                    onClick={() => void openRecent(recent)}
                     disabled={opening}
-                    className="w-full truncate rounded px-2 py-1 text-left text-[12px] text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                    className="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[12px] text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
                     title={recent.uri}
                   >
                     <span className="text-text">{recent.name}</span>
                     <span className="ml-2 text-faint">{recent.uri}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void forgetRecent(recent.uri)}
+                    disabled={opening}
+                    aria-label={`Remove ${recent.name} from Recent`}
+                    title="Remove from Recent"
+                    className="shrink-0 rounded px-1.5 py-1 text-[12px] text-faint opacity-0 hover:bg-surface-2 hover:text-text focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0"
+                    data-testid="recent-remove"
+                  >
+                    ×
                   </button>
                 </li>
               ))}
@@ -138,7 +159,7 @@ function AssistantSetupCard() {
       ...(useChatStore.getState().settings ?? aiSettingsSchema.parse({})),
       provider: 'embedded',
       model: model.id
-    }).catch(() => {})
+    }).catch((error: unknown) => reportError(`Could not save the assistant settings: ${errorMessage(error)}`))
     const failure = await useChatStore.getState().downloadModel(variant.id)
     if (failure) {
       setError(failure)
@@ -248,7 +269,7 @@ function DailyPromptCard() {
           onClick={() =>
             void invoke('ai:dailyPrompt', { refresh: true })
               .then((result) => result.text && setPrompt(result))
-              .catch(() => {})
+              .catch((error: unknown) => reportError(`Could not get another prompt: ${errorMessage(error)}`))
           }
           className="text-[11px] text-faint hover:text-text"
         >

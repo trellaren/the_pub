@@ -9,6 +9,7 @@ import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { BeatCard } from './BeatCard.js'
 import { BeatInspector } from './BeatInspector.js'
 import { openBeatScene } from './beatScene.js'
+import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 
 /**
  * The story in the order it happens.
@@ -32,7 +33,7 @@ export function TimelinePanel() {
   const setOrientation = useAppStore((store) => store.setTimelineOrientation)
   const horizontal = orientation === 'horizontal'
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = usePanelSelection<string | null>('timeline.beat', null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const ordered = useMemo(() => beatsInChronology(beats), [beats])
   const selected = ordered.find((beat) => beat.id === selectedId) ?? null

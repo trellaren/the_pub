@@ -3,6 +3,7 @@ import type { OpenProject, ProjectManifest } from '@shared/model/manifest.js'
 import type { NamedStyle } from '@shared/model/style.js'
 import { BUILTIN_STYLES } from '@shared/model/style.js'
 import { invoke, attempt } from '@renderer/lib/ipc.js'
+import { useAppStore } from './appStore.js'
 
 interface ProjectStore {
   project: OpenProject | null
@@ -12,6 +13,7 @@ interface ProjectStore {
   open: (uri: string, name?: string) => Promise<OpenProject | null>
   openDialog: () => Promise<OpenProject | null>
   newFromTemplate: (templateId: string, name: string) => Promise<OpenProject | null>
+  forgetRecent: (uri: string) => Promise<void>
   updateManifest: (update: (manifest: ProjectManifest) => ProjectManifest) => Promise<void>
 }
 
@@ -47,6 +49,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
     set({ project: project ?? survivorOf(get().project, uri), opening: false, openingName: null })
+    if (project) void useAppStore.getState().load().catch(() => {})
     return project
   },
 
@@ -56,6 +59,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     await beforeSwitch()
     const project = await attempt(invoke('project:openDialog', {}), 'Could not open project')
     set({ project: project ?? get().project, opening: false, openingName: null })
+    if (project) void useAppStore.getState().load().catch(() => {})
     return project
   },
 
@@ -68,7 +72,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       'Could not create the project'
     )
     set({ project: project ?? get().project, opening: false, openingName: null })
+    if (project) void useAppStore.getState().load().catch(() => {})
     return project
+  },
+
+  forgetRecent: async (uri) => {
+    const state = await attempt(invoke('project:forgetRecent', { uri }), 'Could not remove it from Recent')
+    if (state) useAppStore.getState().setState(state)
   },
 
   updateManifest: async (update) => {

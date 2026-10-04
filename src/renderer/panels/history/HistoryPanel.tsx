@@ -40,6 +40,16 @@ export function HistoryPanel() {
     void useHistoryStore.getState().follow(activeDocId)
   }, [activeDocId])
 
+  // Each save archives a version, and a successful save is exactly when the
+  // mtime moves — so this is when the list has something new to show.
+  const savedAt = document?.mtime
+  const followedAt = useRef(savedAt)
+  useEffect(() => {
+    if (followedAt.current === savedAt) return
+    followedAt.current = savedAt
+    void useHistoryStore.getState().refresh()
+  }, [savedAt])
+
   if (!project) {
     return (
       <PanelShell>
@@ -90,6 +100,13 @@ export function HistoryPanel() {
     <PanelShell>
       <PanelHeader>
         <span className="flex-1 truncate">History — {document.title}</span>
+        <ToolbarButton
+          label="Refresh the list of versions"
+          onClick={() => void useHistoryStore.getState().refresh()}
+          data-testid="history-refresh"
+        >
+          ↻
+        </ToolbarButton>
         <ToolbarButton label="Show this version" active={view === 'preview'} onClick={() => setView('preview')} data-testid="history-preview-tab">
           Version
         </ToolbarButton>

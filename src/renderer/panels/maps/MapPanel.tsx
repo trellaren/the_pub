@@ -34,6 +34,7 @@ import { useBrush } from './useBrush.js'
 import { MAP_ICON_KEYS, MAP_ICON_LABELS } from './icons.js'
 import { MapIconGlyph } from './MapIconGlyph.js'
 import { NewMapDialog } from './NewMapDialog.js'
+import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 
 
 /**
@@ -53,7 +54,7 @@ export function MapPanel() {
   const [tool, setTool] = useState<MapTool>('select')
   const brush = useBrush()
   const { color, icon, strokeWidth, opacity } = brush
-  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
+  const [selectedShapeId, setSelectedShapeId] = usePanelSelection<string | null>('maps.shape', null)
   const [newMap, setNewMap] = useState<{ owner?: Document } | null>(null)
   /** Where this pane actually lives — the popout's document when torn off. */
   const paneRef = useRef<HTMLDivElement>(null)

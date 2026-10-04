@@ -176,7 +176,7 @@ test('a suggested edit lands as a tracked change the author judges, never as a w
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   // One row per mark: the struck-through words and the inserted ones are
   // judged separately, as they are for any reviewer.
-  const reject = harness.page.getByRole('button', { name: 'Reject' })
+  const reject = harness.page.getByRole('button', { name: 'Reject', exact: true })
   await expect(reject).toHaveCount(2)
   await reject.first().click()
   await expect(reject).toHaveCount(1)

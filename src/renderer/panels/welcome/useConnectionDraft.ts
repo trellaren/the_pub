@@ -6,7 +6,7 @@ import type {
   UntrustedHostKey
 } from '@shared/model/connection.js'
 import { defaultPort, projectUri } from '@shared/model/connection.js'
-import { invoke, attempt } from '@renderer/lib/ipc.js'
+import { invoke, attempt, errorMessage } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 
 export interface Draft {
@@ -69,7 +69,13 @@ export function useConnectionDraft(onClose: () => void) {
   const [secureStorage, setSecureStorage] = useState(true)
   const [draft, setDraft] = useState<Draft>(BLANK)
   const [secret, setSecret] = useState('')
-  const [status, setStatus] = useState<string | null>(null)
+  const [status, setStatusText] = useState<string | null>(null)
+  const [statusIsError, setStatusIsError] = useState(false)
+  const setStatus = (text: string | null, isError = false): void => {
+    setStatusText(text)
+    setStatusIsError(isError)
+  }
+  const fail = (text: string): void => setStatus(text, true)
   const [busy, setBusy] = useState(false)
   /** A sign-in handed to the browser and not yet come back. */
   const [signingIn, setSigningIn] = useState(false)
@@ -121,26 +127,26 @@ export function useConnectionDraft(onClose: () => void) {
 
   const save = async (): Promise<ConnectionProfile | null> => {
     if (isOneDrive && !draft.clientId.trim()) {
-      setStatus('An Application (client) ID is needed.')
+      fail('An Application (client) ID is needed.')
       return null
     }
     if (isDb) {
       if (!draft.host.trim()) {
-        setStatus(isSqlite ? 'A path to a database file is needed.' : 'A host is needed.')
+        fail(isSqlite ? 'A path to a database file is needed.' : 'A host is needed.')
         return null
       }
       if (!isSqlite && !draft.database.trim()) {
-        setStatus('A database name is needed.')
+        fail('A database name is needed.')
         return null
       }
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.schema.trim())) {
         // Interpolated into DDL, where no placeholder is allowed. Said here so
         // it is caught while it is still being typed rather than on connect.
-        setStatus('The schema name must be letters, digits and underscores, starting with a letter.')
+        fail('The schema name must be letters, digits and underscores, starting with a letter.')
         return null
       }
     } else if (!isOneDrive && (!draft.host.trim() || !draft.user.trim())) {
-      setStatus('A host and a user are needed.')
+      fail('A host and a user are needed.')
       return null
     }
     const saved = await attempt(
@@ -165,24 +171,40 @@ export function useConnectionDraft(onClose: () => void) {
     return saved
   }
 
+  /**
+   * A test needs a stored profile to dial, so a server that has never been
+   * saved is saved for it — and removed again if the test fails outright,
+   * so a mistyped host does not linger in the list. One that answered with
+   * a host key or an empty database stays: the next step needs its id.
+   */
+  const runTest = async (): Promise<void> => {
+    const wasNew = !draft.id
+    const saved = await save()
+    if (!saved) return
+    const result = await invoke('connections:test', { id: saved.id }).catch(
+      (error: unknown) => ({ ok: false as const, message: errorMessage(error), entries: 0, hostKey: undefined, needsCreate: false })
+    )
+    if (result.ok) {
+      setStatus(isDb ? result.message : `${result.message} ${result.entries} items in the folder.`)
+    } else {
+      fail(result.message || 'Could not reach the server.')
+    }
+    setHostKey(result.hostKey ?? null)
+    setNeedsCreate(result.needsCreate ?? false)
+    if (wasNew && !result.ok && !result.hostKey && !result.needsCreate) {
+      await invoke('connections:delete', { id: saved.id }).catch(() => {})
+      setDraft((current) => ({ ...current, id: undefined }))
+      await load()
+    }
+  }
+
   const test = async (): Promise<void> => {
     setBusy(true)
-    const saved = await save()
-    if (saved) {
-      const result = await invoke('connections:test', { id: saved.id }).catch(() => null)
-      setStatus(
-        result
-          ? result.ok
-            ? isDb
-              ? result.message
-              : `${result.message} ${result.entries} items in the folder.`
-            : result.message
-          : 'Could not reach the server.'
-      )
-      setHostKey(result?.hostKey ?? null)
-      setNeedsCreate(result?.needsCreate ?? false)
+    try {
+      await runTest()
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   /**
@@ -196,17 +218,20 @@ export function useConnectionDraft(onClose: () => void) {
   const acceptHostKey = async (): Promise<void> => {
     if (!draft.id || !hostKey) return
     setBusy(true)
-    const result = await invoke('connections:trustHostKey', {
-      id: draft.id,
-      fingerprint: hostKey.fingerprint
-    }).catch(() => null)
-    setBusy(false)
-    if (!result?.ok) {
-      setStatus(result?.message ?? 'That fingerprint could not be accepted.')
-      return
+    try {
+      const result = await invoke('connections:trustHostKey', {
+        id: draft.id,
+        fingerprint: hostKey.fingerprint
+      }).catch((error: unknown) => ({ ok: false, message: errorMessage(error) }))
+      if (!result.ok) {
+        fail(result.message || 'That fingerprint could not be accepted.')
+        return
+      }
+      setHostKey(null)
+      await runTest()
+    } finally {
+      setBusy(false)
     }
-    setHostKey(null)
-    await test()
   }
 
   /**
@@ -232,7 +257,8 @@ export function useConnectionDraft(onClose: () => void) {
     setStatus('Finish signing in in your browser…')
     const result = await invoke('connections:signIn', { id: saved.id }).catch(() => null)
     setSigningIn(false)
-    setStatus(result ? result.message : 'The sign-in could not be started.')
+    if (result?.ok) setStatus(result.message)
+    else fail(result ? result.message : 'The sign-in could not be started.')
     if (result?.ok) {
       setDraft((current) => ({ ...current, account: result.account, signedIn: true }))
       await load()
@@ -263,9 +289,12 @@ export function useConnectionDraft(onClose: () => void) {
     const saved = await save()
     if (!saved) return
     setBusy(true)
-    const result = await invoke('connections:createDatabase', { id: saved.id }).catch(() => null)
+    const result = await invoke('connections:createDatabase', { id: saved.id }).catch(
+      (error: unknown) => ({ ok: false, message: errorMessage(error) })
+    )
     setBusy(false)
-    setStatus(result?.message ?? 'The project could not be created.')
+    if (result.ok) setStatus(result.message)
+    else fail(result.message || 'The project could not be created.')
     if (result?.ok) setNeedsCreate(false)
   }
 
@@ -301,6 +330,7 @@ export function useConnectionDraft(onClose: () => void) {
     secret,
     setSecret,
     status,
+    statusIsError,
     setStatus,
     busy,
     signingIn,

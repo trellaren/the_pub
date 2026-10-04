@@ -70,6 +70,9 @@ describe('HighlightService', () => {
 
   it('saves an edit to a highlight, keeping its creation date', async () => {
     const highlight = await highlights.collect('doc-1', 'h1', { color: 'yellow', quote: 'original', blockIndex: 0 })
+    // Timestamps are millisecond ISO strings; on a fast machine both calls
+    // can land in the same millisecond and the assertion below flakes.
+    await new Promise((resolve) => setTimeout(resolve, 2))
     const saved = await highlights.save('doc-1', { ...highlight, note: 'worth quoting' })
     expect(saved.note).toBe('worth quoting')
     expect(saved.created).toBe(highlight.created)

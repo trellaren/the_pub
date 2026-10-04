@@ -47,7 +47,7 @@ export function App() {
   // from the menu and the palette with no Welcome panel on screen at all.
   const [newProject, setNewProject] = useState(false)
   const [saveTemplate, setSaveTemplate] = useState(false)
-  const [notices, setNotices] = useState<Notice[]>([])
+  const [notices, setNotices] = useState<ShownNotice[]>([])
 
   useEffect(() => {
     void loadAppState()
@@ -73,10 +73,11 @@ export function App() {
 
   useEffect(() => {
     return onNotice((notice) => {
-      setNotices((current) => [...current.slice(-3), notice])
+      const id = nextNoticeId++
+      setNotices((current) => [...current.slice(-3), { ...notice, id }])
       // An import summary can name several things that were left behind, so it
       // gets longer to read than a one-line failure.
-      setTimeout(() => setNotices((current) => current.slice(1)), notice.kind === 'info' ? 10_000 : 6000)
+      setTimeout(() => setNotices((current) => withoutNotice(current, id)), notice.kind === 'info' ? 10_000 : 6000)
     })
   }, [])
 
@@ -233,21 +234,6 @@ export function App() {
     })
   }, [])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const modifier = event.metaKey || event.ctrlKey
-      if (modifier && event.shiftKey && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        setPalette('commands')
-      } else if (modifier && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        setPalette('files')
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
   return (
     <div className="flex h-full flex-col">
       <TitleBar onSearch={() => setPalette('files')} />
@@ -262,24 +248,56 @@ export function App() {
       {saveTemplate ? <SaveAsTemplateDialog onClose={() => setSaveTemplate(false)} /> : null}
       <PromptHost />
       <OpeningOverlay />
-      {notices.length > 0 ? (
-        <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">
-          {notices.map((notice, index) => (
-            <div
-              key={index}
-              data-testid={`notice-${notice.kind}`}
-              className={cx(
-                'pointer-events-auto max-w-96 rounded border bg-surface-2 px-3 py-2 text-[12px] shadow-lg',
-                notice.kind === 'error'
-                  ? 'border-danger/50 text-danger'
-                  : 'border-border text-text'
-              )}
-            >
-              {notice.message}
-            </div>
-          ))}
+      <Notices notices={notices} onDismiss={(id) => setNotices((current) => withoutNotice(current, id))} />
+    </div>
+  )
+}
+
+interface ShownNotice extends Notice {
+  id: number
+}
+
+let nextNoticeId = 0
+
+function withoutNotice<T extends { id: number }>(notices: T[], id: number): T[] {
+  return notices.filter((notice) => notice.id !== id)
+}
+
+/**
+ * The live regions are always mounted, even when empty: a screen reader only
+ * announces text added to a region it already knows about. Errors go in an
+ * assertive one so they interrupt; everything else waits its turn.
+ */
+function Notices({ notices, onDismiss }: { notices: ShownNotice[]; onDismiss: (id: number) => void }) {
+  return (
+    <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">
+      {(['error', 'info'] as const).map((kind) => (
+        <div key={kind} role={kind === 'error' ? 'alert' : 'status'} aria-live={kind === 'error' ? 'assertive' : 'polite'} className="flex flex-col gap-1">
+          {notices
+            .filter((notice) => notice.kind === kind)
+            .map((notice) => (
+              <div
+                key={notice.id}
+                data-testid={`notice-${notice.kind}`}
+                className={cx(
+                  'pointer-events-auto flex max-w-96 items-start gap-2 rounded border bg-surface-2 px-3 py-2 text-[12px] shadow-lg',
+                  notice.kind === 'error' ? 'border-danger/50 text-danger' : 'border-border text-text'
+                )}
+              >
+                <span className="min-w-0 flex-1">{notice.message}</span>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => onDismiss(notice.id)}
+                  className="-mr-1 shrink-0 rounded px-1 text-faint hover:text-text"
+                  data-testid="notice-dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
         </div>
-      ) : null}
+      ))}
     </div>
   )
 }
@@ -357,6 +375,9 @@ async function importFromWord(): Promise<void> {
 
 /** Write the open document out. Nothing open means nothing to export. */
 async function exportToWord(): Promise<void> {
+  // The exporter reads the file on disk, not the editor: unsaved typing would
+  // otherwise be missing from the export.
+  await useDocumentStore.getState().saveAll()
   const documents = useDocumentStore.getState()
   const active = documents.activeDocId
   const path = active ? documents.docs[active]?.path : undefined
@@ -390,6 +411,9 @@ async function importFromFountain(): Promise<void> {
 
 /** Write the open document out as `.fountain`. Nothing open means nothing to export. */
 async function exportToFountain(): Promise<void> {
+  // The exporter reads the file on disk, not the editor: unsaved typing would
+  // otherwise be missing from the export.
+  await useDocumentStore.getState().saveAll()
   const documents = useDocumentStore.getState()
   const active = documents.activeDocId
   const path = active ? documents.docs[active]?.path : undefined
@@ -418,7 +442,14 @@ async function closeProject(): Promise<void> {
   const closed = await attempt(invoke('project:close', {}), 'Could not close the project')
   if (!closed) return
   useProjectStore.setState({ project: null })
-  if (api) restoreLayout(api, null)
+  if (api) {
+    // Clearing and re-adding a panel id in one tick lets the old panel's
+    // overlay teardown land on the new one, leaving Welcome hidden; rebuild a
+    // frame after the clear instead.
+    api.clear()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    restoreLayout(api, null)
+  }
   resetDocumentScopedStores()
   useDocumentStore.setState(useDocumentStore.getInitialState(), true)
   useEntityStore.setState(useEntityStore.getInitialState(), true)

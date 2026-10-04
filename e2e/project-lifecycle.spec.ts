@@ -20,7 +20,12 @@ test('a failed open leaves the current project open and still saving', async () 
     notAFolder
   )
   expect(opened).toBeNull()
-  await expect(harness.page.getByTestId('notice-error')).toBeVisible()
+  const notice = harness.page.getByTestId('notice-error')
+  await expect(notice).toBeVisible()
+  await expect(notice).not.toContainText('Error invoking remote method')
+  await expect(harness.page.getByRole('alert').filter({ hasText: 'Could not open project' })).toHaveCount(1)
+  await notice.getByTestId('notice-dismiss').click()
+  await expect(notice).toHaveCount(0)
   expect(await harness.page.evaluate(() => window.__pub.project.getState().project?.uri)).toBe(
     harness.projectDir
   )
@@ -45,4 +50,30 @@ test('Close Project returns to Welcome and the project reopens intact', async ()
 
   await openProject(harness.page, harness.projectDir)
   await expect(harness.page.getByText('kept', { exact: false }).first()).toBeVisible()
+})
+
+test('a recent project can be removed, and one that no longer opens offers to go', async () => {
+  harness = await launch()
+  const gone = path.join(harness.userDataDir, 'moved-away')
+  await fs.mkdir(gone)
+  await openProject(harness.page, gone)
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.evaluate(() => window.__pub.runCommand('project.close'))
+  await expect(harness.page.getByTestId('recent-project')).toHaveCount(2)
+
+  await fs.rm(gone, { recursive: true })
+  await fs.writeFile(gone, 'no longer a folder')
+  const asked: string[] = []
+  harness.page.on('dialog', (dialog) => {
+    asked.push(dialog.message())
+    void dialog.accept()
+  })
+  await harness.page.getByTestId('recent-project').filter({ hasText: 'moved-away' }).getByRole('button').first().click()
+  await expect(harness.page.getByTestId('recent-project')).toHaveCount(1)
+  expect(asked[0]).toContain('Remove it from Recent?')
+
+  const remaining = harness.page.getByTestId('recent-project')
+  await remaining.hover()
+  await remaining.getByTestId('recent-remove').click()
+  await expect(harness.page.getByTestId('recent-project')).toHaveCount(0)
 })

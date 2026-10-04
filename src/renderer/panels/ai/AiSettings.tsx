@@ -13,6 +13,7 @@ import { ToolbarButton, TextInput, TextArea, Select, Field, SectionTitle } from 
 export function SettingsForm() {
   const settings = useChatStore((store) => store.settings)!
   const keyStatus = useChatStore((store) => store.keyStatus)
+  const keysError = useChatStore((store) => store.keysError)
   const [keyDraft, setKeyDraft] = useState('')
   const [keyError, setKeyError] = useState<string | null>(null)
   const [modelError, setModelError] = useState<string | null>(null)
@@ -157,7 +158,7 @@ export function SettingsForm() {
               ? 'Stored encrypted on this machine, outside the project folder.'
               : 'This system has no secure storage, so keys cannot be saved here.'}
           </p>
-          {keyError ? <p className="mb-2 text-[11px] text-danger">{keyError}</p> : null}
+          {(keyError ?? keysError) ? <p className="mb-2 text-[11px] text-danger">{keyError ?? keysError}</p> : null}
         </>
       ) : null}
 

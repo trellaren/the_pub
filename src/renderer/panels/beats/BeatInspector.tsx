@@ -171,7 +171,15 @@ export function BeatInspector({
         ) : null}
       </div>
 
-      <ToolbarButton label="Delete beat" className="text-danger" onClick={onDelete}>
+      <ToolbarButton
+        label="Delete beat"
+        className="text-danger"
+        onClick={() => {
+          // Asked here, once, for both panels that show this inspector. A beat
+          // carries notes, cast and links, and there is no undo for it.
+          if (window.confirm(`Delete “${beat.title || 'Untitled beat'}”? Its notes, cast and links go with it.`)) onDelete()
+        }}
+      >
         Delete beat
       </ToolbarButton>
     </div>

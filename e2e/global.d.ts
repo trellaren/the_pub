@@ -47,7 +47,7 @@ interface PubTestHook {
       focusPanelById: (id: string) => void
       cyclePanelFocus: (reverse?: boolean) => void
       api: {
-        panels: { id: string }[]
+        panels: { id: string; api: { close: () => void } }[]
         getPanel: (id: string) => { group: { id: string; api: { width: number } } } | undefined
         toJSON: () => unknown
       } | null

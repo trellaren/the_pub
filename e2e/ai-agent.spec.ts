@@ -448,6 +448,20 @@ test('the task buttons offer what can run, and a task names the open document to
   await useAgent()
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'Assistant'))
 
+  // Opening a project puts a page in front of the writer: an empty folder gets
+  // `untitled.pubdoc` created and opened on a delay (`ensureDocumentOpen`), so
+  // the "no document" state has to be made rather than assumed. Wait for that
+  // editor to land, then close it; closing clears the active document, which
+  // is what the task buttons read.
+  await harness.page.waitForFunction(() =>
+    window.__pub.layout.getState().api?.panels.some((panel) => panel.id.startsWith('editor:'))
+  )
+  await harness.page.evaluate(() => {
+    const panels = window.__pub.layout.getState().api?.panels ?? []
+    for (const panel of panels.filter((panel) => panel.id.startsWith('editor:'))) panel.api.close()
+  })
+  await harness.page.waitForFunction(() => window.__pub.documents.getState().activeDocId === null)
+
   // No document open: only the project-wide asks.
   const tasks = harness.page.getByTestId('assistant-tasks')
   await expect(tasks.getByTestId('task-prompt')).toBeVisible()

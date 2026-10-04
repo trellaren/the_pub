@@ -17,12 +17,21 @@ let beforeSwitch: () => Promise<void> = async () => {}
 
 /**
  * Registered by the app shell rather than imported here: the stores that hold
- * pending writes themselves import this one. Main closes the old session the
- * moment a new one is asked for, so anything still debounced must be written
+ * pending writes themselves import this one. Main closes the old session as
+ * soon as the new one is open, so anything still debounced must be written
  * first — afterwards it would go to the new project, or nowhere.
  */
 export function onBeforeProjectSwitch(flush: () => Promise<void>): void {
   beforeSwitch = flush
+}
+
+/**
+ * What is still open in main after a failed open of `uri`. Main keeps the
+ * current session unless the open was a reopen of that same project, which it
+ * has to close first.
+ */
+export function survivorOf(current: OpenProject | null, uri: string): OpenProject | null {
+  return current?.uri === uri ? null : current
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -33,7 +42,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ opening: true })
     await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? survivorOf(get().project, uri), opening: false })
     return project
   },
 

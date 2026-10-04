@@ -329,6 +329,8 @@ function AttachmentsSection({ source }: { source: CslItem }) {
   const addCapture = useResearchStore((store) => store.addCapture)
   const removeAttachment = useResearchStore((store) => store.removeAttachment)
   const readCapture = useResearchStore((store) => store.readCapture)
+  const loadHighlights = useResearchStore((store) => store.loadHighlights)
+  const highlightsByAttachment = useResearchStore((store) => store.highlightsByAttachment)
 
   const fileInput = useRef<HTMLInputElement>(null)
   const [captureUrl, setCaptureUrl] = useState('')
@@ -339,6 +341,10 @@ function AttachmentsSection({ source }: { source: CslItem }) {
   useEffect(() => {
     void loadAttachments(source.id)
   }, [source.id, loadAttachments])
+
+  useEffect(() => {
+    for (const attachment of attachments) void loadHighlights(source.id, attachment.id)
+  }, [source.id, attachments, loadHighlights])
 
   const pickPdf = async (file: File): Promise<void> => {
     setBusy(true)
@@ -434,7 +440,12 @@ function AttachmentsSection({ source }: { source: CslItem }) {
               </button>
               <ToolbarButton
                 label="Remove attachment"
-                onClick={() => void removeAttachment(source.id, attachment.id)}
+                onClick={() => {
+                  const count = (highlightsByAttachment[`${source.id}/${attachment.id}`] ?? []).length
+                  const also = count > 0 ? ` and its ${count} highlight${count === 1 ? '' : 's'}` : ''
+                  if (!window.confirm(`Remove “${attachment.label || attachment.title || 'this attachment'}”${also}? This cannot be undone.`)) return
+                  void removeAttachment(source.id, attachment.id)
+                }}
               >
                 ✕
               </ToolbarButton>

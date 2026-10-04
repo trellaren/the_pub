@@ -95,7 +95,11 @@ export function ModelManager() {
                 ) : status?.state === 'ready' ? (
                   <ToolbarButton
                     label="Delete these weights"
-                    onClick={() => void useChatStore.getState().removeModel(variant.id)}
+                    onClick={() => {
+                      const size = variant.bytes > 0 ? ` (${formatBytes(variant.bytes)})` : ''
+                      if (!window.confirm(`Remove the downloaded weights${size}? They will have to be downloaded again to use this model.`)) return
+                      void useChatStore.getState().removeModel(variant.id)
+                    }}
                   >
                     remove
                   </ToolbarButton>

@@ -161,7 +161,13 @@ function HighlightCard({
         >
           “{highlight.quote}”
         </button>
-        <ToolbarButton label="Delete highlight" onClick={() => void remove(docId, highlight.id)}>
+        <ToolbarButton
+          label="Delete highlight"
+          onClick={() => {
+            if (!window.confirm('Delete this highlight and its note?')) return
+            void remove(docId, highlight.id)
+          }}
+        >
           ✕
         </ToolbarButton>
       </div>
@@ -403,7 +409,10 @@ function SourceHighlightCard({
         </ToolbarButton>
         <ToolbarButton
           label="Delete highlight"
-          onClick={() => void removeHighlight(row.source.id, row.attachment.id, row.highlight.id)}
+          onClick={() => {
+            if (!window.confirm('Delete this highlight and its note?')) return
+            void removeHighlight(row.source.id, row.attachment.id, row.highlight.id)
+          }}
         >
           ✕
         </ToolbarButton>

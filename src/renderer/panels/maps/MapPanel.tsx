@@ -402,6 +402,7 @@ export function MapPanel() {
                   label="Delete shape"
                   className="text-danger"
                   onClick={() => {
+                    if (shape.notes.trim() && !window.confirm('Delete this shape and its notes?')) return
                     useMapStore.getState().removeShape(map.id, shape.id)
                     setSelectedShapeId(null)
                   }}

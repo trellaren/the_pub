@@ -33,12 +33,16 @@ interface ChatStore {
   ask: (text: string) => Promise<boolean>
   cancel: () => Promise<void>
   refreshKeys: () => Promise<void>
+  /** Why the last key-status read failed; null once one succeeds. */
+  keysError: string | null
   setKey: (provider: KeyId, key: string) => Promise<string | null>
   /** Embedded models: what is downloaded, what this machine can run, engine state. */
   llm: LlmStatus | null
   /** Bytes so far per variant, for a download in flight. */
   downloads: Record<string, { received: number; total: number }>
   refreshLlm: () => Promise<void>
+  /** Why the last embedded-model status read failed; null once one succeeds. */
+  llmError: string | null
   downloadModel: (variantId: string) => Promise<string | null>
   cancelDownload: (variantId: string) => Promise<void>
   removeModel: (variantId: string) => Promise<void>
@@ -55,6 +59,12 @@ interface ChatStore {
   refreshRetrieval: () => Promise<void>
   buildRetrieval: () => Promise<void>
   cancelRetrieval: () => Promise<void>
+  /** Why the last retrieval status, build or cancel failed; null once one succeeds. */
+  retrievalError: string | null
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -132,9 +142,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     await invoke('ai:cancel', { requestId: streaming.requestId }).catch(() => {})
   },
 
+  keysError: null,
   refreshKeys: async () => {
-    const status = await invoke('ai:keyStatus', {}).catch(() => null)
-    if (status) set({ keyStatus: status })
+    try {
+      set({ keyStatus: await invoke('ai:keyStatus', {}), keysError: null })
+    } catch (error) {
+      set({ keysError: `Could not read stored keys: ${messageOf(error)}` })
+    }
   },
 
   setKey: async (provider, key) => {
@@ -146,9 +160,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   llm: null,
   downloads: {},
 
+  llmError: null,
   refreshLlm: async () => {
-    const status = await invoke('llm:status', {}).catch(() => null)
-    if (status) set({ llm: status })
+    try {
+      set({ llm: await invoke('llm:status', {}), llmError: null })
+    } catch (error) {
+      set({ llmError: `Could not read model status: ${messageOf(error)}` })
+    }
   },
 
   downloadModel: async (variantId) => {
@@ -188,21 +206,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   retrieval: null,
 
+  retrievalError: null,
   refreshRetrieval: async () => {
-    const status = await invoke('ai:retrievalStatus', {}).catch(() => null)
-    if (status) set({ retrieval: status })
+    try {
+      set({ retrieval: await invoke('ai:retrievalStatus', {}), retrievalError: null })
+    } catch (error) {
+      set({ retrievalError: `Could not read the index status: ${messageOf(error)}` })
+    }
   },
 
   buildRetrieval: async () => {
     // Like a download, the build belongs to main and outlives this panel: the
     // promise is only how the final state comes back, and progress arrives on
     // its own channel whether anything is watching or not.
-    const status = await invoke('ai:buildRetrieval', {}).catch(() => null)
-    if (status) set({ retrieval: status })
+    try {
+      set({ retrieval: await invoke('ai:buildRetrieval', {}), retrievalError: null })
+    } catch (error) {
+      set({ retrievalError: `Could not build the index: ${messageOf(error)}` })
+    }
   },
 
   cancelRetrieval: async () => {
-    await invoke('ai:cancelRetrieval', {}).catch(() => {})
+    try {
+      await invoke('ai:cancelRetrieval', {})
+      set({ retrievalError: null })
+    } catch (error) {
+      set({ retrievalError: `Could not stop the build: ${messageOf(error)}` })
+    }
   }
 }))
 

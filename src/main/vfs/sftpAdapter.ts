@@ -33,14 +33,20 @@ export interface SftpConnection {
  */
 const NO_SUCH_FILE = 2
 
-const CAPS: VfsCapabilities = {
-  watch: false,
-  // SFTP rename is atomic where the server implements POSIX rename, and the
-  // remote base falls back safely where it does not.
-  atomicRename: true,
-  caseSensitive: true,
-  preservesMtime: true,
-  fastStat: false
+const POSIX_RENAME = 'posix-rename@openssh.com'
+
+/**
+ * Whether the server advertised OpenSSH's POSIX rename in its version reply.
+ *
+ * Plain SFTP rename refuses to replace an existing file, which is what forces
+ * the move-aside fallback in `RemoteAdapter`; the extension replaces in one
+ * step. ssh2 keeps the advertised list on a field it does not type, and
+ * `ext_openssh_rename` throws synchronously without it, so it is read here
+ * rather than discovered by failing a save.
+ */
+function supportsPosixRename(sftp: SFTPWrapper): boolean {
+  const extensions = (sftp as unknown as { _extensions?: Record<string, string> })._extensions
+  return extensions?.[POSIX_RENAME] === '1'
 }
 
 /**
@@ -51,8 +57,8 @@ const CAPS: VfsCapabilities = {
  * only make a large project index slower.
  */
 export class SftpAdapter extends RemoteAdapter {
-  readonly caps = CAPS
   readonly root: string
+  private posixRename = false
   private client: Client | null = null
   private sftp: SFTPWrapper | null = null
   private connecting: Promise<SFTPWrapper> | null = null
@@ -63,6 +69,18 @@ export class SftpAdapter extends RemoteAdapter {
   constructor(private readonly connection: SftpConnection) {
     super()
     this.root = `sftp://${connection.user}@${connection.host}:${connection.port}/${trim(connection.remotePath)}`
+  }
+
+  get caps(): VfsCapabilities {
+    return {
+      watch: false,
+      // Unknown until a session has said; false is the claim that cannot
+      // mislead.
+      atomicRename: this.posixRename,
+      caseSensitive: true,
+      preservesMtime: true,
+      fastStat: false
+    }
   }
 
   /**
@@ -113,6 +131,7 @@ export class SftpAdapter extends RemoteAdapter {
               return
             }
             this.sftp = sftp
+            this.posixRename = supportsPosixRename(sftp)
             this.lost = lost
             resolve(sftp)
           })
@@ -139,6 +158,10 @@ export class SftpAdapter extends RemoteAdapter {
         .connect({
           host: this.connection.host,
           port: this.connection.port,
+          // Without these a connection silently dropped by a NAT or firewall is
+          // only noticed when the next save hangs for the TCP timeout.
+          keepaliveInterval: 15_000,
+          keepaliveCountMax: 3,
           username: this.connection.user,
           /*
            * The check that makes the encryption mean something.
@@ -246,7 +269,13 @@ export class SftpAdapter extends RemoteAdapter {
   }
 
   protected async renameRaw(from: string, to: string): Promise<void> {
-    await this.run((sftp) => promisify<void>((done) => sftp.rename(this.remote(from), this.remote(to), done)))
+    await this.run((sftp) =>
+      promisify<void>((done) =>
+        supportsPosixRename(sftp)
+          ? sftp.ext_openssh_rename(this.remote(from), this.remote(to), done)
+          : sftp.rename(this.remote(from), this.remote(to), done)
+      )
+    )
   }
 
   protected async removeFile(path: string): Promise<void> {

@@ -532,3 +532,51 @@ describe('host keys', () => {
 function settle(ms = 50): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/*
+ * Against a stand-in session rather than the test server, because ssh2's server
+ * side cannot advertise extensions in its version reply — so the real server
+ * here can only ever exercise the fallback, which the tests above already do.
+ */
+describe('POSIX rename', () => {
+  function withSession(extensions: Record<string, string>): { adapter: SftpAdapter; calls: string[] } {
+    const calls: string[] = []
+    const session = {
+      _extensions: extensions,
+      rename: (from: string, to: string, callback: (error?: Error) => void) => {
+        calls.push(`rename ${from} ${to}`)
+        callback()
+      },
+      ext_openssh_rename: (from: string, to: string, callback: (error?: Error) => void) => {
+        calls.push(`posix ${from} ${to}`)
+        callback()
+      }
+    }
+    const adapter = new SftpAdapter({
+      host: 'example.invalid',
+      port: 22,
+      user: 'author',
+      remotePath: 'book',
+      hostKeys: { check: () => ({ ok: true }) } as unknown as HostKeyPolicy
+    })
+    Object.assign(adapter as unknown as { sftp: unknown; posixRename: boolean }, {
+      sftp: session,
+      posixRename: extensions['posix-rename@openssh.com'] === '1'
+    })
+    return { adapter, calls }
+  }
+
+  it('replaces in one step where the server offers posix-rename', async () => {
+    const { adapter, calls } = withSession({ 'posix-rename@openssh.com': '1' })
+    await adapter.rename('draft.pubdoc', 'final.pubdoc')
+    expect(calls).toEqual(['posix /book/draft.pubdoc /book/final.pubdoc'])
+    expect(adapter.caps.atomicRename).toBe(true)
+  })
+
+  it('falls back to plain rename, and claims no atomicity, where it does not', async () => {
+    const { adapter, calls } = withSession({})
+    await adapter.rename('draft.pubdoc', 'final.pubdoc')
+    expect(calls).toEqual(['rename /book/draft.pubdoc /book/final.pubdoc'])
+    expect(adapter.caps.atomicRename).toBe(false)
+  })
+})

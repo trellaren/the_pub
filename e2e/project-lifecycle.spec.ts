@@ -20,7 +20,12 @@ test('a failed open leaves the current project open and still saving', async () 
     notAFolder
   )
   expect(opened).toBeNull()
-  await expect(harness.page.getByTestId('notice-error')).toBeVisible()
+  const notice = harness.page.getByTestId('notice-error')
+  await expect(notice).toBeVisible()
+  await expect(notice).not.toContainText('Error invoking remote method')
+  await expect(harness.page.getByRole('alert').filter({ hasText: 'Could not open project' })).toHaveCount(1)
+  await notice.getByTestId('notice-dismiss').click()
+  await expect(notice).toHaveCount(0)
   expect(await harness.page.evaluate(() => window.__pub.project.getState().project?.uri)).toBe(
     harness.projectDir
   )

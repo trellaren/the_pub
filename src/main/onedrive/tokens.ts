@@ -30,6 +30,11 @@ export class TokenCache {
   private tokens = new Map<string, Tokens>()
   /** In-flight refreshes, so ten parallel saves cause one refresh, not ten. */
   private pending = new Map<string, Promise<string>>()
+  /**
+   * Bumped by `forget`, so a refresh that was already on the wire when the
+   * writer signed out cannot land afterwards and quietly sign them back in.
+   */
+  private generations = new Map<string, number>()
 
   constructor(
     private readonly storage: TokenStorage,
@@ -52,12 +57,15 @@ export class TokenCache {
     // about to use, and all but the first would fail.
     if (inFlight) return inFlight
 
-    const refresh = this.refresh(profileId).finally(() => this.pending.delete(profileId))
+    const refresh = this.refresh(profileId).finally(() => {
+      if (this.pending.get(profileId) === refresh) this.pending.delete(profileId)
+    })
     this.pending.set(profileId, refresh)
     return refresh
   }
 
   private async refresh(profileId: string): Promise<string> {
+    const generation = this.generation(profileId)
     const account = this.storage.account(profileId)
     if (!account) throw new Error('That saved server no longer exists on this machine.')
     const stored = this.storage.refreshToken(profileId)
@@ -67,6 +75,9 @@ export class TokenCache {
       { clientId: account.clientId, tenant: account.tenant, refreshToken: stored },
       this.fetcher
     )
+    if (this.generation(profileId) !== generation) {
+      throw new Error(`Signed out of OneDrive for ${account.name}.`)
+    }
     this.adopt(profileId, tokens)
     return tokens.accessToken
   }
@@ -80,6 +91,11 @@ export class TokenCache {
   forget(profileId: string): void {
     this.tokens.delete(profileId)
     this.pending.delete(profileId)
+    this.generations.set(profileId, this.generation(profileId) + 1)
+  }
+
+  private generation(profileId: string): number {
+    return this.generations.get(profileId) ?? 0
   }
 
   source(profileId: string): TokenSource {

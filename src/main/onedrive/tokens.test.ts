@@ -121,4 +121,28 @@ describe('TokenCache', () => {
     expect(await source.get()).toBe('at-2')
     expect(refreshes).toEqual(['rt-0', 'rt-1'])
   })
+
+  it('does not let a refresh in flight at sign-out store its token or resolve its waiters', async () => {
+    let answer: (reply: Awaited<ReturnType<Fetcher>>) => void = () => {}
+    const written: string[] = []
+    const storage: TokenStorage = {
+      account: () => ({ clientId: 'app-1', tenant: 'common', name: 'My drive' }),
+      refreshToken: () => 'rt-0',
+      storeRefreshToken: (_id, token) => written.push(token)
+    }
+    const cache = new TokenCache(storage, () => new Promise((resolve) => (answer = resolve)))
+
+    const first = cache.access('p1')
+    const second = cache.access('p1')
+    cache.forget('p1')
+    answer({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ access_token: 'at-1', refresh_token: 'rt-1', expires_in: 3600 })
+    })
+
+    await expect(first).rejects.toThrow(/Signed out/)
+    await expect(second).rejects.toThrow(/Signed out/)
+    expect(written).toEqual([])
+  })
 })

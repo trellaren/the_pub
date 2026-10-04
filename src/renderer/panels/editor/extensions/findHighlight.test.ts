@@ -3,6 +3,9 @@ import { getSchema } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { EditorState, type Transaction } from '@tiptap/pm/state'
 import { findMatches, remapMatches, type FindOptions } from './findHighlight.js'
+import { Field } from './field.js'
+import { Footnote } from './footnote.js'
+import { Insertion, Deletion } from './suggestions.js'
 
 const schema = getSchema([StarterKit])
 const options: FindOptions = { term: 'cat', matchCase: false, wholeWord: true }
@@ -38,5 +41,30 @@ describe('remapMatches', () => {
     const state = stateOf('one cat', 'two', 'cat three')
     expectRemapMatchesFullScan(state, (s) => s.tr.delete(8, 10))
     expectRemapMatchesFullScan(state, (s) => s.tr.delete(9, 14))
+  })
+})
+
+describe('findMatches agrees with the shared text walker', () => {
+  const rich = getSchema([StarterKit, Field, Footnote, Insertion, Deletion])
+  const doc = rich.nodeFromJSON({
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'See ' },
+          { type: 'field', attrs: { kind: 'ref' }, content: [{ type: 'text', text: 'Chapter cat' }] },
+          { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a cat note' }] }] },
+          { type: 'text', text: ' ca' },
+          { type: 'text', text: 'xx', marks: [{ type: 'deletion', attrs: { authorId: 'r' } }] },
+          { type: 'text', text: 't' }
+        ]
+      }
+    ]
+  })
+
+  it('finds field text, skips footnote bodies and reads past pending deletions', () => {
+    const found = findMatches(doc, options).map((match) => doc.textBetween(match.from, match.to))
+    expect(found).toEqual(['cat', 'caxxt'])
   })
 })

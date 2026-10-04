@@ -3,6 +3,8 @@ import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/p
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { changedRangesInResult } from './stepRanges.js'
+import { forEachTextNode, rawBlockText } from '@shared/pm/extractText.js'
+import type { PmNode as JsonNode } from '@shared/model/document.js'
 
 export interface FindOptions {
   term: string
@@ -156,22 +158,36 @@ export function remapMatches(previous: FindMatch[], transaction: Transaction, op
   return matches.sort((a, b) => a.from - b.from)
 }
 
+/**
+ * Where each JSON node sits in the live document, so offsets from the shared
+ * text walker can be turned back into positions.
+ */
+function pairPositions(live: PmNode, json: JsonNode, position: number, into: Map<JsonNode, number>): void {
+  live.forEach((child, offset, index) => {
+    const jsonChild = json.content?.[index]
+    if (!jsonChild) return
+    const childPosition = position + 1 + offset
+    into.set(jsonChild, childPosition)
+    if (!child.isLeaf) pairPositions(child, jsonChild, childPosition, into)
+  })
+}
+
+/**
+ * The block's text comes from `shared/pm/extractText.ts`, the one walker
+ * global search also reads, so the two agree on what fields, footnotes, hard
+ * breaks and pending deletions contribute.
+ */
 function blockMatches(node: PmNode, position: number, matcher: RegExp): FindMatch[] {
-  // Rebuild the block's text with a position for each character so a regex
-  // index can be translated straight back into a document position.
-  let text = ''
-  const positions: number[] = []
-  node.forEach((child, offset) => {
-    if (!child.isText || !child.text) {
-      // Non-text inline content (images, mentions) occupies one position and
-      // must not let a match run across it.
-      text += ' '
-      positions.push(position + 1 + offset)
-      return
-    }
-    for (let index = 0; index < child.text.length; index++) {
-      text += child.text[index]
-      positions.push(position + 1 + offset + index)
+  const json = node.toJSON() as JsonNode
+  const nodePositions = new Map<JsonNode, number>()
+  pairPositions(node, json, position, nodePositions)
+  const text = rawBlockText(json)
+  const positions: (number | undefined)[] = new Array(text.length)
+  forEachTextNode(json, (entry) => {
+    const start = nodePositions.get(entry.node)
+    if (start === undefined) return
+    for (let index = 0; index < entry.text.length; index++) {
+      positions[entry.start + index] = entry.node.type === 'text' ? start + index : start
     }
   })
 

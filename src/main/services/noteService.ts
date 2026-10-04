@@ -2,6 +2,7 @@ import { ulid } from 'ulid'
 import type { VfsAdapter } from '../vfs/types.js'
 import { noteFileSchema, noteSchema, type Note, type NoteFile } from '../../shared/model/note.js'
 import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 import { findAnchor } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
 import { NOTES_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
@@ -16,6 +17,8 @@ import { NOTES_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
  */
 export class NoteService {
   private cache = new Map<string, NoteFile>()
+  /** Files a newer build wrote: shown as far as they parse, never written back. */
+  private tooNew = new Set<string>()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -36,7 +39,14 @@ export class NoteService {
     }
     try {
       const raw = await this.adapter.readFile(path)
-      const { value } = migrate('notes', JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('notes', JSON.parse(raw.toString('utf8')))
+      if (tooNew) {
+        this.tooNew.add(docId)
+        const shown = noteFileSchema.safeParse(value)
+        const file: NoteFile = shown.success ? shown.data : { formatVersion: FORMAT_VERSIONS.notes, notes: [] }
+        this.cache.set(docId, file)
+        return file
+      }
       const file = noteFileSchema.parse(value)
       this.cache.set(docId, file)
       return file
@@ -51,6 +61,7 @@ export class NoteService {
   }
 
   private async flush(docId: string): Promise<void> {
+    if (this.tooNew.has(docId)) throw new TooNewError(this.pathFor(docId))
     const file = this.cache.get(docId)
     if (!file) return
     await this.adapter.mkdir(NOTES_DIR).catch(() => {})

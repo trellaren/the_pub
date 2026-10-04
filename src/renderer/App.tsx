@@ -14,6 +14,7 @@ import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
+import { useNoteStore } from './stores/noteStore.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
@@ -223,7 +224,8 @@ export function App() {
         useMapStore.getState().flush(),
         useSourceStore.getState().flush(),
         useHighlightStore.getState().flush(),
-        useStatsStore.getState().flush()
+        useStatsStore.getState().flush(),
+        useNoteStore.getState().flush()
       ]).finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])

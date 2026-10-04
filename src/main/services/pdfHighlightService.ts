@@ -7,6 +7,7 @@ import {
   type PdfHighlightFile
 } from '../../shared/model/research.js'
 import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 import { RESEARCH_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
 import { resolvePdfHighlight, type PdfAnchorCandidate } from '../research/pdfAnchor.js'
 import { resolveCaptureHighlight } from '../../shared/research/captureAnchor.js'
@@ -18,6 +19,8 @@ import { resolveCaptureHighlight } from '../../shared/research/captureAnchor.js'
  */
 export class PdfHighlightService {
   private cache = new Map<string, PdfHighlightFile>()
+  /** Files a newer build wrote: shown as far as they parse, never written back. */
+  private tooNew = new Set<string>()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -43,7 +46,14 @@ export class PdfHighlightService {
     }
     try {
       const raw = await this.adapter.readFile(path)
-      const { value } = migrate('pdfHighlights', JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('pdfHighlights', JSON.parse(raw.toString('utf8')))
+      if (tooNew) {
+        this.tooNew.add(key)
+        const shown = pdfHighlightFileSchema.safeParse(value)
+        const file: PdfHighlightFile = shown.success ? shown.data : { formatVersion: FORMAT_VERSIONS.pdfHighlights, highlights: [] }
+        this.cache.set(key, file)
+        return file
+      }
       const file = pdfHighlightFileSchema.parse(value)
       this.cache.set(key, file)
       return file
@@ -57,6 +67,7 @@ export class PdfHighlightService {
 
   private async flush(sourceId: string, attachmentId: string): Promise<void> {
     const key = this.key(sourceId, attachmentId)
+    if (this.tooNew.has(key)) throw new TooNewError(key)
     const file = this.cache.get(key)
     if (!file) return
     const dir = `${RESEARCH_DIR}/${sourceId}`

@@ -73,6 +73,19 @@ describe('resolveSuggestions', () => {
     expect(listSuggestions(resolved).map((suggestion) => suggestion.authorId)).toEqual(['sam'])
   })
 
+  it('strips every stacked mark of the accepted kind', () => {
+    const stacked = doc({
+      type: 'text',
+      text: 'new',
+      marks: [
+        { type: INSERTION_MARK, attrs: { authorId: 'marta', at: '1' } },
+        { type: INSERTION_MARK, attrs: { authorId: 'marta', at: '2' } }
+      ]
+    })
+    expect(hasSuggestions(resolveSuggestions(stacked, true))).toBe(false)
+    expect(hasSuggestions(resolveSuggestionAt(stacked, true, 0))).toBe(false)
+  })
+
   it('resolves a suggestion nested inside a list item', () => {
     const nested = {
       type: 'doc',

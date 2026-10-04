@@ -92,7 +92,12 @@ function resolveNode(
       // a deletion and rejecting an insertion both mean "this text goes".
       const removes = found.type === DELETION_MARK ? accept : !accept
       if (removes) continue
-      kept.push({ ...child, marks: (child.marks ?? []).filter((mark) => mark !== found) })
+      // Every mark of that kind, not just the first: the marks exclude nothing,
+      // so text typed into a pending insertion can carry one per keystroke.
+      kept.push({
+        ...child,
+        marks: (child.marks ?? []).filter((mark) => mark.type !== found.type || !matches(mark, filter))
+      })
       continue
     }
     kept.push(resolveNode(child, accept, filter, targets))

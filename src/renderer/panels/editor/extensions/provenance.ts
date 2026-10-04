@@ -1,7 +1,8 @@
 import { Mark, Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, type Transaction, type EditorState } from '@tiptap/pm/state'
-import type { Mark as PmMark } from '@tiptap/pm/model'
+import type { Mark as PmMark, Node as PmNode } from '@tiptap/pm/model'
 import { AI_AUTHORED_MARK } from '@shared/model/provenance.js'
+import { forEachStepRange } from './stepRanges.js'
 
 /**
  * Text the assistant wrote, marked as such.
@@ -102,13 +103,36 @@ function markedRanges(state: EditorState): MarkedRange[] {
   return ranges
 }
 
-function restoreMarks(
+const carriesAiMark = (node: PmNode): boolean =>
+  node.isText && node.marks.some((mark) => mark.type.name === AI_AUTHORED_MARK)
+
+/**
+ * Attribution can only be lost from text a step actually touched, so an edit
+ * nowhere near the assistant's words skips the whole-document scan below.
+ * Only the side before each step matters: the guard restores marks that
+ * existed, it never invents new ones.
+ */
+export function touchesAiText(transaction: Transaction): boolean {
+  let touched = false
+  forEachStepRange(transaction, (range) => {
+    if (touched) return
+    range.before.nodesBetween(range.from, Math.min(range.to, range.before.content.size), (node) => {
+      if (touched) return false
+      if (carriesAiMark(node)) touched = true
+      return !touched
+    })
+  })
+  return touched
+}
+
+export function restoreMarks(
   transactions: readonly Transaction[],
   oldState: EditorState,
   newState: EditorState
 ): Transaction | null {
   if (!transactions.some((transaction) => transaction.docChanged)) return null
   if (transactions.some((transaction) => transaction.getMeta(provenanceGuardKey))) return null
+  if (!transactions.some(touchesAiText)) return null
   const before = markedRanges(oldState)
   if (before.length === 0) return null
 

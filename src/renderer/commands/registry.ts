@@ -34,11 +34,21 @@ export function registerCommand(command: Command): () => void {
 
 function resolve(candidates: Command[]): Command | undefined {
   const enabled = candidates.filter((command) => command.isEnabled?.() ?? true)
-  if (enabled.length === 0) return candidates.at(-1)
+  if (enabled.length === 0) return undefined
   // Highest priority wins; equal priorities keep the old first-registered rule.
   return enabled.reduce((best, entry) => ((entry.priority ?? 0) > (best.priority ?? 0) ? entry : best))
 }
 
+/**
+ * Whether anything registered `id` at all, enabled or not. A menu item for a
+ * command that is merely disabled right now is not a wiring bug; one that
+ * nothing registered is.
+ */
+export function isRegistered(id: string): boolean {
+  return (commands.get(id)?.length ?? 0) > 0
+}
+
+/** Runs the winning enabled registration; false if there was none. */
 export function runCommand(id: string): boolean {
   const candidates = commands.get(id)
   if (!candidates || candidates.length === 0) return false

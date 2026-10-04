@@ -122,7 +122,10 @@ function NoteCard({
         >
           “{note.anchorText}”
         </button>
-        <ToolbarButton label="Delete note" onClick={() => void remove(docId, note.id)}>
+        <ToolbarButton label="Delete note" onClick={() => {
+            if (!window.confirm('Delete this note? This cannot be undone.')) return
+            void remove(docId, note.id)
+          }}>
           ✕
         </ToolbarButton>
       </div>

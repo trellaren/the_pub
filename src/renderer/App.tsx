@@ -6,7 +6,8 @@ import { CommandPalette } from './commands/CommandPalette.js'
 import { useAppStore } from './stores/appStore.js'
 import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
-import { useLayoutStore } from './stores/layoutStore.js'
+import { useLayoutStore, restoreLayout } from './stores/layoutStore.js'
+import type { DockLayout } from '@shared/model/layout.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
 import { useBeatStore } from './stores/beatStore.js'
@@ -14,7 +15,7 @@ import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
 import { flushPendingWrites, resetDocumentScopedStores } from './stores/pendingWrites.js'
-import { registerCommand, runCommand } from './commands/registry.js'
+import { isRegistered, registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
 import { validateFileName } from '@shared/model/filename.js'
@@ -108,6 +109,12 @@ export function App() {
         id: 'project.newFromTemplate',
         title: 'New Project from Template…',
         run: () => setNewProject(true)
+      }),
+      registerCommand({
+        id: 'project.close',
+        title: 'Close Project',
+        isEnabled: () => useProjectStore.getState().project !== null,
+        run: () => void closeProject()
       }),
       registerCommand({
         id: 'project.saveAsTemplate',
@@ -205,7 +212,7 @@ export function App() {
     return on('command:invoke', ({ commandId }) => {
       // A menu item naming a command nobody registered is a wiring bug, and
       // swallowing it is how eight dead buttons shipped unnoticed.
-      if (!runCommand(commandId)) reportError(`Nothing handles the command "${commandId}"`)
+      if (!runCommand(commandId) && !isRegistered(commandId)) reportError(`Nothing handles the command "${commandId}"`)
     })
   }, [])
 
@@ -392,6 +399,32 @@ async function exportToFountain(): Promise<void> {
   }
   const result = await attempt(invoke('fountain:exportDialog', { path }), 'Could not export')
   if (result) reportNotice(`Exported to ${result.file}`)
+}
+
+/**
+ * Back to Welcome with nothing open. Pending edits and the arrangement are
+ * written first, while there is still a session for them to reach.
+ */
+async function closeProject(): Promise<void> {
+  if (!useProjectStore.getState().project) return
+  await flushPendingWrites()
+  const api = useLayoutStore.getState().api
+  if (api) {
+    await attempt(
+      invoke('layout:saveLast', { layout: api.toJSON() as unknown as DockLayout }),
+      'Could not save the layout'
+    )
+  }
+  const closed = await attempt(invoke('project:close', {}), 'Could not close the project')
+  if (!closed) return
+  useProjectStore.setState({ project: null })
+  if (api) restoreLayout(api, null)
+  resetDocumentScopedStores()
+  useDocumentStore.setState(useDocumentStore.getInitialState(), true)
+  useEntityStore.setState(useEntityStore.getInitialState(), true)
+  useBeatStore.setState(useBeatStore.getInitialState(), true)
+  useMapStore.setState(useMapStore.getInitialState(), true)
+  useSourceStore.setState(useSourceStore.getInitialState(), true)
 }
 
 async function createDocument(): Promise<void> {

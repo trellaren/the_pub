@@ -133,7 +133,10 @@ export function AiPanel() {
         <ToolbarButton
           label="Delete chat"
           disabled={!chat}
-          onClick={() => chat && void useChatStore.getState().deleteChat(chat.id)}
+          onClick={() => {
+            if (!chat || !window.confirm(`Delete the chat “${chat.title || 'Untitled'}”? This cannot be undone.`)) return
+            void useChatStore.getState().deleteChat(chat.id)
+          }}
         >
           ✕
         </ToolbarButton>

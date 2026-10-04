@@ -145,6 +145,7 @@ test('deleting a note removes it from the panel and its file', async () => {
   await (await addNoteButton()).click()
   await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
 
+  harness.page.once('dialog', (dialog) => void dialog.accept())
   await harness.page.getByRole('button', { name: 'Delete note' }).click()
 
   await expect(harness.page.locator('text=“quick brown”')).toHaveCount(0)

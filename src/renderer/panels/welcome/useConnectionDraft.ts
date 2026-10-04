@@ -284,6 +284,9 @@ export function useConnectionDraft(onClose: () => void) {
   }
 
   const forget = async (): Promise<void> => {
+    const label = draft.name.trim() || defaultName(draft)
+    const what = isOneDrive ? 'its sign-in' : 'its saved password or key passphrase'
+    if (!window.confirm(`Forget "${label}"? This removes the saved server and ${what} from this machine.`)) return
     const deleted = await attempt(invoke('connections:delete', { id: draft.id! }), 'Could not forget it')
     if (deleted === null) return
     setDraft(BLANK)

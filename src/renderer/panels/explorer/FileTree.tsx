@@ -234,6 +234,9 @@ export function FileTree() {
       if (project && !project.isLocal) {
         const what = entry.kind === 'dir' ? `the folder “${entry.name}” and everything in it` : `“${entry.name}”`
         if (!window.confirm(`Permanently delete ${what} from the server? This cannot be undone.`)) return
+      } else {
+        const what = entry.kind === 'dir' ? `the folder “${entry.name}” and everything in it` : `“${entry.name}”`
+        if (!window.confirm(`Move ${what} to the Trash?`)) return
       }
       const done = await attempt(
         invoke('vfs:delete', { path: entry.path, recursive: entry.kind === 'dir' }),

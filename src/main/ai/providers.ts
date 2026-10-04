@@ -299,6 +299,7 @@ export type StreamPart =
   | { kind: 'text'; text: string }
   | { kind: 'toolStart'; index: number; id: string; name: string }
   | { kind: 'toolArgs'; index: number; argsDelta: string }
+  | { kind: 'error'; message: string }
 
 /**
  * What one event payload carries, if anything.
@@ -323,8 +324,15 @@ export function partsFrom(provider: AiProviderId, payload: string): StreamPart[]
       index?: number
       content_block?: { type?: string; id?: string; name?: string }
       delta?: { type?: string; text?: string; partial_json?: string }
+      error?: { type?: string; message?: string }
     }
     const index = event.index ?? 0
+
+    // Sent mid-stream when the request fails after it began — overloaded, or
+    // cut off. Dropped, the reply would end as if complete with half its text.
+    if (event.type === 'error') {
+      return [{ kind: 'error', message: event.error?.message || event.error?.type || 'The provider reported an error mid-reply.' }]
+    }
 
     if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
       return [
@@ -344,6 +352,7 @@ export function partsFrom(provider: AiProviderId, payload: string): StreamPart[]
   }
 
   const event = parsed as {
+    error?: { message?: string } | string
     choices?: {
       delta?: {
         content?: string | null
@@ -355,6 +364,11 @@ export function partsFrom(provider: AiProviderId, payload: string): StreamPart[]
       }
     }[]
   }
+  if (event.error) {
+    const message = typeof event.error === 'string' ? event.error : event.error.message
+    return [{ kind: 'error', message: message || 'The provider reported an error mid-reply.' }]
+  }
+
   const delta = event.choices?.[0]?.delta
   const parts: StreamPart[] = []
 

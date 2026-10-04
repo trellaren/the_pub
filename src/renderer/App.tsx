@@ -14,7 +14,7 @@ import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
 import { flushPendingWrites, resetDocumentScopedStores } from './stores/pendingWrites.js'
-import { registerCommand, runCommand } from './commands/registry.js'
+import { isRegistered, registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
 import { validateFileName } from '@shared/model/filename.js'
@@ -205,7 +205,7 @@ export function App() {
     return on('command:invoke', ({ commandId }) => {
       // A menu item naming a command nobody registered is a wiring bug, and
       // swallowing it is how eight dead buttons shipped unnoticed.
-      if (!runCommand(commandId)) reportError(`Nothing handles the command "${commandId}"`)
+      if (!runCommand(commandId) && !isRegistered(commandId)) reportError(`Nothing handles the command "${commandId}"`)
     })
   }, [])
 

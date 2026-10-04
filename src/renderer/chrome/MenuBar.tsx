@@ -3,7 +3,7 @@ import { resolveMenu, type MenuNode } from '@shared/menu/menuModel.js'
 import { acceleratorLabel } from '@shared/menu/keybindings.js'
 import { ROLE_ITEMS, type MenuItemRole } from '@shared/menu/menuRoles.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
-import { runCommand } from '@renderer/commands/registry.js'
+import { isRegistered, runCommand } from '@renderer/commands/registry.js'
 import { invoke, reportError } from '@renderer/lib/ipc.js'
 import { cx } from '@renderer/ui/primitives.js'
 
@@ -165,7 +165,7 @@ function MenuRow({ item, onClose }: { item: MenuNode; onClose: () => void }): Re
         if (item.target === 'main') {
           if (item.commandId === 'window.new') void invoke('window:newProject', {})
           else reportError(`Nothing handles the command "${item.commandId}"`)
-        } else if (!runCommand(item.commandId)) {
+        } else if (!runCommand(item.commandId) && !isRegistered(item.commandId)) {
           reportError(`Nothing handles the command "${item.commandId}"`)
         }
       }}

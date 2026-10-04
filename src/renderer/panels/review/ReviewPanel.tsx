@@ -7,7 +7,7 @@ import { listSuggestions } from '@shared/pm/suggestions.js'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { describeAuthor } from '@shared/model/author.js'
-import { revealBlock, setSuggesting, resolveSuggestion } from '../editor/editorActions.js'
+import { revealBlock, setSuggesting, resolveSuggestion, resolveAllSuggestions } from '../editor/editorActions.js'
 import {
   PanelShell,
   PanelHeader,
@@ -104,11 +104,31 @@ export function ReviewPanel() {
       <div className="flex-1 overflow-auto">
         {suggestions.length > 0 ? (
           <section className="border-b border-border/60">
-            <h3 className="px-2 py-1 text-[11px] uppercase tracking-wide text-faint">
-              Suggested edits
-            </h3>
+            <div className="flex items-center gap-1 px-2 py-1">
+              <h3 className="flex-1 text-[11px] uppercase tracking-wide text-faint">Suggested edits</h3>
+              <button
+                type="button"
+                data-testid="suggestions-accept-all"
+                onClick={() => editor && resolveAllSuggestions(editor, true)}
+                className="rounded px-1 text-[11px] text-muted hover:bg-surface-2 hover:text-text"
+              >
+                Accept all
+              </button>
+              <button
+                type="button"
+                data-testid="suggestions-reject-all"
+                onClick={() => editor && resolveAllSuggestions(editor, false)}
+                className="rounded px-1 text-[11px] text-muted hover:bg-surface-2 hover:text-text"
+              >
+                Reject all
+              </button>
+            </div>
             {suggestions.map((suggestion, index) => (
-              <div key={index} className="flex items-center gap-1 px-2 py-1 text-[12px]">
+              <div
+                key={index}
+                data-testid="suggestion-row"
+                className="flex items-center gap-1 px-2 py-1 text-[12px]"
+              >
                 <button
                   type="button"
                   onClick={() => editor && revealBlock(editor, suggestion.blockIndex, suggestion.text)}
@@ -121,13 +141,13 @@ export function ReviewPanel() {
                 </button>
                 <ToolbarButton
                   label="Accept"
-                  onClick={() => editor && resolveSuggestion(editor, true, suggestion)}
+                  onClick={() => editor && resolveSuggestion(editor, true, index)}
                 >
                   ✓
                 </ToolbarButton>
                 <ToolbarButton
                   label="Reject"
-                  onClick={() => editor && resolveSuggestion(editor, false, suggestion)}
+                  onClick={() => editor && resolveSuggestion(editor, false, index)}
                 >
                   ✕
                 </ToolbarButton>

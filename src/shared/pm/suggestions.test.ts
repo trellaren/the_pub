@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveSuggestions, listSuggestions, hasSuggestions } from './suggestions.js'
+import { resolveSuggestions, resolveSuggestionAt, listSuggestions, hasSuggestions } from './suggestions.js'
 import { extractPlainText, countWords } from './extractText.js'
 import { DELETION_MARK, INSERTION_MARK } from '../model/suggestion.js'
 import type { PmDoc } from '../model/document.js'
@@ -92,6 +92,37 @@ describe('resolveSuggestions', () => {
   })
 })
 
+describe('resolveSuggestionAt', () => {
+  const sameAuthorTwice = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [text('a '), text('first', { type: INSERTION_MARK }), text(' b '), text('second', { type: INSERTION_MARK })] },
+      { type: 'paragraph', content: [text('third', { type: INSERTION_MARK })] }
+    ]
+  } as PmDoc
+
+  it('rejects only the chosen suggestion, not every one by that author', () => {
+    const resolved = resolveSuggestionAt(sameAuthorTwice, false, 1)
+    expect(extractPlainText(resolved)).toBe('a first b \nthird')
+    expect(listSuggestions(resolved).map((suggestion) => suggestion.text)).toEqual(['first', 'third'])
+  })
+
+  it('accepts only the chosen suggestion', () => {
+    const resolved = resolveSuggestionAt(sameAuthorTwice, true, 2)
+    expect(listSuggestions(resolved).map((suggestion) => suggestion.text)).toEqual(['first', 'second'])
+    expect(extractPlainText(resolved)).toContain('third')
+  })
+
+  it('resolves every fragment of a suggestion split across text nodes', () => {
+    const split = doc(text('one ', { type: INSERTION_MARK }), text('two', { type: INSERTION_MARK }), text(' plain'))
+    expect(extractPlainText(resolveSuggestionAt(split, false, 0))).toBe(' plain')
+  })
+
+  it('leaves the document alone for an index past the end', () => {
+    expect(resolveSuggestionAt(underReview, true, 9)).toBe(underReview)
+  })
+})
+
 describe('the document as-if-accepted', () => {
   it('counts an insertion and does not count a pending deletion', () => {
     // A manuscript's word count should be the manuscript's, not the argument
@@ -121,6 +152,11 @@ describe('listSuggestions', () => {
     const found = listSuggestions(split)
     expect(found).toHaveLength(1)
     expect(found[0]).toMatchObject({ mark: INSERTION_MARK, text: 'one two', blockIndex: 0 })
+  })
+
+  it('keeps two edits by the same author in one paragraph apart', () => {
+    const twice = doc(text('one', { type: INSERTION_MARK }), text(' plain '), text('two', { type: INSERTION_MARK }))
+    expect(listSuggestions(twice).map((suggestion) => suggestion.text)).toEqual(['one', 'two'])
   })
 
   it('reports which block each is in, so the panel can jump to it', () => {

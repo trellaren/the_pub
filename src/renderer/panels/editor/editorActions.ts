@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { findPluginKey, getFindState, type FindOptions } from './extensions/findHighlight.js'
 import { suggestionModeKey } from './extensions/suggestions.js'
-import { resolveSuggestions } from '@shared/pm/suggestions.js'
+import { resolveSuggestions, resolveSuggestionAt } from '@shared/pm/suggestions.js'
 import type { PmDoc } from '@shared/model/document.js'
 
 /** Start (or clear) a find. Matches are recomputed by the plugin. */
@@ -100,20 +100,13 @@ export function setSuggesting(editor: Editor, enabled: boolean, authorId: string
 /**
  * Accept or reject one suggestion.
  *
- * Goes through the same pure resolver the Word importer and accept-all use,
- * filtered down to this author and kind, then replaces the document — rather
- * than a bespoke range operation, which is how the two paths drift apart.
+ * `index` is the suggestion's position in `listSuggestions` of the current
+ * document. Goes through the same pure resolver module accept-all uses, then
+ * replaces the document — rather than a bespoke range operation, which is how
+ * the two paths drift apart.
  */
-export function resolveSuggestion(
-  editor: Editor,
-  accept: boolean,
-  suggestion: { mark: 'insertion' | 'deletion'; authorId: string }
-): void {
-  const resolved = resolveSuggestions(editor.getJSON() as PmDoc, accept, {
-    authorId: suggestion.authorId,
-    mark: suggestion.mark
-  })
-  replaceDocument(editor, resolved)
+export function resolveSuggestion(editor: Editor, accept: boolean, index: number): void {
+  replaceDocument(editor, resolveSuggestionAt(editor.getJSON() as PmDoc, accept, index))
 }
 
 /** Every pending suggestion in the document, judged at once. */

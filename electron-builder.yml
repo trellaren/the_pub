@@ -59,9 +59,14 @@ extraResources:
 npmRebuild: false
 mac:
   category: public.app-category.productivity
+  # One build each for Apple Silicon and Intel rather than a universal binary:
+  # a universal app is both builds glued together, so it downloads twice the
+  # bytes to run one half of them.
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
 win:
   # Two installers from one build. NSIS is the one to hand to a person: a
   # per-user setup with an uninstaller. MSI is for deployment tooling —
@@ -73,6 +78,17 @@ win:
     - msi
 linux:
   category: Office
+  # fpm refuses to write a .deb without a maintainer in `Name <email>` form, and
+  # package.json's author has no email. This is the repository owner's public
+  # GitHub address — the one already on every commit — not a mailbox anyone
+  # reads.
+  maintainer: Quoth <10820376+trellaren@users.noreply.github.com>
+  # Electron derives the window's app_id from package.json's `desktopName`, and
+  # the desktop environment matches that against the installed `.desktop`
+  # file's name and StartupWMClass. Keeping the three in step is what lets GNOME
+  # and KDE pin a running Quoth window to its launcher icon instead of showing
+  # a blank one.
+  syncDesktopName: true
   target:
     - AppImage
     - deb

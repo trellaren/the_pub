@@ -184,28 +184,52 @@ npm run build      # typecheck and build
 ## Releasing
 
 ```sh
-npm run package    # an unpacked app in release/, for this platform
-npm run dist       # the installers configured for this platform
+npm run package      # an unpacked app in release/, for this platform
+npm run dist         # the installers configured for this platform
+npm run dist:linux   # Quoth-<version>.AppImage and quoth_<version>_amd64.deb
+npm run dist:mac     # .dmg and .zip, one each for Apple Silicon (arm64) and Intel (x64)
+npm run dist:win     # the NSIS installer and the .msi
 ```
 
 `--dir` packing works on any host, including cross-platform: a Windows `Quoth.exe` builds
-correctly from Linux. **Installers do not cross platforms.** The NSIS installer shells out to Wine
-when built anywhere but Windows, the `.msi` (for Intune, SCCM and Group Policy, which will not take
-an NSIS exe) needs the WiX toolset and so a Windows host, the macOS DMG can only be built on macOS,
-and none of them is code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an unsigned macOS
-build has to be opened from the context menu the first time. Signing needs certificates that only
-whoever ships the app can hold.
+correctly from Linux. **Installers mostly do not cross platforms.** The NSIS installer shells out to
+Wine when built anywhere but Windows, the `.msi` (for Intune, SCCM and Group Policy, which will not
+take an NSIS exe) needs the WiX toolset and so a Windows host, and the macOS DMG can only be built on
+macOS (it is assembled with `sips` and `hdiutil`). The macOS `.zip` is the exception: `dist:mac`
+on a Linux host builds both architectures' `Quoth.app` and zips them, which is enough to inspect the
+bundle, but not to ship it — see signing below.
 
-So a real release means running `npm run dist` on each target platform, or on a machine with Wine
-for the Windows one.
+None of them is code-signed here — an unsigned Windows installer shows a SmartScreen warning, and an
+unsigned Intel macOS build has to be opened from the context menu the first time. Signing needs
+certificates that only whoever ships the app can hold. **Apple Silicon is stricter:** macOS refuses
+to launch arm64 code with no signature at all, and electron-builder signs nothing when it finds no
+Developer ID in the keychain. For a build that runs on an M-series Mac without a certificate,
+ad-hoc sign it as part of the build —
+
+```sh
+npm run dist:mac -- -c.mac.identity=-
+```
+
+— which Gatekeeper still treats as unsigned (context-menu open the first time), but which the kernel
+will run. The config leaves auto-discovery on rather than defaulting to ad-hoc, so a machine with a
+Developer ID signs properly without anybody having to remember to change anything.
+
+So a real release means running the matching `dist:*` on each target platform, or on a machine with
+Wine for the Windows one.
 
 | | Builds on | Needs |
 |---|---|---|
 | Windows app (`--dir`) | any host | — |
 | Windows NSIS installer | Windows, or Linux with Wine | Wine off-Windows; a certificate to sign |
 | Windows `.msi` | Windows only | WiX (fetched by electron-builder); a certificate to sign |
-| macOS `.dmg` / `.zip` | macOS only | a Developer ID to sign and notarise |
-| Linux AppImage / deb | Linux | — |
+| macOS `.dmg` | macOS only | a Developer ID to sign and notarise, or `-c.mac.identity=-` for arm64 |
+| macOS `.zip` | macOS, or Linux (unsigned) | the same |
+| Linux AppImage / deb | Linux | — (electron-builder fetches `appimagetool` and `fpm`) |
+
+The `.deb` names a maintainer because `fpm` will not write one without it; it is the repository's
+public GitHub address, set in `electron-builder.yml`. The same file keeps `desktopName`,
+`StartupWMClass` and the installed `.desktop` filename in step, which is what lets a Linux desktop
+pin a running window to the launcher icon that started it.
 
 The application icon is `resources/icon.png`, with its vector source beside it; electron-builder
 derives every platform's format from it.

@@ -448,17 +448,19 @@ test('the task buttons offer what can run, and a task names the open document to
   await useAgent()
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('ai', 'Assistant'))
 
-  // Opening a project puts a page in front of the writer: an empty folder gets
-  // `untitled.pubdoc` created and opened on a delay (`ensureDocumentOpen`), so
-  // the "no document" state has to be made rather than assumed. Wait for that
-  // editor to land, then close it; closing clears the active document, which
-  // is what the task buttons read.
+  // Opening an empty project lands the writer on a fresh page, so the
+  // document-scoped buttons are already on offer. Close that tab the way a
+  // writer would to reach the state with nothing open. `ensureDocumentOpen`
+  // lands that page on a delay, so wait for it: a close that runs first
+  // removes nothing, and the page then arrives under the assertions.
   await harness.page.waitForFunction(() =>
     window.__pub.layout.getState().api?.panels.some((panel) => panel.id.startsWith('editor:'))
   )
   await harness.page.evaluate(() => {
-    const panels = window.__pub.layout.getState().api?.panels ?? []
-    for (const panel of panels.filter((panel) => panel.id.startsWith('editor:'))) panel.api.close()
+    const api = window.__pub.layout.getState().api!
+    for (const panel of api.panels.filter((candidate) => candidate.id.startsWith('editor:'))) {
+      api.removePanel(panel)
+    }
   })
   await harness.page.waitForFunction(() => window.__pub.documents.getState().activeDocId === null)
 

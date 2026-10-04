@@ -31,6 +31,23 @@ export class SessionRegistry {
     this.sessions.delete(ownerId)
     await session.close()
   }
+  /**
+   * Swap in the session `open` produces, closing the previous one only once
+   * that has succeeded — a failed open must leave the window on a project that
+   * still works, not on a closed one whose every save fails.
+   *
+   * Reopening the same project is the exception: two sessions on one folder
+   * would share its index database and double every watcher event, so the old
+   * session goes first and a failure leaves the window with no project.
+   */
+  async replace(ownerId: number, uri: string, open: () => Promise<ProjectSession>): Promise<ProjectSession> {
+    if (this.sessions.get(ownerId)?.uri === uri) await this.close(ownerId)
+    const session = await open()
+    const previous = this.sessions.get(ownerId)
+    this.sessions.set(ownerId, session)
+    if (previous && previous !== session) await previous.close().catch(() => {})
+    return session
+  }
   roots(): string[] {
     return [...this.sessions.values()].map((session) => session.root)
   }
@@ -289,16 +306,16 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
   }
 
   async function openIntoNow(ownerId: number, uri: string): Promise<ProjectSession> {
-    await sessions.close(ownerId)
-    const session = await ProjectSession.open(uri, {
-      onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
-      onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
-      resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
-      onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status),
-      author: () => appState.author(),
-      rendererServer
-    })
-    sessions.set(ownerId, session)
+    const session = await sessions.replace(ownerId, uri, () =>
+      ProjectSession.open(uri, {
+        onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
+        onIndexProgress: (progress) => windows.sendToSession(ownerId, 'search:indexProgress', progress),
+        resolveEmbedder: (allowStart) => resolveEmbedder(ownerId, allowStart),
+        onRetrievalProgress: (status) => windows.sendToSession(ownerId, 'ai:retrievalProgress', status),
+        author: () => appState.author(),
+        rendererServer
+      })
+    )
     // Put ourselves in the project's registry on open, so a collaborator sees a
     // name against our comments rather than an id.
     await session.reviews.registerAuthor(appState.author()).catch(() => {})

@@ -130,6 +130,7 @@ export function SettingsForm() {
           <div className="mb-2 flex gap-1">
             <ToolbarButton
               label="Save the key"
+              disabled={keyDraft.trim() === ''}
               onClick={async () => {
                 setKeyError(await useChatStore.getState().setKey(settings.provider, keyDraft))
                 setKeyDraft('')
@@ -140,7 +141,10 @@ export function SettingsForm() {
             {keyStatus.configured.includes(settings.provider) ? (
               <ToolbarButton
                 label="Forget the stored key"
-                onClick={() => void useChatStore.getState().setKey(settings.provider, '')}
+                onClick={async () => {
+                  if (!window.confirm('Forget the stored key? It cannot be recovered.')) return
+                  setKeyError(await useChatStore.getState().setKey(settings.provider, ''))
+                }}
               >
                 forget
               </ToolbarButton>
@@ -266,6 +270,7 @@ function WebAccessFields() {
               <div className="mb-2 flex gap-1">
                 <ToolbarButton
                   label="Save the search key"
+                  disabled={keyDraft.trim() === ''}
                   onClick={async () => {
                     setKeyError(await useChatStore.getState().setKey(keyId, keyDraft))
                     setKeyDraft('')
@@ -276,7 +281,10 @@ function WebAccessFields() {
                 {stored ? (
                   <ToolbarButton
                     label="Forget the stored search key"
-                    onClick={() => void useChatStore.getState().setKey(keyId, '')}
+                    onClick={async () => {
+                  if (!window.confirm('Forget the stored key? It cannot be recovered.')) return
+                  setKeyError(await useChatStore.getState().setKey(keyId, ''))
+                }}
                   >
                     forget
                   </ToolbarButton>

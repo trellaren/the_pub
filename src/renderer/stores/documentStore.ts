@@ -10,6 +10,8 @@ import { useProjectStore, currentStyles } from './projectStore.js'
 import { currentEntities } from './entityStore.js'
 import { currentSources } from './sourceStore.js'
 import { useStatsStore } from './statsStore.js'
+import { useReviewStore } from './reviewStore.js'
+import { setSuggesting } from '@renderer/panels/editor/editorActions.js'
 
 export interface OpenDocument {
   docId: string
@@ -143,6 +145,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       }
     })
     editors.set(doc.docId, editor)
+    applySuggesting(editor)
     set({
       docs: {
         ...get().docs,
@@ -354,6 +357,22 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       schedule(docId)
     }
   }
+})
+
+/**
+ * Suggesting mode is one switch for the whole window, not a property of
+ * whichever editor happened to be focused when the box was ticked: a checkbox
+ * showing "on" over an editor that is quietly making real edits is the worst
+ * case this feature has.
+ */
+function applySuggesting(editor: Editor): void {
+  const { suggesting, me } = useReviewStore.getState()
+  setSuggesting(editor, suggesting, me?.id ?? '')
+}
+
+useReviewStore.subscribe((next, previous) => {
+  if (next.suggesting === previous.suggesting && next.me?.id === previous.me?.id) return
+  for (const editor of editors.values()) applySuggesting(editor)
 })
 
 export function getEditor(docId: string): Editor | undefined {

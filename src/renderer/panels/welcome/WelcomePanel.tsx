@@ -18,6 +18,7 @@ export function WelcomePanel() {
   const project = useProjectStore((store) => store.project)
   const openDialog = useProjectStore((store) => store.openDialog)
   const open = useProjectStore((store) => store.open)
+  const opening = useProjectStore((store) => store.opening)
   // Shared constant rather than a fresh `[]`: zustand compares selector results
   // by identity, so a new array every render loops forever.
   const recents = useAppStore((store) => store.state?.recentProjects) ?? NO_RECENTS
@@ -40,7 +41,8 @@ export function WelcomePanel() {
           <button
             type="button"
             onClick={() => void runCommand('project.newFromTemplate')}
-            className="rounded border border-accent bg-accent-soft px-3 py-1.5 text-[13px] text-accent hover:brightness-110"
+            disabled={opening}
+            className="rounded border border-accent bg-accent-soft px-3 py-1.5 text-[13px] text-accent hover:brightness-110 disabled:opacity-50"
             data-testid="open-new-project"
           >
             New project from a template…
@@ -48,14 +50,16 @@ export function WelcomePanel() {
           <button
             type="button"
             onClick={() => void openDialog()}
-            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text"
+            disabled={opening}
+            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
           >
             Open a project folder…
           </button>
           <button
             type="button"
             onClick={() => setConnecting(true)}
-            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text"
+            disabled={opening}
+            className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
             data-testid="open-connect"
           >
             Connect to a server…
@@ -78,8 +82,9 @@ export function WelcomePanel() {
                 <li key={recent.uri}>
                   <button
                     type="button"
-                    onClick={() => void open(recent.uri)}
-                    className="w-full truncate rounded px-2 py-1 text-left text-[12px] text-muted hover:bg-surface-2 hover:text-text"
+                    onClick={() => void open(recent.uri, recent.name)}
+                    disabled={opening}
+                    className="w-full truncate rounded px-2 py-1 text-left text-[12px] text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
                     title={recent.uri}
                   >
                     <span className="text-text">{recent.name}</span>

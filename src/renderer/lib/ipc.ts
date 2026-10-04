@@ -35,9 +35,31 @@ export async function attempt<T>(operation: Promise<T>, context: string): Promis
   }
 }
 
+/**
+ * Electron wraps a handler's error as "Error invoking remote method 'x':
+ * Error: <message>", and a schema rejection arrives as a ZodError whose message
+ * is its issue list as JSON. Neither is something to show an author verbatim.
+ */
+const REMOTE_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/
+
 export function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message
-  return String(error)
+  const raw = error instanceof Error ? error.message : String(error)
+  const message = raw.replace(REMOTE_PREFIX, '')
+  return describeSchemaFailure(message) ?? message
+}
+
+function describeSchemaFailure(message: string): string | null {
+  if (!message.trimStart().startsWith('[')) return null
+  try {
+    const issues: unknown = JSON.parse(message)
+    if (!Array.isArray(issues) || issues.length === 0) return null
+    const first = issues[0] as { message?: unknown; path?: unknown; code?: unknown }
+    if (typeof first.message !== 'string' || typeof first.code !== 'string') return null
+    const field = Array.isArray(first.path) && first.path.length > 0 ? ` (${first.path.join('.')})` : ''
+    return `The request was not valid: ${first.message}${field}.`
+  } catch {
+    return null
+  }
 }
 
 /**

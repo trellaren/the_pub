@@ -7,6 +7,7 @@ import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useSourceStore } from '@renderer/stores/sourceStore.js'
 import { useResearchStore } from '@renderer/stores/researchStore.js'
 import { invoke, attempt, reportNotice } from '@renderer/lib/ipc.js'
+import { PdfViewer } from '../research/PdfViewer.js'
 
 /** Written to be shown verbatim: each failure calls for a different response. */
 const LOOKUP_FAILURES: Record<string, string> = {
@@ -333,6 +334,7 @@ function AttachmentsSection({ source }: { source: CslItem }) {
   const [captureUrl, setCaptureUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState<{ attachmentId: string; capture: Capture } | null>(null)
+  const [viewingPdf, setViewingPdf] = useState<string | null>(null)
 
   useEffect(() => {
     void loadAttachments(source.id)
@@ -372,6 +374,21 @@ function AttachmentsSection({ source }: { source: CslItem }) {
     if (capture) setViewing({ attachmentId: attachment.id, capture })
   }
 
+  if (viewingPdf) {
+    return (
+      <div className="mt-3 border-t border-border pt-3" data-testid="source-pdf-viewer">
+        <div className="mb-2 flex items-center gap-1">
+          <ToolbarButton label="Back to attachments" onClick={() => setViewingPdf(null)}>
+            ← Back
+          </ToolbarButton>
+        </div>
+        <div className="flex h-[32rem] flex-col overflow-hidden">
+          <PdfViewer sourceId={source.id} attachmentId={viewingPdf} />
+        </div>
+      </div>
+    )
+  }
+
   if (viewing) {
     return (
       <div className="mt-3 border-t border-border pt-3">
@@ -407,9 +424,10 @@ function AttachmentsSection({ source }: { source: CslItem }) {
               <span className="text-[12px]">{attachment.kind === 'pdf' ? '📄' : '🔗'}</span>
               <button
                 type="button"
-                onClick={() => (attachment.kind === 'capture' ? void openCapture(attachment) : undefined)}
-                disabled={attachment.kind !== 'capture'}
-                className="flex-1 truncate text-left text-[12px] text-muted hover:text-text disabled:hover:text-muted"
+                onClick={() =>
+                  attachment.kind === 'capture' ? void openCapture(attachment) : setViewingPdf(attachment.id)
+                }
+                className="flex-1 truncate text-left text-[12px] text-muted hover:text-text"
                 title={attachment.label || attachment.title}
               >
                 {attachment.label || attachment.title || '(untitled)'}

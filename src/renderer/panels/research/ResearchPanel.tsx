@@ -311,6 +311,31 @@ function SourcesTab({ docId }: { docId: string | null }) {
         />
       </div>
       <div className="flex-1 overflow-auto">
+        {highlightableSources.length > 0 ? (
+          <div className="border-b border-border/60 p-2" data-testid="research-attachments">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-faint">Attachments</p>
+            {highlightableSources.flatMap((source) =>
+              (attachmentsBySource[source.id] ?? [])
+                .filter((attachment) => attachment.kind === 'pdf' || attachment.kind === 'capture')
+                .map((attachment) => (
+                  <div key={attachment.id} className="flex items-center gap-1 py-0.5">
+                    <span className="text-[12px]">{attachment.kind === 'pdf' ? '📄' : '🔗'}</span>
+                    <span className="flex-1 truncate text-[12px] text-muted" title={describeSource(source as never)}>
+                      {attachment.label || attachment.title || '(untitled)'}
+                    </span>
+                    <ToolbarButton
+                      label={`Open ${attachment.label || attachment.title || 'attachment'}`}
+                      onClick={() =>
+                        setOpen({ sourceId: source.id, attachmentId: attachment.id, kind: attachment.kind as 'pdf' | 'capture' })
+                      }
+                    >
+                      Open
+                    </ToolbarButton>
+                  </div>
+                ))
+            )}
+          </div>
+        ) : null}
         {rows.length === 0 ? (
           <EmptyState
             title="No highlights yet"

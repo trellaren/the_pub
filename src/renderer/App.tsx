@@ -254,6 +254,7 @@ export function App() {
       {newProject ? <NewProjectDialog onClose={() => setNewProject(false)} /> : null}
       {saveTemplate ? <SaveAsTemplateDialog onClose={() => setSaveTemplate(false)} /> : null}
       <PromptHost />
+      <OpeningOverlay />
       {notices.length > 0 ? (
         <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex flex-col gap-1">
           {notices.map((notice, index) => (
@@ -272,6 +273,28 @@ export function App() {
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Opening a remote project can take seconds; without this the window looks
+ * idle, and a second click on a recent row would queue another open behind it.
+ */
+function OpeningOverlay() {
+  const opening = useProjectStore((store) => store.opening)
+  const name = useProjectStore((store) => store.openingName)
+  if (!opening) return null
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30"
+      role="status"
+      aria-live="polite"
+      data-testid="project-opening"
+    >
+      <div className="rounded border border-border bg-surface px-4 py-3 text-[13px] text-text shadow-lg">
+        {name ? `Opening ${name}…` : 'Opening project…'}
+      </div>
     </div>
   )
 }

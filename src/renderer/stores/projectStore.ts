@@ -7,7 +7,9 @@ import { invoke, attempt } from '@renderer/lib/ipc.js'
 interface ProjectStore {
   project: OpenProject | null
   opening: boolean
-  open: (uri: string) => Promise<OpenProject | null>
+  /** What is being opened, for the overlay; null when the name isn't known yet. */
+  openingName: string | null
+  open: (uri: string, name?: string) => Promise<OpenProject | null>
   openDialog: () => Promise<OpenProject | null>
   newFromTemplate: (templateId: string, name: string) => Promise<OpenProject | null>
   updateManifest: (update: (manifest: ProjectManifest) => ProjectManifest) => Promise<void>
@@ -17,42 +19,55 @@ let beforeSwitch: () => Promise<void> = async () => {}
 
 /**
  * Registered by the app shell rather than imported here: the stores that hold
- * pending writes themselves import this one. Main closes the old session the
- * moment a new one is asked for, so anything still debounced must be written
+ * pending writes themselves import this one. Main closes the old session as
+ * soon as the new one is open, so anything still debounced must be written
  * first — afterwards it would go to the new project, or nowhere.
  */
 export function onBeforeProjectSwitch(flush: () => Promise<void>): void {
   beforeSwitch = flush
 }
 
+/**
+ * What is still open in main after a failed open of `uri`. Main keeps the
+ * current session unless the open was a reopen of that same project, which it
+ * has to close first.
+ */
+export function survivorOf(current: OpenProject | null, uri: string): OpenProject | null {
+  return current?.uri === uri ? null : current
+}
+
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   project: null,
   opening: false,
+  openingName: null,
 
-  open: async (uri) => {
-    set({ opening: true })
+  open: async (uri, name) => {
+    if (get().opening) return null
+    set({ opening: true, openingName: name ?? null })
     await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? survivorOf(get().project, uri), opening: false, openingName: null })
     return project
   },
 
   openDialog: async () => {
-    set({ opening: true })
+    if (get().opening) return null
+    set({ opening: true, openingName: null })
     await beforeSwitch()
     const project = await attempt(invoke('project:openDialog', {}), 'Could not open project')
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? get().project, opening: false, openingName: null })
     return project
   },
 
   newFromTemplate: async (templateId, name) => {
-    set({ opening: true })
+    if (get().opening) return null
+    set({ opening: true, openingName: name })
     await beforeSwitch()
     const project = await attempt(
       invoke('templates:instantiate', { templateId, name }),
       'Could not create the project'
     )
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? get().project, opening: false, openingName: null })
     return project
   },
 

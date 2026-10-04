@@ -265,3 +265,30 @@ test('the Research panel opens without crashing the renderer', async () => {
   // rendered once before crashing on the next state update.
   await expect(harness.page.getByText('No highlights yet')).toBeVisible()
 })
+
+test('a freshly attached PDF can be opened from the Research and Sources panels', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+  const source = await createSource('An Openable Paper')
+
+  const pdfPath = path.resolve(import.meta.dirname, 'fixtures/sample.pdf')
+  const bytes = Array.from(await fs.readFile(pdfPath))
+  await harness.page.evaluate(
+    async ({ sourceId, bytes: raw }) => {
+      await window.__pub.research.getState().addPdf(sourceId, new Uint8Array(raw).buffer, 'sample.pdf')
+    },
+    { sourceId: source.id, bytes }
+  )
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.research'))
+  await harness.page.getByRole('button', { name: 'Sources', exact: true }).click()
+  await harness.page.getByRole('button', { name: 'Open sample.pdf' }).click()
+  await expect(harness.page.getByText('Page 1 of 1')).toBeVisible()
+  await harness.page.getByRole('button', { name: 'Back to list' }).click()
+
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.sources'))
+  await harness.page.getByText('An Openable Paper').first().click()
+  await harness.page.getByRole('button', { name: 'sample.pdf', exact: true }).click()
+  await expect(harness.page.getByTestId('source-pdf-viewer').getByText('Page 1 of 1')).toBeVisible()
+})

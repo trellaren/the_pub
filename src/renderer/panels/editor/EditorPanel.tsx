@@ -10,6 +10,7 @@ import { FindReplaceBar } from './FindReplaceBar.js'
 import { EndnotesRegion } from './EndnotesRegion.js'
 import { wordCount } from './editorActions.js'
 import { useStatsStore } from '@renderer/stores/statsStore.js'
+import { useReviewStore } from '@renderer/stores/reviewStore.js'
 import { localDayKey } from '@renderer/stats/session.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { currentSources } from '@renderer/stores/sourceStore.js'
@@ -263,6 +264,7 @@ function StatusBar({ docId }: { docId: string }) {
   const todayStat = useStatsStore((store) => store.days.find((day) => day.date === localDayKey(new Date())))
   const [savedAnnouncement, setSavedAnnouncement] = useState('')
   const wasSaving = useRef(false)
+  const suggesting = useReviewStore((store) => store.suggesting && Boolean(store.me?.id))
 
   // Announced once per save, on the saving->saved transition — not on every
   // keystroke's dirty flag, which would be read aloud constantly.
@@ -290,6 +292,11 @@ function StatusBar({ docId }: { docId: string }) {
         {state.path}
       </span>
       <span className="flex-1" />
+      {suggesting ? (
+        <span data-testid="suggesting-indicator" className="text-accent" title="Edits are proposed as suggestions">
+          Suggesting
+        </span>
+      ) : null}
       <span className={cx(state.saving && 'text-accent')}>
         {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
       </span>

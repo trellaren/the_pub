@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEditorState } from '@tiptap/react'
 import type { AssembledThread, ReviewReply } from '@shared/model/review.js'
 import type { PmDoc } from '@shared/model/document.js'
 import type { ProvenanceEntry } from '@shared/model/provenance.js'
@@ -69,6 +70,19 @@ export function ReviewPanel() {
     setArrivalAnnouncement('')
   }, [docId])
 
+  const editor = docId ? getEditor(docId) : undefined
+  // The document node, compared by identity: it changes exactly when the
+  // content does, so selection moves don't re-walk the chapter.
+  const currentDoc = useEditorState({
+    editor: editor ?? null,
+    selector: ({ editor: current }) => current?.state.doc ?? null,
+    equalityFn: (a, b) => a === b
+  })
+  const suggestions = useMemo(
+    () => (currentDoc ? listSuggestions(currentDoc.toJSON() as PmDoc) : []),
+    [currentDoc]
+  )
+
   if (!docId) {
     return (
       <PanelShell>
@@ -77,9 +91,6 @@ export function ReviewPanel() {
       </PanelShell>
     )
   }
-
-  const editor = getEditor(docId)
-  const suggestions = editor ? listSuggestions(editor.getJSON() as PmDoc) : []
 
   return (
     <PanelShell>

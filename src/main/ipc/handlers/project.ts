@@ -7,7 +7,7 @@ import { requirePortableName, type HandlerContext } from '../context.js'
 import { importFontFile } from './fontImport.js'
 
 export function register(ctx: HandlerContext): void {
-  const { handle, windows, sessions, templates, requireSession, ownerWindow, openInto } = ctx
+  const { handle, windows, sessions, templates, requireSession, ownerWindow, pickFiles, openInto } = ctx
 
   handle('project:openDialog', async (_payload, event) => {
     const result = await dialog.showOpenDialog(ownerWindow(event), {
@@ -87,13 +87,12 @@ export function register(ctx: HandlerContext): void {
 
   handle('fonts:importDialog', async (_payload, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import a font',
       filters: [{ name: 'Fonts', extensions: [...FONT_EXTENSIONS] }],
-      properties: ['openFile']
+      multiple: false
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importFontFile(session, picked.filePaths[0]!)
+    return files && importFontFile(session, files[0]!)
   })
   handle('fonts:delete', async ({ file }, event) => {
     const session = requireSession(event)

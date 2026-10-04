@@ -88,6 +88,11 @@ export interface HandlerContext extends HandlerDeps {
   requireSession(event: IpcMainInvokeEvent): ProjectSession
   /** The window a dialog should be parented to: the one the request came from. */
   ownerWindow(event: IpcMainInvokeEvent): BrowserWindow
+  /** Files chosen in a native picker over the requesting window, or null if cancelled. */
+  pickFiles(
+    event: IpcMainInvokeEvent,
+    options: { title: string; filters: Electron.FileFilter[]; multiple?: boolean }
+  ): Promise<string[] | null>
   openInto(ownerId: number, uri: string): Promise<ProjectSession>
   commitDocumentWrite(
     event: IpcMainInvokeEvent,
@@ -191,6 +196,18 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) throw new Error('This request did not come from a window that can show a dialog')
     return window
+  }
+
+  async function pickFiles(
+    event: IpcMainInvokeEvent,
+    { title, filters, multiple = true }: { title: string; filters: Electron.FileFilter[]; multiple?: boolean }
+  ): Promise<string[] | null> {
+    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+      title,
+      filters,
+      properties: multiple ? ['openFile', 'multiSelections'] : ['openFile']
+    })
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths
   }
 
   function notify(event: IpcMainInvokeEvent, send: (ownerId: number) => void): void {
@@ -311,6 +328,7 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
     keyFor,
     requireSession,
     ownerWindow,
+    pickFiles,
     openInto,
     commitDocumentWrite,
     rescan,

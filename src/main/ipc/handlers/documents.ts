@@ -107,7 +107,7 @@ const publishDialogTitle: Record<PublishFormat, string> = {
 }
 
 export function register(ctx: HandlerContext): void {
-  const { handle, requireSession, ownerWindow, commitDocumentWrite } = ctx
+  const { handle, requireSession, ownerWindow, pickFiles, commitDocumentWrite } = ctx
 
   handle('doc:read', ({ path: target }, event) => requireSession(event).documents.read(target))
 
@@ -136,13 +136,11 @@ export function register(ctx: HandlerContext): void {
 
   handle('docx:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import Word documents',
-      filters: [{ name: 'Word documents', extensions: ['docx'] }],
-      properties: ['openFile', 'multiSelections']
+      filters: [{ name: 'Word documents', extensions: ['docx'] }]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importDocxFiles(session, picked.filePaths, targetDir)
+    return files && importDocxFiles(session, files, targetDir)
   })
 
   handle('docx:export', async ({ paths, items, file }, event) => {
@@ -213,13 +211,11 @@ export function register(ctx: HandlerContext): void {
 
   handle('fountain:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import Fountain screenplays',
-      filters: [{ name: 'Fountain', extensions: ['fountain'] }],
-      properties: ['openFile', 'multiSelections']
+      filters: [{ name: 'Fountain', extensions: ['fountain'] }]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importFountainFiles(session, picked.filePaths, targetDir)
+    return files && importFountainFiles(session, files, targetDir)
   })
 
   handle('fountain:export', async ({ path: sourcePath, file }, event) => {

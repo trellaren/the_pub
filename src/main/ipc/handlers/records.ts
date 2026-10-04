@@ -87,7 +87,7 @@ async function importSourceFiles(session: ProjectSession, files: string[]): Prom
 }
 
 export function register(ctx: HandlerContext): void {
-  const { handle, windows, requireSession, ownerWindow, rescan, noteChanged, highlightChanged } = ctx
+  const { handle, windows, requireSession, ownerWindow, pickFiles, rescan, noteChanged, highlightChanged } = ctx
 
   handle('entities:list', (_payload, event) => requireSession(event).entities.snapshot())
   handle('entities:create', async ({ kind, name }, event) => {
@@ -296,17 +296,15 @@ export function register(ctx: HandlerContext): void {
   handle('sources:accept', ({ id }, event) => requireSession(event).sources.accept(id))
   handle('sources:importDialog', async (_payload, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import sources',
       filters: [
         { name: 'Bibliography files', extensions: ['bib', 'bibtex', 'ris'] },
         { name: 'BibTeX', extensions: ['bib', 'bibtex'] },
         { name: 'RIS', extensions: ['ris'] }
-      ],
-      properties: ['openFile', 'multiSelections']
+      ]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importSourceFiles(session, picked.filePaths)
+    return files && importSourceFiles(session, files)
   })
   handle('sources:lookup', async ({ query }, event) => {
     const session = requireSession(event)

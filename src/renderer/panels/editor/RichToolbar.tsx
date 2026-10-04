@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { ulid } from 'ulid'
 import { STYLE_BODY, type NamedStyle } from '@shared/model/style.js'
@@ -55,15 +56,10 @@ export function RichToolbar({ editor, docId }: { editor: Editor; docId: string }
   const highlightCategories =
     useProjectStore((store) => store.project?.manifest.highlightCategories) ?? NO_CATEGORIES
   const projectFonts = useProjectStore((store) => store.project?.manifest.fonts) ?? NO_FONTS
-  const [, force] = useState(0)
-
-  useEffect(() => {
-    const update = (): void => force((tick) => tick + 1)
-    editor.on('transaction', update)
-    return () => {
-      editor.off('transaction', update)
-    }
-  }, [editor])
+  // Re-render only when something the toolbar shows could have changed, not on
+  // every keystroke: plain typing leaves this signature alone, and the toolbar
+  // is large enough that redrawing it per character is felt.
+  useEditorState({ editor, selector: ({ editor: current }) => toolbarSignature(current) })
 
   const isHeading = editor.isActive('heading')
   const blockAttributes = isHeading ? editor.getAttributes('heading') : editor.getAttributes('paragraph')
@@ -585,3 +581,28 @@ function ToolbarCombo({
 }
 
 export { cx }
+
+/** What the toolbar's active states depend on, minus where the caret sits within its text. */
+export function toolbarSignature(editor: Editor): string {
+  const { selection, storedMarks } = editor.state
+  const { $from } = selection
+  const parts: string[] = [
+    selection.constructor.name,
+    selection.empty ? '' : `${selection.from}-${selection.to}`,
+    String(editor.can().undo()),
+    String(editor.can().redo())
+  ]
+  for (let depth = 0; depth <= $from.depth; depth++) {
+    const node = $from.node(depth)
+    parts.push(depth === 0 ? node.type.name : `${node.type.name}${JSON.stringify(node.attrs)}`)
+  }
+  for (const mark of storedMarks ?? $from.marks()) parts.push(`${mark.type.name}${JSON.stringify(mark.attrs)}`)
+  if (!selection.empty) {
+    // A range's active marks are those across all of it, which a shortcut such
+    // as Mod-B changes without moving the selection.
+    editor.state.doc.nodesBetween(selection.from, selection.to, (node) => {
+      for (const mark of node.marks) parts.push(`${mark.type.name}${JSON.stringify(mark.attrs)}`)
+    })
+  }
+  return parts.join('|')
+}

@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
+import fs from 'node:fs/promises'
+import os from 'node:os'
 import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { EntityFile } from '../src/shared/model/entity.js'
@@ -259,4 +261,40 @@ test('the New character button creates a record through its dialog', async () =>
     const names = (await readJson<EntityFile>(entitiesFile())).entities.map((entity) => entity.name)
     return names.includes('Marguerite')
   }, 'the character to be written')
+})
+
+test('an edit still debouncing when another project opens is saved to the project it was made in', async () => {
+  harness = await launch()
+  const otherDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-e2e-other-'))
+  // Scaffolded first, so switching to it later is quick enough to beat the
+  // save debounce — the window in which the edit used to go astray.
+  await openProject(harness.page, otherDir)
+  await openProject(harness.page, harness.projectDir)
+  await harness.page.waitForFunction((dir) => window.__pub.project.getState().project?.root.endsWith(dir.split(/[\\/]/).pop()!), harness.projectDir)
+  try {
+    const id = await harness.page.evaluate(async () => {
+      const entity = await window.__pub.entities.getState().create('character', 'Harlan')
+      return entity!.id
+    })
+    await waitFor(async () => {
+      const file = await readJson<EntityFile>(entitiesFile()).catch(() => null)
+      return file?.entities.some((entity) => entity.id === id) ?? false
+    }, 'the record to be created')
+
+    // Inside the debounce, then straight to another project.
+    await harness.page.evaluate(
+      async ([recordId, dir]) => {
+        window.__pub.entities.getState().patch(recordId!, { name: 'Harlan Vey' })
+        await window.__pub.project.getState().open(dir!)
+      },
+      [id, otherDir]
+    )
+
+    const first = await readJson<EntityFile>(entitiesFile())
+    expect(first.entities.find((entity) => entity.id === id)?.name).toBe('Harlan Vey')
+    const second = await readJson<EntityFile>(path.join(otherDir, '.thepub', 'entities.json')).catch(() => null)
+    expect(second?.entities ?? []).toEqual([])
+  } finally {
+    await fs.rm(otherDir, { recursive: true, force: true })
+  }
 })

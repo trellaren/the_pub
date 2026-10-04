@@ -1,7 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App.js'
-import { useProjectStore } from './stores/projectStore.js'
+import { useProjectStore, onBeforeProjectSwitch } from './stores/projectStore.js'
+import { flushPendingWrites } from './stores/pendingWrites.js'
 import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
@@ -21,6 +22,8 @@ import { getEditor } from './stores/documentStore.js'
 import { openLocation } from './lib/openLocation.js'
 import { runCommand, listCommands } from './commands/registry.js'
 import './styles.css'
+
+onBeforeProjectSwitch(flushPendingWrites)
 
 const container = document.getElementById('root')
 if (!container) throw new Error('Renderer root element is missing')

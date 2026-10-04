@@ -13,12 +13,25 @@ interface ProjectStore {
   updateManifest: (update: (manifest: ProjectManifest) => ProjectManifest) => Promise<void>
 }
 
+let beforeSwitch: () => Promise<void> = async () => {}
+
+/**
+ * Registered by the app shell rather than imported here: the stores that hold
+ * pending writes themselves import this one. Main closes the old session the
+ * moment a new one is asked for, so anything still debounced must be written
+ * first — afterwards it would go to the new project, or nowhere.
+ */
+export function onBeforeProjectSwitch(flush: () => Promise<void>): void {
+  beforeSwitch = flush
+}
+
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   project: null,
   opening: false,
 
   open: async (uri) => {
     set({ opening: true })
+    await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
     set({ project: project ?? get().project, opening: false })
     return project
@@ -26,6 +39,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   openDialog: async () => {
     set({ opening: true })
+    await beforeSwitch()
     const project = await attempt(invoke('project:openDialog', {}), 'Could not open project')
     set({ project: project ?? get().project, opening: false })
     return project
@@ -33,6 +47,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   newFromTemplate: async (templateId, name) => {
     set({ opening: true })
+    await beforeSwitch()
     const project = await attempt(
       invoke('templates:instantiate', { templateId, name }),
       'Could not create the project'

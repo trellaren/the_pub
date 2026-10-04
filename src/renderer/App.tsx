@@ -9,12 +9,11 @@ import { useDocumentStore } from './stores/documentStore.js'
 import { useLayoutStore } from './stores/layoutStore.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
-import { useHighlightStore } from './stores/highlightStore.js'
 import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
-import { useNoteStore } from './stores/noteStore.js'
+import { flushPendingWrites, resetDocumentScopedStores } from './stores/pendingWrites.js'
 import { registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
@@ -56,6 +55,7 @@ export function App() {
   /* Records belong to the open project, so they are (re)loaded with it. */
   useEffect(() => {
     if (!project) return
+    resetDocumentScopedStores()
     void useEntityStore.getState().load()
     void useBeatStore.getState().load()
     void useMapStore.getState().load()
@@ -215,18 +215,7 @@ export function App() {
    */
   useEffect(() => {
     return on('window:requestClose', () => {
-      void Promise.all([
-        useDocumentStore.getState().flushAll(),
-        // Record edits are debounced the same way typing is, and are just as
-        // easy to lose on the way out.
-        useEntityStore.getState().flush(),
-        useBeatStore.getState().flush(),
-        useMapStore.getState().flush(),
-        useSourceStore.getState().flush(),
-        useHighlightStore.getState().flush(),
-        useStatsStore.getState().flush(),
-        useNoteStore.getState().flush()
-      ]).finally(() => void invoke('window:closeConfirmed', {}))
+      void flushPendingWrites().finally(() => void invoke('window:closeConfirmed', {}))
     })
   }, [])
 

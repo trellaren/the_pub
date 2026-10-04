@@ -78,7 +78,13 @@ export type Handle = <K extends IpcInvokeChannel>(
 export interface HandlerContext extends HandlerDeps {
   handle: Handle
   keys: AiKeyStore
-  keyFor(id: KeyId, url: string, defaultUrl: string, name: string, event?: IpcMainInvokeEvent): Promise<string | null>
+  keyFor(
+    id: KeyId,
+    url: string,
+    defaultUrl: string,
+    name: string,
+    asker?: IpcMainInvokeEvent | number
+  ): Promise<string | null>
   requireSession(event: IpcMainInvokeEvent): ProjectSession
   /** The window a dialog should be parented to: the one the request came from. */
   ownerWindow(event: IpcMainInvokeEvent): BrowserWindow
@@ -138,18 +144,27 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
    * renderer-chosen base URL on a host other than the provider's own only gets
    * the key once the author confirms that host in a dialog main draws — the
    * renderer cannot answer it for them.
+   *
+   * `asker` is the request or window the dialog belongs to. Without one —
+   * background work nobody just asked for — an unconfirmed host gets no key
+   * and no dialog either.
    */
   async function keyFor(
     id: KeyId,
     url: string,
     defaultUrl: string,
     name: string,
-    event?: IpcMainInvokeEvent
+    asker?: IpcMainInvokeEvent | number
   ): Promise<string | null> {
     const bound = keys.getFor(id, url, defaultUrl)
     if (bound || !keys.get(id)) return bound
     const origin = originOf(url)
-    const window = event ? BrowserWindow.fromWebContents(event.sender) : null
+    const window =
+      asker === undefined
+        ? null
+        : typeof asker === 'number'
+          ? BrowserWindow.fromId(asker)
+          : BrowserWindow.fromWebContents(asker.sender)
     if (!origin || !window) return null
     const { response } = await dialog.showMessageBox(window, {
       type: 'warning',
@@ -233,7 +248,11 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
 
   const startEmbedded = (model: string): Promise<string> => startEmbeddedWith({ engine, models }, model)
   const resolveEmbedder = (ownerId: number, allowStart: boolean): Promise<EmbedderResolution> =>
-    resolveEmbedderFor({ engine, models, appState, sessions, keyFor }, ownerId, allowStart)
+    resolveEmbedderFor(
+      { engine, models, appState, sessions, keyFor, hasKey: (id) => keys.get(id) !== null },
+      ownerId,
+      allowStart
+    )
 
   async function openInto(ownerId: number, uri: string): Promise<ProjectSession> {
     await sessions.close(ownerId)

@@ -16,7 +16,8 @@ export interface EmbeddedRuntimeDeps {
 export interface EmbedderDeps extends EmbeddedRuntimeDeps {
   appState: AppStateService
   sessions: { get(ownerId: number): ProjectSession | undefined }
-  keyFor(id: KeyId, url: string, defaultUrl: string, name: string): Promise<string | null>
+  keyFor(id: KeyId, url: string, defaultUrl: string, name: string, askerWindowId?: number): Promise<string | null>
+  hasKey(id: KeyId): boolean
 }
 
 /**
@@ -84,9 +85,25 @@ export async function resolveEmbedder(
 
   const settings = resolveSettings(session.chats.settings())
   const info = providerInfo(settings.provider)
-  const apiKey = await keyFor(settings.provider, settings.baseUrl, info.defaultBaseUrl, info.name)
+  // Only a build the author asked for may ask them to confirm a custom host;
+  // the background passes that run on open must not raise a dialog.
+  const apiKey = await keyFor(
+    settings.provider,
+    settings.baseUrl,
+    info.defaultBaseUrl,
+    info.name,
+    allowStart ? ownerId : undefined
+  )
   if (info.needsKey && !apiKey) {
-    return { embedder: null, unavailable: `No API key is set for ${info.name}.` }
+    if (!deps.hasKey(settings.provider)) {
+      return { embedder: null, unavailable: `No API key is set for ${info.name}.` }
+    }
+    return {
+      embedder: null,
+      unavailable: allowStart
+        ? `Your ${info.name} key was not sent to ${settings.baseUrl}.`
+        : `Build the index to confirm sending your ${info.name} key to ${settings.baseUrl}.`
+    }
   }
 
   let baseUrl = settings.baseUrl

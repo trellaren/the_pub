@@ -48,20 +48,23 @@ interface Harness {
   engine: LlmEngine
   children: FakeChild[]
   args: string[][]
+  options: { stdio?: unknown }[]
   setHealthy: (healthy: boolean) => void
 }
 
-function harness(options: { idleMs?: number; startTimeoutMs?: number } = {}): Harness {
+function harness(config: { idleMs?: number; startTimeoutMs?: number } = {}): Harness {
   const children: FakeChild[] = []
   const args: string[][] = []
+  const options: { stdio?: unknown }[] = []
   let healthy = true
 
   const engine = new LlmEngine({
     binaryDir,
-    idleMs: options.idleMs ?? 0,
-    startTimeoutMs: options.startTimeoutMs ?? 2000,
-    spawn: ((_binary: string, argv: string[]) => {
+    idleMs: config.idleMs ?? 0,
+    startTimeoutMs: config.startTimeoutMs ?? 2000,
+    spawn: ((_binary: string, argv: string[], spawnOptions: { stdio?: unknown }) => {
       args.push(argv)
+      options.push(spawnOptions)
       const child = new FakeChild()
       children.push(child)
       return child as unknown as ChildProcess
@@ -72,7 +75,7 @@ function harness(options: { idleMs?: number; startTimeoutMs?: number } = {}): Ha
         : Promise.reject(new Error('not listening'))) as unknown as typeof globalThis.fetch
   })
 
-  return { engine, children, args, setHealthy: (value) => (healthy = value) }
+  return { engine, children, args, options, setHealthy: (value) => (healthy = value) }
 }
 
 const request = { modelPath: '', modelId: 'bonsai-9b', contextLength: 4096 }
@@ -197,5 +200,62 @@ describe('LlmEngine', () => {
     expect(url).toBeNull()
     expect(engine.status().state).toBe('error')
     expect(engine.status().message).toContain('did not start in time')
+  })
+
+  it('does not pipe stdout it never reads', async () => {
+    const { engine, options } = harness()
+    await engine.ensure({ ...request, modelPath })
+    expect(options[0]!.stdio).toEqual(['ignore', 'ignore', 'pipe'])
+    await engine.stop()
+  })
+
+  it('never hands a request for one model the start of another', async () => {
+    const { engine, children, setHealthy } = harness({ startTimeoutMs: 5000 })
+    setHealthy(false)
+    const first = engine.ensure({ ...request, modelPath })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const second = engine.ensure({ ...request, modelPath, modelId: 'bonsai-4b' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    setHealthy(true)
+
+    expect(await first).toBeNull()
+    expect(await second).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    expect(engine.status()).toMatchObject({ state: 'running', model: 'bonsai-4b' })
+    expect(children).toHaveLength(2)
+    expect(children[0]!.killed.length).toBeGreaterThan(0)
+    await engine.stop()
+  })
+
+  it('retries once on a fresh port when the one it was given was taken', async () => {
+    const { engine, children, args, setHealthy } = harness({ startTimeoutMs: 5000 })
+    setHealthy(false)
+    const pending = engine.ensure({ ...request, modelPath })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    children[0]!.stderr.emit('data', Buffer.from("couldn't bind HTTP server socket: Address already in use\n"))
+    children[0]!.emit('exit', 1)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    setHealthy(true)
+
+    expect(await pending).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    expect(children).toHaveLength(2)
+    expect(args[1]).toContain('--port')
+    expect(engine.status().state).toBe('running')
+    await engine.stop()
+  })
+
+  it('gives up after one retry when the port keeps being taken', async () => {
+    const { engine, children, setHealthy } = harness({ startTimeoutMs: 5000 })
+    setHealthy(false)
+    const pending = engine.ensure({ ...request, modelPath })
+    for (let index = 0; index < 2; index += 1) {
+      await vi.waitFor(() => expect(children.length).toBe(index + 1))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      children[index]!.stderr.emit('data', Buffer.from('bind: Address already in use\n'))
+      children[index]!.emit('exit', 1)
+    }
+    expect(await pending).toBeNull()
+    expect(children).toHaveLength(2)
+    expect(engine.status().state).toBe('error')
   })
 })

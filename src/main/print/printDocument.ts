@@ -8,6 +8,19 @@ import { buildStylesheet } from '../epub/css.js'
 export interface PrintDocument {
   title: string
   content: PmDoc
+  /** The document's own BCP-47 language, when it differs from the project's. */
+  lang?: string
+}
+
+const RTL_LANGUAGES = new Set(['ar', 'arc', 'ckb', 'dv', 'fa', 'he', 'iw', 'ps', 'sd', 'ug', 'ur', 'yi'])
+
+export function directionFor(lang: string | undefined): 'rtl' | 'ltr' {
+  const primary = (lang ?? '').split(/[-_]/)[0]!.toLowerCase()
+  return RTL_LANGUAGES.has(primary) ? 'rtl' : 'ltr'
+}
+
+function langAttrs(lang: string | undefined): string {
+  return lang ? ` lang="${escapeHtml(lang)}" dir="${directionFor(lang)}"` : ''
 }
 
 export interface PrintImage {
@@ -22,6 +35,12 @@ export interface PrintImage {
  * rule sized from `setup` — `printOptions.ts` sets `preferCSSPageSize` so
  * `printToPDF` honours it instead of scaling to a standard paper size.
  *
+ * `lang` on the root (and on any document in a different language) is what
+ * lets Chromium pick hyphenation, quotes and fonts for the right script; each
+ * block resolves its own direction (`unicode-bidi: plaintext`) because the
+ * shared XHTML writer carries no per-block `dir`, and a Hebrew quotation in an
+ * English chapter must still run right to left.
+ *
  * Images are inlined as `data:` URIs, keyed by basename the same way
  * `imageHref` names them, so the offscreen window needs no second HTTP round
  * trip to fetch project assets.
@@ -30,7 +49,8 @@ export function buildPrintHtml(
   documents: PrintDocument[],
   styles: NamedStyle[],
   setup: PageSetup,
-  images: Map<string, PrintImage>
+  images: Map<string, PrintImage>,
+  projectLang?: string
 ): string {
   const width = setup.orientation === 'landscape' ? setup.height : setup.width
   const height = setup.orientation === 'landscape' ? setup.width : setup.height
@@ -38,17 +58,19 @@ export function buildPrintHtml(
 
   const sections = documents.map((document, index) => {
     const { body } = documentToXhtml(document.content, styles, `d${index}`)
-    return `<section class="pub-doc"${index > 0 ? ' style="break-before: page;"' : ''}>\n${body}\n</section>`
+    const lang = document.lang && document.lang !== projectLang ? document.lang : undefined
+    return `<section class="pub-doc"${langAttrs(lang)}${index > 0 ? ' style="break-before: page;"' : ''}>\n${body}\n</section>`
   })
 
   const css = `${buildStylesheet(styles)}
 @page { size: ${width}pt ${height}pt; margin: ${margins.top}pt ${margins.right}pt ${margins.bottom}pt ${margins.left}pt; }
 body { margin: 0; }
 .pub-doc { break-inside: auto; }
-img { max-width: 100%; }`
+img { max-width: 100%; }
+p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th { unicode-bidi: plaintext; }`
 
   const html = `<!doctype html>
-<html>
+<html${langAttrs(projectLang ?? documents[0]?.lang)}>
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(documents[0]?.title ?? 'Print')}</title>

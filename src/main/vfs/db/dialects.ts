@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { DbConnection, DbDialect, DbRow, DbValue } from './dialect.js'
+import { serialiseConnection } from './serialised.js'
 
 /**
  * The three dialects.
@@ -42,30 +43,15 @@ function sqliteConnection(file: string): DbConnection {
   // Without this a second window opening the same file fails immediately rather
   // than waiting for the first one's write to finish.
   db.exec('PRAGMA busy_timeout = 5000')
-  let depth = 0
 
-  return {
+  return serialiseConnection({
     all: async (sql, params = []) => db.prepare(sql).all(...(params as DbValue[])) as DbRow[],
     run: async (sql, params = []) => {
       db.prepare(sql).run(...(params as DbValue[]))
     },
-    transaction: async (body) => {
-      // Nested calls join the outer transaction rather than starting one SQLite
-      // would reject: `writeFileAtomic` inside a `rename` is an ordinary shape.
-      if (depth > 0) return body()
-      depth += 1
-      db.exec('BEGIN')
-      try {
-        const result = await body()
-        db.exec('COMMIT')
-        return result
-      } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-      } finally {
-        depth -= 1
-      }
-    },
+    begin: async () => db.exec('BEGIN'),
+    commit: async () => db.exec('COMMIT'),
+    rollback: async () => db.exec('ROLLBACK'),
     close: async () => {
       try {
         db.close()
@@ -73,7 +59,7 @@ function sqliteConnection(file: string): DbConnection {
         // Already closed.
       }
     }
-  }
+  })
 }
 
 export function postgresDialect(target: DbTarget): DbDialect {
@@ -94,21 +80,19 @@ export function postgresDialect(target: DbTarget): DbDialect {
       })
       await client.connect()
 
-      return {
+      return serialiseConnection({
         all: async (sql, params = []) => (await client.query(sql, [...params])).rows as DbRow[],
         run: async (sql, params = []) => {
           await client.query(sql, [...params])
         },
-        transaction: async (body) => {
+        begin: async () => {
           await client.query('BEGIN')
-          try {
-            const result = await body()
-            await client.query('COMMIT')
-            return result
-          } catch (error) {
-            await client.query('ROLLBACK')
-            throw error
-          }
+        },
+        commit: async () => {
+          await client.query('COMMIT')
+        },
+        rollback: async () => {
+          await client.query('ROLLBACK')
         },
         listen: async (onChange) => {
           // The reason Postgres is the one engine with `watch: true`: a change
@@ -124,7 +108,7 @@ export function postgresDialect(target: DbTarget): DbDialect {
         close: async () => {
           await client.end().catch(() => {})
         }
-      }
+      })
     }
   }
 }
@@ -149,7 +133,7 @@ export function mysqlDialect(target: DbTarget): DbDialect {
         database: target.database
       })
 
-      return {
+      return serialiseConnection({
         all: async (sql, params = []) => {
           const [rows] = await connection.query(sql, [...params])
           return (Array.isArray(rows) ? rows : []) as DbRow[]
@@ -157,21 +141,13 @@ export function mysqlDialect(target: DbTarget): DbDialect {
         run: async (sql, params = []) => {
           await connection.query(sql, [...params])
         },
-        transaction: async (body) => {
-          await connection.beginTransaction()
-          try {
-            const result = await body()
-            await connection.commit()
-            return result
-          } catch (error) {
-            await connection.rollback()
-            throw error
-          }
-        },
+        begin: () => connection.beginTransaction(),
+        commit: () => connection.commit(),
+        rollback: () => connection.rollback(),
         close: async () => {
           await connection.end().catch(() => {})
         }
-      }
+      })
     }
   }
 }

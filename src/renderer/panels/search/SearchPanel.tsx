@@ -23,6 +23,7 @@ export function SearchPanel() {
   const [hits, setHits] = useState<SearchHit[]>([])
   const [progress, setProgress] = useState<IndexProgress | null>(null)
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [resultAnnouncement, setResultAnnouncement] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const requestId = useRef(0)
@@ -45,17 +46,24 @@ export function SearchPanel() {
     setSearching(true)
     const id = ++requestId.current
     const timer = setTimeout(async () => {
+      let failure: string | null = null
       const results = await invoke('search:query', {
         text: term,
         limit: 200,
         matchCase,
         wholeWord
-      }).catch(() => [])
+      }).catch((error: unknown) => {
+        failure = error instanceof Error ? error.message : String(error)
+        return []
+      })
       // A slower earlier query must not overwrite the newest results.
       if (id === requestId.current) {
         setHits(results)
         setSearching(false)
-        setResultAnnouncement(`${results.length} result${results.length === 1 ? '' : 's'} for ${term}`)
+        setSearchError(failure)
+        setResultAnnouncement(
+          failure ? `Search failed: ${failure}` : `${results.length} result${results.length === 1 ? '' : 's'} for ${term}`
+        )
       }
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
@@ -120,6 +128,10 @@ export function SearchPanel() {
       <div className="flex-1 overflow-auto">
         {term.trim() === '' ? (
           <EmptyState title="Search across every document" hint="Results link straight to the paragraph." />
+        ) : searchError && !searching ? (
+          <div role="alert" data-testid="search-error" className="m-2 rounded border border-border bg-surface-2 px-2 py-1 text-[12px] text-danger">
+            Search failed: {searchError}
+          </div>
         ) : hits.length === 0 ? (
           <EmptyState title={searching ? 'Searching…' : 'No matches'} />
         ) : (

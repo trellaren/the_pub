@@ -6,7 +6,7 @@ import { PanelShell } from '@renderer/ui/primitives.js'
 import { RavenMark } from '@renderer/ui/RavenMark.js'
 import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
-import { invoke } from '@renderer/lib/ipc.js'
+import { invoke, reportError, errorMessage } from '@renderer/lib/ipc.js'
 import type { DailyPrompt } from '@shared/model/writingPrompt.js'
 import { defaultVariantFor, findVariant, formatBytes } from '@shared/model/llm.js'
 import { aiSettingsSchema } from '@shared/model/ai.js'
@@ -159,7 +159,7 @@ function AssistantSetupCard() {
       ...(useChatStore.getState().settings ?? aiSettingsSchema.parse({})),
       provider: 'embedded',
       model: model.id
-    }).catch(() => {})
+    }).catch((error: unknown) => reportError(`Could not save the assistant settings: ${errorMessage(error)}`))
     const failure = await useChatStore.getState().downloadModel(variant.id)
     if (failure) {
       setError(failure)
@@ -269,7 +269,7 @@ function DailyPromptCard() {
           onClick={() =>
             void invoke('ai:dailyPrompt', { refresh: true })
               .then((result) => result.text && setPrompt(result))
-              .catch(() => {})
+              .catch((error: unknown) => reportError(`Could not get another prompt: ${errorMessage(error)}`))
           }
           className="text-[11px] text-faint hover:text-text"
         >

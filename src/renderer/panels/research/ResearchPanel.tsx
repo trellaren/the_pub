@@ -13,6 +13,7 @@ import { citeFromPdfHighlight, citationPlacement, refreshCitations } from '../ed
 import { PdfViewer } from './PdfViewer.js'
 import { CaptureViewer } from './CaptureViewer.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, TextInput, Select } from '@renderer/ui/primitives.js'
+import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 
 const NO_CATEGORIES: HighlightCategoryDef[] = []
 const NO_HIGHLIGHTS: Highlight[] = []
@@ -27,7 +28,7 @@ const NO_HIGHLIGHTS: Highlight[] = []
  * to be frontmost.
  */
 export function ResearchPanel() {
-  const [tab, setTab] = useState<'manuscript' | 'sources'>('manuscript')
+  const [tab, setTab] = usePanelSelection<'manuscript' | 'sources'>('research.tab', 'manuscript')
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
@@ -222,9 +223,12 @@ function SourcesTab({ docId }: { docId: string | null }) {
     (store) => store.project?.manifest.settings.citationStyleId ?? 'chicago-author-date'
   )
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState<{ sourceId: string; attachmentId: string; kind: 'pdf' | 'capture'; page?: number } | null>(
-    null
-  )
+  const [open, setOpen] = usePanelSelection<{
+    sourceId: string
+    attachmentId: string
+    kind: 'pdf' | 'capture'
+    page?: number
+  } | null>('research.viewer', null)
 
   useEffect(() => {
     void loadSources()

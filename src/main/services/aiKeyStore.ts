@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { app, safeStorage } from 'electron'
+import { writeFileAtomicSync } from './atomicFile.js'
 import type { KeyId } from '../../shared/model/webAccess.js'
 
 /**
@@ -40,8 +41,7 @@ export class AiKeyStore {
   }
 
   private write(stored: Record<string, string>): void {
-    fs.mkdirSync(path.dirname(this.file()), { recursive: true })
-    fs.writeFileSync(this.file(), JSON.stringify(stored, null, 2), { mode: 0o600 })
+    writeFileAtomicSync(this.file(), JSON.stringify(stored, null, 2), 0o600)
   }
 
   /** Which providers — model and search — have a key stored. Never the keys themselves. */
@@ -64,6 +64,44 @@ export class AiKeyStore {
     }
   }
 
+  private hostsFile(): string {
+    return path.join(app.getPath('userData'), 'ai-key-hosts.json')
+  }
+
+  private readHosts(): Record<string, string[]> {
+    try {
+      return JSON.parse(fs.readFileSync(this.hostsFile(), 'utf8')) as Record<string, string[]>
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * The key for `provider`, but only when it is being sent to `url`'s origin
+   * with the author's consent: the provider's own default host, or a host they
+   * confirmed in a main-process dialog. The base URL is renderer-chosen, so
+   * without this any script in the renderer could name its own server and
+   * receive the key in the request headers.
+   */
+  getFor(provider: KeyId, url: string, defaultUrl: string): string | null {
+    const origin = originOf(url)
+    if (!origin) return null
+    if (origin !== originOf(defaultUrl) && !this.isTrusted(provider, origin)) return null
+    return this.get(provider)
+  }
+
+  isTrusted(provider: KeyId, origin: string): boolean {
+    return (this.readHosts()[provider] ?? []).includes(origin)
+  }
+
+  trustHost(provider: KeyId, url: string): void {
+    const origin = originOf(url)
+    if (!origin) return
+    const hosts = this.readHosts()
+    hosts[provider] = [...new Set([...(hosts[provider] ?? []), origin])]
+    writeFileAtomicSync(this.hostsFile(), JSON.stringify(hosts, null, 2), 0o600)
+  }
+
   set(provider: KeyId, key: string): { ok: boolean; reason?: string } {
     const stored = this.read()
     if (!key) {
@@ -82,5 +120,14 @@ export class AiKeyStore {
     this.cache.set(provider, key)
     this.write(stored)
     return { ok: true }
+  }
+}
+
+export function originOf(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.origin : null
+  } catch {
+    return null
   }
 }

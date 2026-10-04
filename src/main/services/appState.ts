@@ -7,6 +7,7 @@ import { findConflict, normalizeAccelerator } from '../../shared/menu/keybinding
 import { colorForAuthor, assistantProfile, type AuthorProfile } from '../../shared/model/author.js'
 import { DEFAULT_THEME } from '../../shared/themes.js'
 import { ulid } from 'ulid'
+import { writeFileAtomicSync } from './atomicFile.js'
 import type { DailyPrompt } from '../../shared/model/writingPrompt.js'
 
 const MAX_RECENTS = 12
@@ -39,8 +40,7 @@ export class AppStateService {
 
   private persist(): void {
     try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true })
-      fs.writeFileSync(this.file, JSON.stringify(this.state, null, 2))
+      writeFileAtomicSync(this.file, JSON.stringify(this.state, null, 2))
     } catch {
       // Preferences are a convenience; failing to store them must not break the app.
     }

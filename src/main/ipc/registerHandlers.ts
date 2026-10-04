@@ -6,7 +6,7 @@ import type { WindowManager } from '../windows/windowManager.js'
 import type { AppStateService } from '../services/appState.js'
 import { ProjectSession } from '../services/projectSession.js'
 import { assetUrl } from '../protocol/assetProtocol.js'
-import { AiKeyStore } from '../services/aiKeyStore.js'
+import { AiKeyStore, originOf } from '../services/aiKeyStore.js'
 import { ConnectionStore } from '../services/connectionStore.js'
 import { KnownHostsStore } from '../services/knownHostsStore.js'
 import type { OneDriveAuth } from '../services/oneDriveAuth.js'
@@ -97,7 +97,7 @@ import { historyToOutbound } from '../ai/history.js'
 import { describeProject, projectFacts } from '../ai/projectContext.js'
 import { buildWebGate, extractUrls } from '../ai/webGate.js'
 import { webSearch } from '../research/webSearch.js'
-import { searchKeyId, type WebSearchHit } from '../../shared/model/webAccess.js'
+import { searchKeyId, searchProviderInfo, type KeyId, type WebSearchHit } from '../../shared/model/webAccess.js'
 import { applyAssistantEdit } from '../../shared/pm/assistantEdits.js'
 import { unionProvenance } from '../../shared/model/provenance.js'
 import type { PubDocument } from '../../shared/model/document.js'
@@ -275,6 +275,37 @@ export function registerHandlers(context: HandlerContext): void {
   }
 
   /** Resolve the calling window's project, or fail loudly — there is no default. */
+  /**
+   * The stored key for a provider, bound to where it is about to be sent. A
+   * renderer-chosen base URL on a host other than the provider's own only gets
+   * the key once the author confirms that host in a dialog main draws — the
+   * renderer cannot answer it for them.
+   */
+  async function keyFor(
+    id: KeyId,
+    url: string,
+    defaultUrl: string,
+    name: string,
+    event?: IpcMainInvokeEvent
+  ): Promise<string | null> {
+    const bound = keys.getFor(id, url, defaultUrl)
+    if (bound || !keys.get(id)) return bound
+    const origin = originOf(url)
+    const window = event ? BrowserWindow.fromWebContents(event.sender) : null
+    if (!origin || !window) return null
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'warning',
+      buttons: ['Send key', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: `Send your ${name} key to ${origin}?`,
+      detail: `This is not ${name}'s own server. Only continue if you set this address yourself.`
+    })
+    if (response !== 0) return null
+    keys.trustHost(id, url)
+    return keys.get(id)
+  }
+
   function requireSession(event: IpcMainInvokeEvent): ProjectSession {
     const ownerId = windows.ownerWindowId(event.sender)
     const session = ownerId === null ? undefined : sessions.get(ownerId)
@@ -1295,7 +1326,7 @@ export function registerHandlers(context: HandlerContext): void {
 
     const settings = resolveSettings(session.chats.settings())
     const info = providerInfo(settings.provider)
-    const apiKey = keys.get(settings.provider)
+    const apiKey = await keyFor(settings.provider, settings.baseUrl, info.defaultBaseUrl, info.name)
     if (info.needsKey && !apiKey) {
       return { embedder: null, unavailable: `No API key is set for ${info.name}.` }
     }
@@ -1334,8 +1365,9 @@ export function registerHandlers(context: HandlerContext): void {
   async function searchTheWeb(query: string, limit: number): Promise<{ ok: true; hits: WebSearchHit[] } | { ok: false; reason: string }> {
     const state = appState.get()
     const provider = state.aiSearchProvider
+    const info = searchProviderInfo(provider)
     const result = await webSearch(provider, query, limit, {
-      apiKey: keys.get(searchKeyId(provider)),
+      apiKey: await keyFor(searchKeyId(provider), state.aiSearchBaseUrl || info.defaultBaseUrl, info.defaultBaseUrl, info.name),
       baseUrl: state.aiSearchBaseUrl,
       fetchImpl: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(WEB_TIMEOUT_MS) })
     })
@@ -1382,7 +1414,7 @@ export function registerHandlers(context: HandlerContext): void {
     const session = ownerId === null ? undefined : sessions.get(ownerId)
     const settings = resolveSettings(session?.chats.settings() ?? aiSettingsSchema.parse({}))
     const info = providerInfo(settings.provider)
-    const apiKey = keys.get(settings.provider)
+    const apiKey = await keyFor(settings.provider, settings.baseUrl, info.defaultBaseUrl, info.name)
     if (info.needsKey && !apiKey) return EMPTY_DAILY_PROMPT
 
     let baseUrl = settings.baseUrl
@@ -1477,9 +1509,11 @@ export function registerHandlers(context: HandlerContext): void {
     secureStorage: keys.available()
   }))
   handle('ai:setKey', ({ provider, key }) => keys.set(provider, key))
-  handle('ai:listModels', ({ settings }, event) => {
+  handle('ai:listModels', async ({ settings }, event) => {
     const resolved = resolveSettings(settings)
-    return requireSession(event).ai.listModels(resolved, keys.get(resolved.provider))
+    const info = providerInfo(resolved.provider)
+    const apiKey = await keyFor(resolved.provider, resolved.baseUrl, info.defaultBaseUrl, info.name, event)
+    return requireSession(event).ai.listModels(resolved, apiKey)
   })
 
   /**
@@ -1500,7 +1534,7 @@ export function registerHandlers(context: HandlerContext): void {
 
     let settings = resolveSettings(session.chats.settings(), chat.settings)
     const info = providerInfo(settings.provider)
-    const apiKey = keys.get(settings.provider)
+    const apiKey = await keyFor(settings.provider, settings.baseUrl, info.defaultBaseUrl, info.name, event)
     if (info.needsKey && !apiKey) {
       throw new Error(`No API key is set for ${info.name}. Add one in the AI panel's settings.`)
     }

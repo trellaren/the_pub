@@ -7,7 +7,9 @@ import { invoke, attempt } from '@renderer/lib/ipc.js'
 interface ProjectStore {
   project: OpenProject | null
   opening: boolean
-  open: (uri: string) => Promise<OpenProject | null>
+  /** What is being opened, for the overlay; null when the name isn't known yet. */
+  openingName: string | null
+  open: (uri: string, name?: string) => Promise<OpenProject | null>
   openDialog: () => Promise<OpenProject | null>
   newFromTemplate: (templateId: string, name: string) => Promise<OpenProject | null>
   updateManifest: (update: (manifest: ProjectManifest) => ProjectManifest) => Promise<void>
@@ -37,31 +39,35 @@ export function survivorOf(current: OpenProject | null, uri: string): OpenProjec
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   project: null,
   opening: false,
+  openingName: null,
 
-  open: async (uri) => {
-    set({ opening: true })
+  open: async (uri, name) => {
+    if (get().opening) return null
+    set({ opening: true, openingName: name ?? null })
     await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
-    set({ project: project ?? survivorOf(get().project, uri), opening: false })
+    set({ project: project ?? survivorOf(get().project, uri), opening: false, openingName: null })
     return project
   },
 
   openDialog: async () => {
-    set({ opening: true })
+    if (get().opening) return null
+    set({ opening: true, openingName: null })
     await beforeSwitch()
     const project = await attempt(invoke('project:openDialog', {}), 'Could not open project')
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? get().project, opening: false, openingName: null })
     return project
   },
 
   newFromTemplate: async (templateId, name) => {
-    set({ opening: true })
+    if (get().opening) return null
+    set({ opening: true, openingName: name })
     await beforeSwitch()
     const project = await attempt(
       invoke('templates:instantiate', { templateId, name }),
       'Could not create the project'
     )
-    set({ project: project ?? get().project, opening: false })
+    set({ project: project ?? get().project, opening: false, openingName: null })
     return project
   },
 

@@ -50,6 +50,6 @@ test('a tab whose file was deleted can be closed', async () => {
   await harness.page.getByTestId('missing-close').click()
   await expect(harness.page.getByText('This file no longer exists')).toHaveCount(0)
   await expect
-    .poll(() => harness.page.evaluate(() => Object.values(window.__pub.documents.getState().docs).some((d) => d.missing)))
+    .poll(() => harness.page.evaluate(() => Object.values(window.__pub.documents.getState().docs).some((d) => d.path === 'chapter-01.pubdoc')))
     .toBe(false)
 })

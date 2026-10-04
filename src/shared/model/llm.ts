@@ -26,7 +26,7 @@ import { MODEL_PINS } from './modelPins.js'
  * writes them into `modelPins.ts`.
  */
 export const modelSourceSchema = z.object({
-  /** e.g. `prism-ml/bonsai-9b-GGUF`. */
+  /** e.g. `unsloth/gemma-3n-E4B-it-GGUF`. */
   repo: z.string(),
   /** A commit hash. A branch name here would defeat the point — see above. */
   revision: z.string(),
@@ -76,9 +76,11 @@ const GB = 1024 ** 3
 /**
  * The catalogue.
  *
- * Three models spanning the hardware range rather than the leaderboard: a
- * writer on 8 GB should get a private, offline assistant rather than a refusal,
- * which is the whole reason the gate is per variant rather than per feature.
+ * Two sizes of one family rather than a leaderboard: a writer on 8 GB should
+ * get a private, offline assistant rather than a refusal, which is the whole
+ * reason the gate is per variant rather than per feature. Gemma 3n is the
+ * family because it was built for exactly this — running on the machine in
+ * front of someone — and follows the structured replies the tools ask for.
  *
  * What is curated here is the choice: which models, which quantisations, and
  * how much memory each really needs. What is *not* here is `bytes` and
@@ -88,44 +90,34 @@ const GB = 1024 ** 3
  */
 const CATALOGUE: EmbeddedModel[] = [
   {
-    id: 'bonsai-27b',
-    name: 'Bonsai 27B',
-    vendor: 'prism-ml',
-    summary: 'The strongest of the three. Wants a well-equipped desktop or laptop.',
-    license: { name: 'Prism-ML Open Weights', url: 'https://prism-ml.example/bonsai/license' },
+    id: 'gemma-3n-e4b',
+    name: 'Gemma 3n E4B',
+    vendor: 'Google DeepMind, quantised by Unsloth',
+    summary: 'The default. Built for devices, good at following instructions and at the tool calls the assistant makes. Comfortable on a laptop with 8 GB.',
+    license: { name: 'Gemma Terms of Use', url: 'https://ai.google.dev/gemma/terms' },
     variants: [
       {
-        id: 'bonsai-27b-q4_k_m',
-        label: 'Standard — 16 GB',
-        source: { repo: 'prism-ml/bonsai-27b-GGUF', revision: '', file: 'bonsai-27b-Q4_K_M.gguf' },
-        bytes: 16 * GB,
+        id: 'gemma-3n-e4b-q4_k_m',
+        label: 'Standard — 4.5 GB',
+        source: {
+          repo: 'unsloth/gemma-3n-E4B-it-GGUF',
+          revision: '90fa8b0e431faeae50c305828bc260d6f71720e1',
+          file: 'gemma-3n-E4B-it-Q4_K_M.gguf'
+        },
+        bytes: 0,
         sha256: '',
-        minMemoryBytes: 24 * GB,
+        minMemoryBytes: 8 * GB,
         contextLength: 8192
       },
       {
-        id: 'bonsai-27b-q8_0',
-        label: 'High quality — 28 GB',
-        source: { repo: 'prism-ml/bonsai-27b-GGUF', revision: '', file: 'bonsai-27b-Q8_0.gguf' },
-        bytes: 28 * GB,
-        sha256: '',
-        minMemoryBytes: 40 * GB,
-        contextLength: 8192
-      }
-    ]
-  },
-  {
-    id: 'bonsai-9b',
-    name: 'Bonsai 9B',
-    vendor: 'prism-ml',
-    summary: 'Most of the quality at a third of the memory. The sensible default on a laptop.',
-    license: { name: 'Prism-ML Open Weights', url: 'https://prism-ml.example/bonsai/license' },
-    variants: [
-      {
-        id: 'bonsai-9b-q4_k_m',
-        label: 'Standard — 6 GB',
-        source: { repo: 'prism-ml/bonsai-9b-GGUF', revision: '', file: 'bonsai-9b-Q4_K_M.gguf' },
-        bytes: 6 * GB,
+        id: 'gemma-3n-e4b-q8_0',
+        label: 'High quality — 7.4 GB',
+        source: {
+          repo: 'unsloth/gemma-3n-E4B-it-GGUF',
+          revision: '90fa8b0e431faeae50c305828bc260d6f71720e1',
+          file: 'gemma-3n-E4B-it-Q8_0.gguf'
+        },
+        bytes: 0,
         sha256: '',
         minMemoryBytes: 12 * GB,
         contextLength: 8192
@@ -133,19 +125,23 @@ const CATALOGUE: EmbeddedModel[] = [
     ]
   },
   {
-    id: 'bonsai-4b',
-    name: 'Bonsai 4B',
-    vendor: 'prism-ml',
-    summary: 'Runs on a modest machine. Good for questions and rewrites, weaker on long reasoning.',
-    license: { name: 'Prism-ML Open Weights', url: 'https://prism-ml.example/bonsai/license' },
+    id: 'gemma-3n-e2b',
+    name: 'Gemma 3n E2B',
+    vendor: 'Google DeepMind, quantised by Unsloth',
+    summary: 'The small one, for a modest machine. Fine for questions and rewrites; weaker on long chapters.',
+    license: { name: 'Gemma Terms of Use', url: 'https://ai.google.dev/gemma/terms' },
     variants: [
       {
-        id: 'bonsai-4b-q4_k_m',
-        label: 'Standard — 2.5 GB',
-        source: { repo: 'prism-ml/bonsai-4b-GGUF', revision: '', file: 'bonsai-4b-Q4_K_M.gguf' },
-        bytes: Math.round(2.5 * GB),
+        id: 'gemma-3n-e2b-q4_k_m',
+        label: 'Standard — 3 GB',
+        source: {
+          repo: 'unsloth/gemma-3n-E2B-it-GGUF',
+          revision: 'd7bd20d510eff26f3f95260c50f032fee8931a35',
+          file: 'gemma-3n-E2B-it-Q4_K_M.gguf'
+        },
+        bytes: 0,
         sha256: '',
-        minMemoryBytes: 8 * GB,
+        minMemoryBytes: 6 * GB,
         contextLength: 8192
       }
     ]
@@ -185,7 +181,7 @@ export function isPinned(variant: ModelVariant): boolean {
 }
 
 /** The model an untouched embedded setup uses. */
-export const DEFAULT_EMBEDDED_MODEL = 'bonsai-9b'
+export const DEFAULT_EMBEDDED_MODEL = 'gemma-3n-e4b'
 
 /**
  * Context window for a sideloaded file.
@@ -225,15 +221,33 @@ export function isSideloadedModel(model: string): boolean {
 /**
  * The variant an embedded `model` setting resolves to.
  *
- * A setting may name a model (`bonsai-9b` — take its first variant, which is
- * the one the catalogue lists first for that reason) or a variant outright
- * (`bonsai-9b-q4_k_m`). Both spellings appear in saved projects because the
+ * A setting may name a model (`gemma-3n-e4b` — take its first variant, which
+ * is the one the catalogue lists first for that reason) or a variant outright
+ * (`gemma-3n-e4b-q4_k_m`). Both spellings appear in saved projects because the
  * picker offers models and the manager offers variants.
  */
 export function resolveVariant(model: string): ModelVariant | null {
   const byVariant = findVariant(model)
   if (byVariant) return byVariant.variant
   return findModel(model)?.variants[0] ?? null
+}
+
+/**
+ * The variant a first launch should offer.
+ *
+ * The default model's standard build when this machine can hold it, else the
+ * small model's — the whole point of two sizes. Null when nothing fits, which
+ * the setup card says plainly rather than offering a download that would fail.
+ */
+export function defaultVariantFor(totalMemoryBytes: number): ModelVariant | null {
+  const preferred = [findModel(DEFAULT_EMBEDDED_MODEL), ...EMBEDDED_MODELS].filter(
+    (model): model is EmbeddedModel => model !== null
+  )
+  for (const model of preferred) {
+    const standard = model.variants[0]
+    if (standard && memoryGate(standard, totalMemoryBytes) === null) return standard
+  }
+  return null
 }
 
 export const modelStateSchema = z.enum(['absent', 'downloading', 'ready'])

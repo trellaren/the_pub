@@ -17,6 +17,7 @@ interface AppStore {
   setTimelineOrientation: (orientation: AppState['timelineOrientation']) => Promise<void>
   setAiEnabled: (enabled: boolean) => Promise<void>
   setAiWritePolicy: (policy: AppState['aiWritePolicy']) => Promise<void>
+  setAssistantSetupDone: () => Promise<void>
   setAiWeb: (changes: {
     webAccess?: AppState['aiWebAccess']
     searchProvider?: AppState['aiSearchProvider']
@@ -49,6 +50,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setAiEnabled: async (enabled) => {
     get().setState(await invoke('app:setAiEnabled', { enabled }))
+  },
+  setAssistantSetupDone: async () => {
+    get().setState(await invoke('app:setAssistantSetupDone', {}))
   },
   setAiWritePolicy: async (policy) => {
     get().setState(await invoke('app:setAiWritePolicy', { policy }))

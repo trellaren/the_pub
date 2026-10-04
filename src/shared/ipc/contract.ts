@@ -119,6 +119,8 @@ export const ipcContract = defineContract({
      * app state from the renderer.
      */
     'app:setAiEnabled': { req: z.object({ enabled: z.boolean() }), res: appStateSchema },
+    /** The first-launch question has been answered, whatever the answer was. */
+    'app:setAssistantSetupDone': { req: empty, res: appStateSchema },
     'app:setAiWritePolicy': { req: z.object({ policy: appStateSchema.shape.aiWritePolicy }), res: appStateSchema },
     'app:setAiWeb': {
       req: z.object({

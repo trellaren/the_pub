@@ -43,7 +43,7 @@ describe('ChatService', () => {
   it('starts empty with default settings', () => {
     const file = chats.snapshot()
     expect(file.chats).toEqual([])
-    expect(file.settings.provider).toBe('anthropic')
+    expect(file.settings.provider).toBe('embedded')
   })
 
   it('writes chats and messages through to disk', async () => {
@@ -149,12 +149,18 @@ describe('per-chat overrides', () => {
 })
 
 describe('resolveSettings', () => {
-  const base = aiSettingsSchema.parse({})
+  const base = aiSettingsSchema.parse({ provider: 'anthropic' })
 
   it('fills in the provider defaults', () => {
     const resolved = resolveSettings(base)
     expect(resolved.model).toBe('claude-sonnet-4-5')
     expect(resolved.baseUrl).toBe('https://api.anthropic.com')
+  })
+
+  it('starts embedded, on the default model, so a fresh install has an assistant', () => {
+    const fresh = resolveSettings(aiSettingsSchema.parse({}))
+    expect(fresh.provider).toBe('embedded')
+    expect(fresh.model).toBe('gemma-3n-e4b')
   })
 
   it('lets a chat override the project', () => {

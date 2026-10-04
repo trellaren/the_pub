@@ -13,12 +13,7 @@ import { MODEL_PINS } from './modelPins.js'
  * To clear an entry: put the file's commit hash in the catalogue's `source`,
  * run `npm run pin-models`, and delete the line.
  */
-const UNPINNED: { id: string; why: string }[] = [
-  { id: 'bonsai-27b-q4_k_m', why: 'awaiting the published release artefact' },
-  { id: 'bonsai-27b-q8_0', why: 'awaiting the published release artefact' },
-  { id: 'bonsai-9b-q4_k_m', why: 'awaiting the published release artefact' },
-  { id: 'bonsai-4b-q4_k_m', why: 'awaiting the published release artefact' }
-]
+const UNPINNED: { id: string; why: string }[] = []
 
 const variants = EMBEDDED_MODELS.flatMap((model) => model.variants)
 

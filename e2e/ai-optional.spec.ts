@@ -160,7 +160,7 @@ test('an embedded model that is not downloaded says so rather than starting a do
   await harness.page.evaluate(() =>
     window.__pub.chats.getState().saveSettings({
       provider: 'embedded',
-      model: 'bonsai-4b',
+      model: 'gemma-3n-e2b',
       baseUrl: '',
       temperature: 0.7,
       maxTokens: 512,
@@ -183,4 +183,29 @@ test('an embedded model that is not downloaded says so rather than starting a do
   expect(error).toBeTruthy()
   const status = await harness.page.evaluate(() => window.pub.invoke('llm:status', {}))
   expect(status.variants.every((variant: LlmStatus['variants'][number]) => variant.state === 'absent')).toBe(true)
+})
+
+test('a first launch asks once which model should answer, and "none" turns AI off for good', async () => {
+  harness = await launch()
+  const card = harness.page.getByTestId('assistant-setup')
+  await expect(card).toBeVisible()
+  // The default is named with its licence before any download is offered.
+  await expect(card).toContainText('Gemma 3n')
+  await expect(card.getByRole('link', { name: 'Gemma Terms of Use' })).toBeVisible()
+
+  await card.getByTestId('assistant-setup-none').click()
+  await expect(card).toHaveCount(0)
+  // "None" is the app's AI-off posture: no panel, no command.
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.ai'))
+  await expect(harness.page.getByText('Assistant', { exact: true })).toHaveCount(0)
+
+  // Asked once: a relaunch with the same app data does not ask again, even
+  // after AI is turned back on.
+  // Close the app but keep its data folder, which is what a relaunch is.
+  const { userDataDir, projectDir } = harness
+  await harness.app.close()
+  harness = await launch({ userDataDir, projectDir })
+  await harness.page.evaluate(() => window.pub.invoke('app:setAiEnabled', { enabled: true }))
+  await expect(harness.page.getByTestId('welcome-project-root')).toBeVisible()
+  await expect(harness.page.getByTestId('assistant-setup')).toHaveCount(0)
 })

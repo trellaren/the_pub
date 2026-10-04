@@ -8,6 +8,9 @@ import { runCommand } from '@renderer/commands/registry.js'
 import { ConnectDialog } from './ConnectDialog.js'
 import { invoke } from '@renderer/lib/ipc.js'
 import type { DailyPrompt } from '@shared/model/writingPrompt.js'
+import { defaultVariantFor, findVariant, formatBytes } from '@shared/model/llm.js'
+import { aiSettingsSchema } from '@shared/model/ai.js'
+import { useChatStore, listenForModelProgress } from '@renderer/stores/chatStore.js'
 
 const NO_RECENTS: RecentProject[] = []
 
@@ -63,6 +66,8 @@ export function WelcomePanel() {
           </p>
         </div>
 
+        <AssistantSetupCard />
+
         <DailyPromptCard />
 
         {recents.length > 0 ? (
@@ -88,6 +93,121 @@ export function WelcomePanel() {
       </div>
       {connecting ? <ConnectDialog onClose={() => setConnecting(false)} /> : null}
     </PanelShell>
+  )
+}
+
+/**
+ * The one question a first launch asks: which model, if any, should answer.
+ *
+ * Shown until it is answered and then never again. The default is the model
+ * this machine can hold, named with its size and licence before a byte moves;
+ * "a different one" sends the person to the Assistant panel's settings, where
+ * every provider lives; "none" turns AI off, which is the app's existing
+ * posture for a writer who wants a plain writing tool, and is undone in
+ * Settings.
+ */
+function AssistantSetupCard() {
+  const aiEnabled = useAppStore((store) => store.state?.aiEnabled ?? false)
+  const done = useAppStore((store) => store.state?.assistantSetupDone ?? true)
+  const llm = useChatStore((store) => store.llm)
+  const downloads = useChatStore((store) => store.downloads)
+  const [error, setError] = useState<string | null>(null)
+  const [started, setStarted] = useState(false)
+
+  useEffect(() => {
+    if (aiEnabled && !done) void useChatStore.getState().refreshLlm()
+  }, [aiEnabled, done])
+  useEffect(() => listenForModelProgress(), [])
+
+  if (!aiEnabled || done) return null
+
+  const variant = llm ? defaultVariantFor(llm.totalMemoryBytes) : null
+  const model = variant ? findVariant(variant.id)?.model ?? null : null
+  const progress = variant ? downloads[variant.id] : undefined
+
+  const useDefault = async (): Promise<void> => {
+    if (!variant || !model) return
+    setError(null)
+    setStarted(true)
+    await useChatStore.getState().saveSettings({
+      ...(useChatStore.getState().settings ?? aiSettingsSchema.parse({})),
+      provider: 'embedded',
+      model: model.id
+    }).catch(() => {})
+    const failure = await useChatStore.getState().downloadModel(variant.id)
+    if (failure) {
+      setError(failure)
+      setStarted(false)
+      return
+    }
+    await useAppStore.getState().setAssistantSetupDone()
+  }
+
+  return (
+    <div className="rounded border border-accent bg-accent-soft/40 p-3" data-testid="assistant-setup">
+      <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">The assistant</h2>
+      <p className="mb-2 text-[12px] text-text">
+        Quoth can run a model on this machine, so the assistant works with nothing leaving your
+        computer and no account to make.
+        {variant && model
+          ? ` The one that fits this machine is ${model.name} (${formatBytes(variant.bytes || 0) || variant.label}), under the `
+          : ' No model in the catalogue fits the memory on this machine, but a hosted provider will work. '}
+        {variant && model ? (
+          <>
+            <a href={model.license.url} target="_blank" rel="noreferrer" className="underline">
+              {model.license.name}
+            </a>
+            .
+          </>
+        ) : null}
+      </p>
+      {progress || started ? (
+        <p className="mb-2 text-[11px] text-muted" data-testid="assistant-setup-progress">
+          Downloading{progress ? ` — ${formatBytes(progress.received)}${progress.total ? ` of ${formatBytes(progress.total)}` : ''}` : '…'}
+        </p>
+      ) : null}
+      {error ? <p className="mb-2 text-[11px] text-danger">{error}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        {variant && model ? (
+          <button
+            type="button"
+            disabled={started}
+            onClick={() => void useDefault()}
+            className="rounded border border-accent bg-accent-soft px-3 py-1.5 text-[12px] text-accent hover:brightness-110 disabled:opacity-50"
+            data-testid="assistant-setup-default"
+          >
+            Download {model.name}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            void useAppStore.getState().setAssistantSetupDone()
+            // The provider picker lives with the chats, which need a project;
+            // the panel says so itself when none is open.
+            void runCommand('panel.ai')
+          }}
+          className="rounded border border-border px-3 py-1.5 text-[12px] text-muted hover:border-faint hover:text-text"
+          data-testid="assistant-setup-other"
+        >
+          Choose a different model
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void useAppStore.getState().setAssistantSetupDone()
+            void useAppStore.getState().setAiEnabled(false)
+          }}
+          className="rounded border border-border px-3 py-1.5 text-[12px] text-muted hover:border-faint hover:text-text"
+          data-testid="assistant-setup-none"
+        >
+          No model for now
+        </button>
+      </div>
+      <p className="mt-2 text-[10px] text-faint">
+        Change your mind any time in Settings, or in the Assistant panel&rsquo;s ⚙.
+      </p>
+    </div>
   )
 }
 

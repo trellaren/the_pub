@@ -137,6 +137,12 @@ export class AppStateService {
     return assistantProfile(this.author())
   }
 
+  setAssistantSetupDone(): AppState {
+    this.state = { ...this.state, assistantSetupDone: true }
+    this.persist()
+    return this.state
+  }
+
   setDailyPrompt(dailyPrompt: DailyPrompt): DailyPrompt {
     this.state = { ...this.state, dailyPrompt }
     this.persist()

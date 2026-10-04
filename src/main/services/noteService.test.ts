@@ -60,6 +60,9 @@ describe('NoteService', () => {
 
   it('saves an edit to a note, keeping its creation date', async () => {
     const note = await notes.create('doc-1', 'a1', 'original', 0)
+    // Timestamps are millisecond ISO strings; on a fast machine both calls
+    // can land in the same millisecond and the assertion below flakes.
+    await new Promise((resolve) => setTimeout(resolve, 2))
     const saved = await notes.save('doc-1', { ...note, resolved: true })
     expect(saved.resolved).toBe(true)
     expect(saved.created).toBe(note.created)

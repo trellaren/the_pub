@@ -1,5 +1,7 @@
 import { Mark, Extension, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey, type Transaction, type EditorState } from '@tiptap/pm/state'
+import { Plugin, PluginKey, Selection, type Transaction, type EditorState } from '@tiptap/pm/state'
+import { Slice, type Node as PmNode } from '@tiptap/pm/model'
+import { Mapping, ReplaceStep, type StepMap } from '@tiptap/pm/transform'
 import type { EditorView } from '@tiptap/pm/view'
 import { INSERTION_MARK, DELETION_MARK } from '@shared/model/suggestion.js'
 import { colorForAuthor, describeAuthor } from '@shared/model/author.js'
@@ -146,13 +148,15 @@ export const SuggestingMode = Extension.create<SuggestionOptions>({
     // Per editor, not per module: a popped-out window has its own view, and a
     // shared reference would send one editor's rewrite to the other.
     let view: EditorView | null = null
+    const pending: RewritePlan[] = []
 
     return [
       new Plugin<SuggestionOptions>({
         key: suggestionModeKey,
         state: {
           init: () => ({ ...options }),
-          apply: (transaction, value) => {
+          apply: (transaction, value, _oldState, newState) => {
+            trackPending(pending, transaction, newState)
             const next = transaction.getMeta(suggestionModeKey) as SuggestionOptions | undefined
             return next ?? value
           }
@@ -166,11 +170,22 @@ export const SuggestingMode = Extension.create<SuggestionOptions>({
           }
         },
         appendTransaction: (transactions, _oldState, newState) => markInsertions(transactions, newState),
-        filterTransaction: (transaction, state) =>
-          allowOrRewrite(transaction, state, (replacement) => {
-            // Deferred, because dispatching from inside a filter re-enters it.
-            queueMicrotask(() => view?.dispatch(replacement))
+        filterTransaction: (transaction, state) => {
+          const plan = planRewrite(transaction, state)
+          if (!plan) return true
+          pending.push(plan)
+          // Deferred, because dispatching from inside a filter re-enters it.
+          // Built from the state current at dispatch time, not the one the
+          // filter saw: anything that landed in between would otherwise make
+          // this a transaction for a document that no longer exists.
+          queueMicrotask(() => {
+            pending.splice(pending.indexOf(plan), 1)
+            if (!view || view.state.doc !== plan.doc) return
+            const rewrite = applyPlan(plan, view.state)
+            if (rewrite) view.dispatch(rewrite)
           })
+          return false
+        }
       })
     ]
   }
@@ -226,66 +241,129 @@ function markInsertions(
   return tracked
 }
 
+interface PlannedReplace {
+  from: number
+  to: number
+  slice: Slice
+}
+
+/**
+ * A rejected transaction's intent, in coordinates of `doc`, kept current by
+ * `trackPending` until it can be replayed as a suggestion.
+ */
+export interface RewritePlan {
+  mode: SuggestionOptions
+  replaces: PlannedReplace[]
+  mapping: Mapping
+  doc: PmNode
+}
+
+/** Carry each pending plan through a transaction that landed before it was replayed. */
+export function trackPending(plans: RewritePlan[], transaction: Transaction, newState: EditorState): void {
+  for (const plan of plans) {
+    plan.mapping.appendMapping(transaction.mapping)
+    plan.doc = newState.doc
+  }
+}
+
 /**
  * Turn a deletion into a proposal.
  *
- * Returning `false` cancels the transaction; the replacement is dispatched in
- * its place. `filterTransaction` is where this has to live because it is the
- * only hook that sees a deletion *before* the text is gone.
+ * `filterTransaction` is where this has to live because it is the only hook
+ * that sees a deletion *before* the text is gone. A `null` plan lets the
+ * transaction through untouched; otherwise the caller cancels it and replays
+ * the plan with `applyPlan`. Inserted content is part of the plan, not just the
+ * deletions: typing over a selection, Replace and paste-over-selection all
+ * delete and insert in one step, and dropping the insertion would lose the
+ * writer's new words.
  */
-function allowOrRewrite(
-  transaction: Transaction,
-  state: EditorState,
-  dispatch: (replacement: Transaction) => void
-): boolean {
+export function planRewrite(transaction: Transaction, state: EditorState): RewritePlan | null {
   const mode = modeOf(state)
-  if (!mode.enabled || !mode.authorId) return true
-  if (transaction.getMeta(suggestionModeKey)) return true
-  if (!transaction.docChanged) return true
+  if (!mode.enabled || !mode.authorId) return null
+  if (transaction.getMeta(suggestionModeKey)) return null
+  if (!transaction.docChanged) return null
+  const insertionType = state.schema.marks[INSERTION_MARK]
+  if (!state.schema.marks[DELETION_MARK] || !insertionType) return null
 
-  const deletions = deletedRanges(transaction)
-  if (deletions.length === 0) return true
+  const replaces: PlannedReplace[] = []
+  // Built by hand: `Mapping.invert` ignores a slice's bounds and would invert
+  // every step, not just the ones before this one.
+  const undoSoFar: StepMap[] = []
+  transaction.steps.forEach((step) => {
+    const back = new Mapping([...undoSoFar])
+    undoSoFar.unshift(step.getMap().invert())
+    if (step instanceof ReplaceStep) {
+      const from = back.map(step.from, 1)
+      replaces.push({ from, to: Math.max(from, back.map(step.to, -1)), slice: step.slice })
+      return
+    }
+    step.getMap().forEach((oldStart, oldEnd) => {
+      if (oldEnd <= oldStart) return
+      const from = back.map(oldStart, 1)
+      replaces.push({ from, to: Math.max(from, back.map(oldEnd, -1)), slice: Slice.empty })
+    })
+  })
 
+  const deletesText = replaces.some(
+    (replace) =>
+      replace.to > replace.from &&
+      classify(state.doc, replace, mode.authorId, insertionType.name).length > 0
+  )
+  if (!deletesText) return null
+  return { mode, replaces, mapping: new Mapping(), doc: state.doc }
+}
+
+/**
+ * Replay a plan against `state` as suggestions: this author's own pending
+ * insertions are really removed, everything else is struck through, and new
+ * content lands after the struck text carrying the insertion mark.
+ */
+export function applyPlan(plan: RewritePlan, state: EditorState): Transaction | null {
   const deletionType = state.schema.marks[DELETION_MARK]
   const insertionType = state.schema.marks[INSERTION_MARK]
-  if (!deletionType || !insertionType) return true
+  if (!deletionType || !insertionType) return null
+  const { authorId } = plan.mode
+  const at = new Date().toISOString()
 
   const rewritten = state.tr
-  let rewroteSomething = false
+  let cursor: number | null = null
+  for (const replace of plan.replaces) {
+    const from = plan.mapping.map(replace.from, 1)
+    const to = Math.max(from, plan.mapping.map(replace.to, -1))
 
-  for (const range of deletions) {
-    // Walk the doomed range and split it: text that is this author's own
-    // pending insertion is really removed, everything else is struck through.
-    const segments = classify(state, range, mode.authorId, insertionType.name)
-    for (const segment of segments) {
-      if (segment.own) {
-        rewritten.delete(rewritten.mapping.map(segment.from), rewritten.mapping.map(segment.to))
-      } else {
-        rewritten.addMark(
-          rewritten.mapping.map(segment.from),
-          rewritten.mapping.map(segment.to),
-          deletionType.create({ authorId: mode.authorId, at: new Date().toISOString() })
-        )
+    if (to > from) {
+      const range = { from: rewritten.mapping.map(from, 1), to: rewritten.mapping.map(to, -1) }
+      const segments = classify(rewritten.doc, range, authorId, insertionType.name)
+      const stepsBefore = rewritten.steps.length
+      for (const segment of segments) {
+        const local = rewritten.mapping.slice(stepsBefore)
+        const segmentFrom = local.map(segment.from, 1)
+        const segmentTo = local.map(segment.to, -1)
+        if (segment.own) rewritten.delete(segmentFrom, segmentTo)
+        else rewritten.addMark(segmentFrom, segmentTo, deletionType.create({ authorId, at }))
       }
-      rewroteSomething = true
+    }
+
+    if (replace.slice.size > 0) {
+      const insertAt = rewritten.mapping.map(to, 1)
+      const stepsBefore = rewritten.steps.length
+      rewritten.replace(insertAt, insertAt, replace.slice)
+      const local = rewritten.mapping.slice(stepsBefore)
+      const insertedFrom = local.map(insertAt, -1)
+      const insertedTo = local.map(insertAt, 1)
+      if (insertedTo > insertedFrom) {
+        rewritten.removeMark(insertedFrom, insertedTo, deletionType)
+        rewritten.removeMark(insertedFrom, insertedTo, insertionType)
+        rewritten.addMark(insertedFrom, insertedTo, insertionType.create({ authorId, at }))
+        cursor = insertedTo
+      }
     }
   }
 
-  if (!rewroteSomething) return true
-  rewritten.setMeta(suggestionModeKey, mode)
-  dispatch(rewritten)
-  return false
-}
-
-/** Ranges this transaction would remove, in the document as it stands now. */
-function deletedRanges(transaction: Transaction): { from: number; to: number }[] {
-  const ranges: { from: number; to: number }[] = []
-  for (const step of transaction.steps) {
-    step.getMap().forEach((oldStart, oldEnd) => {
-      if (oldEnd > oldStart) ranges.push({ from: oldStart, to: oldEnd })
-    })
-  }
-  return ranges
+  if (rewritten.steps.length === 0) return null
+  if (cursor !== null) rewritten.setSelection(Selection.near(rewritten.doc.resolve(cursor), -1))
+  rewritten.setMeta(suggestionModeKey, plan.mode)
+  return rewritten
 }
 
 /**
@@ -297,13 +375,13 @@ function deletedRanges(transaction: Transaction): { from: number; to: number }[]
  * partly wrote a moment ago.
  */
 function classify(
-  state: EditorState,
+  doc: PmNode,
   range: { from: number; to: number },
   authorId: string,
   insertionName: string
 ): { from: number; to: number; own: boolean }[] {
   const segments: { from: number; to: number; own: boolean }[] = []
-  state.doc.nodesBetween(range.from, range.to, (node, position) => {
+  doc.nodesBetween(range.from, range.to, (node, position) => {
     if (!node.isText) return true
     const from = Math.max(range.from, position)
     const to = Math.min(range.to, position + node.nodeSize)

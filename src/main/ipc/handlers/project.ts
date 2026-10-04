@@ -7,7 +7,7 @@ import { requirePortableName, type HandlerContext } from '../context.js'
 import { importFontFile } from './fontImport.js'
 
 export function register(ctx: HandlerContext): void {
-  const { handle, windows, sessions, templates, requireSession, ownerWindow, pickFiles, openInto } = ctx
+  const { handle, windows, sessions, appState, templates, requireSession, ownerWindow, pickFiles, openInto } = ctx
 
   handle('project:openDialog', async (_payload, event) => {
     const result = await dialog.showOpenDialog(ownerWindow(event), {
@@ -36,6 +36,8 @@ export function register(ctx: HandlerContext): void {
     }
     return { ok: true as const }
   })
+
+  handle('project:forgetRecent', ({ uri }) => appState.removeRecent(uri))
 
   handle('project:updateManifest', async ({ manifest }, event) =>
     requireSession(event).saveManifest(manifest)

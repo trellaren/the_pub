@@ -142,6 +142,7 @@ export const ipcContract = defineContract({
     'project:openDialog': { req: empty, res: openProjectSchema.nullable() },
     'project:open': { req: z.object({ uri: z.string() }), res: openProjectSchema },
     'project:close': { req: empty, res: ok },
+    'project:forgetRecent': { req: z.object({ uri: z.string() }), res: appStateSchema },
     'project:updateManifest': { req: z.object({ manifest: projectManifestSchema }), res: projectManifestSchema },
 
     'templates:list': { req: empty, res: z.array(templateSummarySchema) },

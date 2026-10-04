@@ -20,6 +20,7 @@ export const INVOKE_CHANNELS = [
   'project:openDialog',
   'project:open',
   'project:close',
+  'project:forgetRecent',
   'project:updateManifest',
   'templates:list',
   'templates:instantiate',

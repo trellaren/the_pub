@@ -237,16 +237,25 @@ export class ProjectSession {
   }
 
   async close(): Promise<void> {
-    if (this.unwatch) await this.unwatch()
+    // Every step runs whatever the one before it did: a dropped SFTP or
+    // OneDrive connection fails the final writes, and that must not leave the
+    // index database and the connection itself open with nothing left to retry.
+    try {
+      if (this.unwatch) await this.unwatch()
+    } catch {
+      // The watcher is going away either way.
+    }
     this.unwatch = null
     // Stop paying for replies nobody will read.
     this.ai.cancelAll()
     this.retrieval.cancel()
     // Before the adapter goes: leaving needs one last write.
-    await this.presence.leave()
-    await this.stats.flush()
-    this.search.close()
-    await this.adapter.dispose()
+    await Promise.allSettled([this.presence.leave(), this.stats.flush()])
+    try {
+      this.search.close()
+    } finally {
+      await this.adapter.dispose()
+    }
   }
 }
 

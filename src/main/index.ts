@@ -181,12 +181,28 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  void Promise.all(sessions.all().map((projectSession) => projectSession.close()))
-  void rendererServer?.close()
-  // Unconditional: the model is a child process holding gigabytes, and an app
-  // that has quit must not leave one running.
-  void engine?.stop()
+/** Long enough for a last stats write over a slow link, short enough that quitting still feels like quitting. */
+const QUIT_CLEANUP_TIMEOUT_MS = 3000
+let cleanedUp = false
+
+app.on('before-quit', (event) => {
+  if (cleanedUp) return
+  // Quitting waits for this once: left to run behind an exiting process, the
+  // last stats and presence writes were lost and llama-server could miss the
+  // escalation to SIGKILL that `engine.stop` relies on.
+  event.preventDefault()
+  const cleanup = Promise.allSettled([
+    ...sessions.all().map((projectSession) => projectSession.close()),
+    rendererServer?.close(),
+    // Unconditional: the model is a child process holding gigabytes, and an app
+    // that has quit must not leave one running.
+    engine?.stop()
+  ])
+  const timeout = new Promise((resolve) => setTimeout(resolve, QUIT_CLEANUP_TIMEOUT_MS))
+  void Promise.race([cleanup, timeout]).finally(() => {
+    cleanedUp = true
+    app.quit()
+  })
 })
 
 /**

@@ -254,7 +254,24 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
       allowStart
     )
 
-  async function openInto(ownerId: number, uri: string): Promise<ProjectSession> {
+  /**
+   * One open at a time per window. Two overlapping opens — a double-click on a
+   * recent project — would each close, each open, and the second `set` would
+   * drop the first session without closing it: its watcher, index database and
+   * server connection left running for the life of the app.
+   */
+  const opening = new Map<number, Promise<unknown>>()
+  function openInto(ownerId: number, uri: string): Promise<ProjectSession> {
+    const previous = opening.get(ownerId) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(() => openIntoNow(ownerId, uri))
+    opening.set(ownerId, next)
+    void next.finally(() => {
+      if (opening.get(ownerId) === next) opening.delete(ownerId)
+    }).catch(() => {})
+    return next
+  }
+
+  async function openIntoNow(ownerId: number, uri: string): Promise<ProjectSession> {
     await sessions.close(ownerId)
     const session = await ProjectSession.open(uri, {
       onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),

@@ -56,4 +56,28 @@ describe('replaceCurrent', () => {
     replaceCurrent(editor, '<b>you</b> & co')
     expect(editor.state.doc.textContent).toBe('find <b>you</b> & co')
   })
+
+  it('replaces consecutive matches one after another without skipping', () => {
+    editor = new Editor({
+      element: document.createElement('div'),
+      extensions: [StarterKit, FindHighlight],
+      content: paragraphs('a a a a')
+    })
+    setFind(editor, { term: 'a', matchCase: false, wholeWord: false })
+    replaceCurrent(editor, 'b')
+    replaceCurrent(editor, 'b')
+    expect(editor.state.doc.textContent).toBe('b b a a')
+  })
+
+  it('moves past a replacement that itself matches', () => {
+    editor = new Editor({
+      element: document.createElement('div'),
+      extensions: [StarterKit, FindHighlight],
+      content: paragraphs('cat cat')
+    })
+    setFind(editor, { term: 'cat', matchCase: false, wholeWord: false })
+    replaceCurrent(editor, 'cats')
+    replaceCurrent(editor, 'cats')
+    expect(editor.state.doc.textContent).toBe('cats cats')
+  })
 })

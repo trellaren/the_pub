@@ -43,6 +43,16 @@ export function replaceCurrent(editor: Editor, replacement: string): boolean {
       return true
     })
     .run()
+  // The plugin recomputes matches and keeps the same index, which now points
+  // at whatever followed — unless the replacement itself matches, in which
+  // case it points back at the text just written. Either way, the next match
+  // is the first one starting after the replacement.
+  const after = match.from + replacement.length
+  const remaining = getFindState(editor.state).matches
+  const next = remaining.findIndex((candidate) => candidate.from >= after)
+  const current = remaining.length === 0 ? -1 : next === -1 ? 0 : next
+  editor.view.dispatch(editor.state.tr.setMeta(findPluginKey, { current }))
+  focusCurrentMatch(editor)
   return true
 }
 

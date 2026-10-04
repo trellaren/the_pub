@@ -2,6 +2,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { pipeline } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 
 const MIME_TYPES: Record<string, string> = {
@@ -149,7 +150,10 @@ async function handle(
       response.end()
       return
     }
-    fs.createReadStream(target).pipe(response)
+    // Headers are already sent, so a read that fails midway can only end the
+    // response; `pipeline` destroys both sides, where `.pipe` left the socket
+    // open waiting for bytes that would never come.
+    pipeline(fs.createReadStream(target), response, () => {})
   } catch {
     response.writeHead(404).end()
   }

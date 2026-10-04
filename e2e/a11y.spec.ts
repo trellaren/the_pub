@@ -72,14 +72,19 @@ test('Focus Panel… lists open panels and moves focus into the chosen one', asy
 test('Cycle Panel Focus moves DOM focus between open panels', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
+  // `ensureDocumentOpen` lands an editor on a delay and activates it over a
+  // passive panel such as the Explorer; focus taken before it arrives is
+  // taken back from under the test.
+  await harness.page.waitForFunction(() =>
+    window.__pub.layout.getState().api?.panels.some((panel) => panel.id.startsWith('editor:'))
+  )
   await harness.page.evaluate(() => window.__pub.runCommand('panel.search'))
   await harness.page.evaluate(() => window.__pub.runCommand('panel.explorer'))
   await harness.page.evaluate(() => window.__pub.layout.getState().focusPanelById('explorer'))
+  await expect.poll(() => focusedPanelTitle(harness.page)).toBe('Explorer')
 
-  const before = await focusedPanelTitle(harness.page)
   await harness.page.evaluate(() => window.__pub.runCommand('panel.cycle'))
-  const after = await focusedPanelTitle(harness.page)
-  expect(after).not.toBe(before)
+  await expect.poll(() => focusedPanelTitle(harness.page)).not.toBe('Explorer')
 })
 
 // Phase 14, Part 1: opening a dialog must not leave focus reachable on the

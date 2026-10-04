@@ -19,6 +19,22 @@ function doc(...blocks: PmNode[]): PmDoc {
 }
 
 describe('exportFountain', () => {
+  it('keeps a footnote body out of the line it is attached to', () => {
+    const line: PmNode = {
+      type: 'paragraph',
+      attrs: { styleId: STYLE_ACTION },
+      content: [
+        { type: 'text', text: 'Rain falls.' },
+        { type: 'footnote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A note.' }] }] },
+        { type: 'hardBreak' },
+        { type: 'text', text: 'It stops.' }
+      ]
+    }
+    const text = exportFountain(doc(line))
+    expect(text).toContain('Rain falls. It stops.')
+    expect(text).not.toContain('A note.')
+  })
+
   it('emits a Title line and a blank line before the body when given a title', () => {
     const text = exportFountain(doc(para(STYLE_ACTION, 'Rain.')), { title: 'The Long Way Home' })
     expect(text.startsWith('Title: The Long Way Home\n\n')).toBe(true)

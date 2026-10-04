@@ -40,3 +40,46 @@ describe('selectSnapshotsToKeep', () => {
     expect(selectSnapshotsToKeep([], NOW).size).toBe(0)
   })
 })
+
+describe('SnapshotService on disk', () => {
+  async function setup() {
+    const fs = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { LocalAdapter } = await import('../vfs/localAdapter.js')
+    const { SnapshotService } = await import('./snapshotService.js')
+    const { SNAPSHOTS_DIR, FORMAT_VERSIONS } = await import('../../shared/constants.js')
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-snapshots-'))
+    const adapter = new LocalAdapter(root)
+    const dir = path.join(root, SNAPSHOTS_DIR, 'doc-1')
+    await fs.mkdir(dir, { recursive: true })
+    return { fs, path, root, adapter, dir, snapshots: new SnapshotService(adapter), version: FORMAT_VERSIONS.document }
+  }
+
+  it('lists and prunes only files it named, leaving anything else alone', async () => {
+    const { fs, path, root, adapter, dir, snapshots } = await setup()
+    try {
+      await fs.writeFile(path.join(dir, 'notes-from-me.json'), '{}')
+      expect(await snapshots.list('doc-1')).toEqual([])
+      await snapshots.prune('doc-1')
+      expect(await fs.readdir(dir)).toEqual(['notes-from-me.json'])
+    } finally {
+      await adapter.dispose()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to restore a version a newer build saved', async () => {
+    const { fs, path, root, adapter, dir, snapshots, version } = await setup()
+    try {
+      await fs.writeFile(
+        path.join(dir, '2026-01-01T00-00-00-000Z.json'),
+        JSON.stringify({ formatVersion: version + 1, docId: 'doc-1', title: 'x', content: { type: 'doc', content: [] } })
+      )
+      await expect(snapshots.read('doc-1', '2026-01-01T00:00:00.000Z')).rejects.toThrow(/newer version/)
+    } finally {
+      await adapter.dispose()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+})

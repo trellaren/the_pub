@@ -1,6 +1,8 @@
 import type { PmDoc, PmMark, PmNode } from '../../shared/model/document.js'
 import type { NamedStyle } from '../../shared/model/style.js'
 import { styleClassName } from './css.js'
+import { rawBlockText } from '../../shared/pm/extractText.js'
+import { ANCHOR_MARK } from '../../shared/model/anchor.js'
 
 /**
  * ProseMirror JSON → XHTML, the EPUB counterpart of `toDocx.ts`'s run
@@ -58,7 +60,7 @@ function blockToXhtml(node: PmNode, styles: NamedStyle[], state: WalkState, pref
     case 'orderedList':
       return `<ol${classAttr}>\n${listItemsToXhtml(node.content ?? [], styles, state, prefix)}\n</ol>`
     case 'codeBlock':
-      return `<pre><code>${escapeXml(plainText(node))}</code></pre>`
+      return `<pre><code>${escapeXml(rawBlockText(node))}</code></pre>`
     case 'horizontalRule':
       return '<hr/>'
     case 'table':
@@ -204,11 +206,6 @@ export function imageHref(src: string): string {
   return `../images/${name}`
 }
 
-function plainText(node: PmNode): string {
-  if (node.type === 'text') return node.text ?? ''
-  return (node.content ?? []).map(plainText).join('')
-}
-
 function numberAttr(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -270,5 +267,7 @@ export const XHTML_MARK_TYPES = new Set([
   'lang',
   // Assistant attribution, like the review marks: a reader has no use for it,
   // so it degrades to plain text and the document's own log keeps the record.
-  'aiAuthored'
+  'aiAuthored',
+  // Note and thread anchors: what hangs from them is not part of the book.
+  ANCHOR_MARK
 ])

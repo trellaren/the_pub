@@ -210,6 +210,38 @@ describe('lists', () => {
     expect(found[1]!.type).toBe('orderedList')
   })
 
+  it('treats numId 0 as no numbering, not as an unknown bulleted list', () => {
+    const found = blocks(paragraph(run('plain'), '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>'), {
+      body: '',
+      numbering: WORD_NUMBERING
+    })
+    expect(found.map((node) => node.type)).toEqual(['paragraph'])
+  })
+
+  it('nests deeper levels inside the item before them', () => {
+    const found = blocks(
+      paragraph(run('outer'), '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>') +
+        paragraph(run('inner'), '<w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr>') +
+        paragraph(run('next'), '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>'),
+      { body: '', numbering: WORD_NUMBERING }
+    )
+    expect(found).toHaveLength(1)
+    expect(found[0]!.content).toHaveLength(2)
+    const outer = found[0]!.content![0]!
+    expect(outer.content!.map((node) => node.type)).toEqual(['paragraph', 'bulletList'])
+    expect(textOf(outer.content![1])).toBe('inner')
+  })
+
+  it('keeps a list that restarts under a new numId separate', () => {
+    const numbering = `${WORD_NUMBERING}<w:num w:numId="3"><w:abstractNumId w:val="1"/></w:num>`
+    const found = blocks(
+      paragraph(run('a'), '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>') +
+        paragraph(run('b'), '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr>'),
+      { body: '', numbering }
+    )
+    expect(found.map((node) => node.type)).toEqual(['orderedList', 'orderedList'])
+  })
+
   it('drops the indent Word puts on each item, which the list supplies itself', () => {
     const found = blocks(
       paragraph(

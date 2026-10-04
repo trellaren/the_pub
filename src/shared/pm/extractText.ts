@@ -38,7 +38,6 @@ export const INLINE_TYPES = new Set([
   'text',
   'hardBreak',
   'image',
-  'characterMention',
   'mention',
   'field',
   'footnote'

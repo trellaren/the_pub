@@ -1,6 +1,7 @@
 import type { VfsAdapter } from '../vfs/types.js'
 import type { Snapshot } from '../../shared/model/snapshot.js'
 import { pubDocumentSchema, type PubDocument } from '../../shared/model/document.js'
+import { migrate } from '../../shared/model/migrate.js'
 import { SNAPSHOTS_DIR, SNAPSHOT_MIN_INTERVAL_MS, SNAPSHOT_MAX_PER_DOC } from '../../shared/constants.js'
 
 const HOUR = 60 * 60 * 1000
@@ -74,12 +75,11 @@ export class SnapshotService {
     const snapshots: Snapshot[] = []
     for (const entry of entries) {
       if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
-      snapshots.push({
-        docId,
-        timestamp: fromStamp(entry.name.replace(/\.json$/, '')),
-        size: entry.size ?? 0,
-        wordCount: 0
-      })
+      // Only files this service named. Anything else in the folder is not a
+      // snapshot — and `prune`, which works from this list, must never delete it.
+      const timestamp = fromStamp(entry.name.replace(/\.json$/, ''))
+      if (timestamp === null) continue
+      snapshots.push({ docId, timestamp, size: entry.size ?? 0 })
     }
     return snapshots.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
   }
@@ -87,7 +87,11 @@ export class SnapshotService {
   async read(docId: string, timestamp: string): Promise<PubDocument> {
     const stamp = timestamp.replace(/[:.]/g, '-')
     const raw = await this.adapter.readFile(`${this.dirFor(docId)}/${stamp}.json`)
-    return pubDocumentSchema.parse(JSON.parse(raw.toString('utf8')))
+    const { value, tooNew } = migrate('document', JSON.parse(raw.toString('utf8')))
+    // Restoring it would parse it through this build's schema, dropping what it
+    // does not know, and write the loss back as the current version.
+    if (tooNew) throw new Error('This version was saved by a newer version of Quoth, so it cannot be restored here.')
+    return pubDocumentSchema.parse(value)
   }
 
   /**
@@ -109,9 +113,9 @@ export class SnapshotService {
 }
 
 /** Snapshot filenames replace `:` and `.` (illegal on Windows) — undo that. */
-function fromStamp(stamp: string): string {
+function fromStamp(stamp: string): string | null {
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(stamp)
-  if (!match) return stamp
+  if (!match) return null
   return `${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`
 }
 

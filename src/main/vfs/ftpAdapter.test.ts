@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { Client } from 'basic-ftp'
 import { FtpAdapter, type FtpConnection } from './ftpAdapter.js'
 import { startFtpServer, type FtpTestServer } from './ftpTestServer.js'
 import { pollingWatch } from './pollingWatcher.js'
@@ -49,6 +50,7 @@ beforeEach(async ({ task }) => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(adapters.map((adapter) => adapter.dispose()))
   adapters = []
 })
@@ -443,6 +445,56 @@ describe('the session', () => {
     await adapter.dispose()
     await settle()
     expect(server.openConnections()).toBe(0)
+  })
+})
+
+describe('commands that must not be resent blindly', () => {
+  it('does not resend a rename the server carried out before the session dropped', async () => {
+    await fsp.writeFile(onDisk('draft.txt'), 'x')
+    const adapter = connect()
+    const original = Client.prototype.rename
+    const rename = vi.spyOn(Client.prototype, 'rename').mockImplementation(async function (
+      this: Client,
+      from: string,
+      to: string
+    ) {
+      await original.call(this, from, to)
+      throw new Error('Server closed connection unexpectedly.')
+    })
+
+    await adapter.rename('draft.txt', 'final.txt')
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(await fsp.readFile(onDisk('final.txt'), 'utf8')).toBe('x')
+  })
+
+  it('resends a rename that evidently never reached the server', async () => {
+    await fsp.writeFile(onDisk('draft.txt'), 'x')
+    const adapter = connect()
+    const original = Client.prototype.rename
+    let calls = 0
+    vi.spyOn(Client.prototype, 'rename').mockImplementation(async function (
+      this: Client,
+      from: string,
+      to: string
+    ) {
+      calls += 1
+      if (calls === 1) throw new Error('Server closed connection unexpectedly.')
+      return original.call(this, from, to)
+    })
+
+    await adapter.rename('draft.txt', 'final.txt')
+    expect(calls).toBe(2)
+    expect(await fsp.readFile(onDisk('final.txt'), 'utf8')).toBe('x')
+  })
+})
+
+describe('modification times without MDTM', () => {
+  it('reports no mtime rather than the listing’s minute-resolution guess', async () => {
+    await fsp.writeFile(onDisk('chapter.pubdoc'), 'x')
+    vi.spyOn(Client.prototype, 'lastMod').mockRejectedValue(Object.assign(new Error('502'), { code: 502 }))
+    const entry = await connect().stat('chapter.pubdoc')
+    expect(entry?.kind).toBe('file')
+    expect(entry?.mtime).toBeUndefined()
   })
 })
 

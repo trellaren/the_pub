@@ -31,6 +31,8 @@ import { HeadingNumbers } from './extensions/headingNumbers.js'
 import { SceneHeading } from './extensions/sceneHeading.js'
 import { Lang } from './extensions/lang.js'
 import { EscapeFocus } from './extensions/escapeFocus.js'
+import { cleanPastedHtml } from './pasteCleanup.js'
+import { reportNotice } from '@renderer/lib/ipc.js'
 
 export interface CreateEditorOptions {
   content: PmDoc
@@ -142,6 +144,17 @@ export function createEditor(options: CreateEditorOptions): Editor {
         role: 'textbox',
         'aria-multiline': 'true',
         ...(options.lang ? { lang: options.lang } : {})
+      },
+      transformPastedHTML: (html) => {
+        const { html: cleaned, droppedImages } = cleanPastedHtml(html)
+        if (droppedImages > 0) {
+          reportNotice(
+            droppedImages === 1
+              ? 'A pasted image was left out. Insert it from a file instead.'
+              : `${droppedImages} pasted images were left out. Insert them from files instead.`
+          )
+        }
+        return cleaned
       }
     },
     // Only handlers that actually exist are passed: TipTap installs no-op

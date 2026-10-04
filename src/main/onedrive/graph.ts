@@ -22,6 +22,7 @@ export interface HttpRequest {
   method: string
   headers: Record<string, string>
   body?: string | Uint8Array
+  signal?: AbortSignal
 }
 
 export type HttpFetch = (url: string, init: HttpRequest) => Promise<HttpResponse>
@@ -51,6 +52,12 @@ const RETRYABLE = new Set([429, 503, 504])
 /** A `Retry-After` longer than this is honoured as this: an autosave cannot block for two minutes. */
 const MAX_BACKOFF_MS = 10_000
 const DEFAULT_ATTEMPTS = 4
+/**
+ * Long enough for one upload chunk on a slow connection; short enough that a
+ * request the network silently dropped fails instead of holding the save, and
+ * every save queued behind it, forever.
+ */
+export const REQUEST_TIMEOUT_MS = 60_000
 
 export class GraphError extends Error {
   constructor(
@@ -101,6 +108,7 @@ export class GraphClient {
        * it fails the request rather than being ignored.
        */
       anonymous?: boolean
+      signal?: AbortSignal
     } = {}
   ): Promise<HttpResponse> {
     let refreshed = false
@@ -109,9 +117,11 @@ export class GraphClient {
       const auth: Record<string, string> = options.anonymous
         ? {}
         : { authorization: `Bearer ${await this.tokens.get()}` }
+      const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       const response = await this.http(url, {
         method,
         headers: { ...auth, ...options.headers },
+        signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
         ...(options.body === undefined ? {} : { body: options.body })
       })
 
@@ -155,10 +165,15 @@ export class GraphClient {
  * so it wins over any guess — but only up to a point, because a save that
  * blocks for two minutes is indistinguishable from a hung app.
  */
-export function backoffFor(response: HttpResponse, attempt: number): number {
-  const header = response.headers.get('retry-after')
-  const seconds = header ? Number(header) : NaN
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS)
+export function backoffFor(response: HttpResponse, attempt: number, now = Date.now()): number {
+  const header = response.headers.get('retry-after')?.trim()
+  if (header) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS)
+    // The other form RFC 9110 allows: an HTTP-date to wait until.
+    const until = Date.parse(header)
+    if (Number.isFinite(until)) return Math.min(Math.max(until - now, 0), MAX_BACKOFF_MS)
+  }
   return Math.min(500 * 2 ** attempt, MAX_BACKOFF_MS)
 }
 

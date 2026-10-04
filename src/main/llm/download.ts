@@ -56,6 +56,11 @@ const partialPath = (destination: string): string => `${destination}.partial`
 /**
  * Bytes already fetched, or 0 when there is nothing to resume from.
  *
+ * A partial exactly the expected size is a transfer that finished but was
+ * never verified and renamed — a crash in between, or a mismatch check that
+ * never ran — and is returned as is, so the caller can verify it without
+ * asking the server for a range past the end.
+ *
  * A partial longer than the expected total is not a resume, it is a different
  * file under the same name — a catalogue entry re-pointed at a new revision is
  * the realistic way to get one — so it starts again rather than appending to
@@ -69,7 +74,7 @@ async function resumeOffset(
   try {
     const stat = await io.stat(partialPath(destination))
     if (!stat.isFile()) return 0
-    return stat.size > 0 && stat.size < expectedBytes ? stat.size : 0
+    return stat.size > 0 && stat.size <= expectedBytes ? stat.size : 0
   } catch {
     return 0
   }
@@ -106,6 +111,11 @@ export async function downloadModel(
 ): Promise<DownloadResult> {
   const io = deps.fs ?? fs.promises
   let received = await resumeOffset(io, target.destination, target.bytes)
+
+  if (target.bytes > 0 && received === target.bytes) {
+    options.onProgress?.(received, target.bytes)
+    return finish(io, target, await seedHash(io, target.destination, received), received)
+  }
 
   let response: Response
   try {
@@ -170,6 +180,31 @@ export async function downloadModel(
     await handle.close()
   }
 
+  // A stream that ends cleanly but short is a dropped connection some servers
+  // and proxies report as success. Without a digest to catch it, it would be
+  // renamed into place as a truncated model.
+  if (target.bytes > 0 && received !== target.bytes) {
+    return {
+      ok: false,
+      verify: 'unverified',
+      bytes: received,
+      error:
+        received < target.bytes
+          ? `The download ended early (${received} of ${target.bytes} bytes). It will carry on from where it stopped when you try again.`
+          : `The download was larger than expected (${received} bytes, not ${target.bytes}).`
+    }
+  }
+
+  return finish(io, target, hash, received)
+}
+
+/** Check the finished bytes against the catalogue and move them into place. */
+async function finish(
+  io: NonNullable<DownloadDeps['fs']>,
+  target: DownloadTarget,
+  hash: crypto.Hash,
+  received: number
+): Promise<DownloadResult> {
   const digest = hash.digest('hex')
   const verify: VerifyState = !target.sha256
     ? 'unverified'

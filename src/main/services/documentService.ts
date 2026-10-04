@@ -16,6 +16,8 @@ import type { SnapshotService } from './snapshotService.js'
 /** Upper bound on one imported image's decoded size. */
 const MAX_ASSET_BYTES = 20 * 1024 * 1024
 
+const READ_ATTEMPTS = 3
+
 export type WriteResult =
   | { ok: true; mtime: number }
   | { ok: false; reason: 'conflict'; diskMtime: number }
@@ -23,17 +25,32 @@ export type WriteResult =
 
 /** Reads and writes `.pubdoc` envelopes, with the crash- and conflict-safety around them. */
 export class DocumentService {
+  private readonly writing = new Map<string, Promise<unknown>>()
+
   constructor(
     private readonly adapter: VfsAdapter,
     private readonly snapshots: SnapshotService
   ) {}
 
+  /**
+   * The mtime returned is the conflict baseline for the next save, so it has to
+   * belong to the bytes actually read: a stat taken only afterwards could pair
+   * an old body with a newer writer's mtime, and the next save would silently
+   * overwrite that writer.
+   */
   async read(docPath: string): Promise<LoadedDocument> {
-    const raw = await this.adapter.readFile(docPath)
-    const { value } = migrate('document', JSON.parse(raw.toString('utf8')))
-    const doc = pubDocumentSchema.parse(value)
-    const stat = await this.adapter.stat(docPath)
-    return { doc, path: docPath, mtime: stat?.mtime ?? 0 }
+    for (let attempt = 1; ; attempt += 1) {
+      const before = await this.adapter.stat(docPath)
+      const raw = await this.adapter.readFile(docPath)
+      const after = await this.adapter.stat(docPath)
+      const stable = before?.mtime === after?.mtime && before?.size === after?.size
+      if (!stable && attempt < READ_ATTEMPTS) continue
+      const { value } = migrate('document', JSON.parse(raw.toString('utf8')))
+      const doc = pubDocumentSchema.parse(value)
+      // Still moving after every attempt: a baseline of 0 never matches, so the
+      // next save surfaces a conflict instead of trusting a mismatched pair.
+      return { doc, path: docPath, mtime: stable ? (after?.mtime ?? 0) : 0 }
+    }
   }
 
   async create(docPath: string, title?: string): Promise<LoadedDocument> {
@@ -63,7 +80,27 @@ export class DocumentService {
    * refused rather than silently overwriting someone else's work, and the
    * renderer surfaces a keep-mine/reload choice.
    */
-  async write(docPath: string, incoming: PubDocument, expectedMtime: number | null): Promise<WriteResult> {
+  write(docPath: string, incoming: PubDocument, expectedMtime: number | null): Promise<WriteResult> {
+    // Two saves of one document interleaving would both pass the mtime check
+    // before either wrote, and the second would overwrite the first unseen.
+    const previous = this.writing.get(docPath) ?? Promise.resolve()
+    const next = previous.then(
+      () => this.writeNow(docPath, incoming, expectedMtime),
+      () => this.writeNow(docPath, incoming, expectedMtime)
+    )
+    const settled = next.catch(() => {})
+    this.writing.set(docPath, settled)
+    void settled.then(() => {
+      if (this.writing.get(docPath) === settled) this.writing.delete(docPath)
+    })
+    return next
+  }
+
+  private async writeNow(
+    docPath: string,
+    incoming: PubDocument,
+    expectedMtime: number | null
+  ): Promise<WriteResult> {
     const stat = await this.adapter.stat(docPath)
     if (stat && expectedMtime !== null && stat.mtime !== undefined && stat.mtime !== expectedMtime) {
       return { ok: false, reason: 'conflict', diskMtime: stat.mtime }

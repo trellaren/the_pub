@@ -31,6 +31,12 @@ export interface EmbedderConfig {
   /** Where to send. For `embedded` this is the running engine's own port. */
   baseUrl: string
   apiKey: string | null
+  /**
+   * What the vectors are comparable with, when provider, address and model
+   * do not say it — the embedded engine's address is a fresh port each start,
+   * and its empty model means whichever one is loaded.
+   */
+  identity?: string
 }
 
 /**
@@ -63,6 +69,11 @@ export class Embedder {
     deps: EmbedderDeps = {}
   ) {
     this.fetchImpl = deps.fetch ?? globalThis.fetch
+  }
+
+  /** Which stored vectors this embedder's output can be compared with. */
+  get key(): string {
+    return this.config.identity ?? `${this.config.provider} ${this.config.baseUrl.replace(/\/+$/, '')} ${this.config.model}`
   }
 
   /**

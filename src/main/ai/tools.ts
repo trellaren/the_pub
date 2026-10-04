@@ -95,6 +95,13 @@ export interface ToolContext {
    * the run, not the call: two calls are the whole point of counting.
    */
   ensembleAttempts: Map<string, number>
+  /**
+   * Whether this run has read text from outside the project. Shared by every
+   * call in the run, because a page fetched in one call can carry instructions
+   * the model acts on in the next: once set, every edit lands as a suggestion
+   * whatever the writer's policy, so injected text can never write directly.
+   */
+  taint: { tainted: boolean }
   /** Search by meaning. Absent when this project has no retrieval index. */
   findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
 }
@@ -323,10 +330,22 @@ export function describeEdit(
  * what happened. `trivial` is the caller's judgement of this particular
  * change (a spelling fix, a comma); it only matters under `direct-trivial`.
  */
-export function modeFor(policy: WritePolicy, trivial: boolean): AssistantEdit['mode'] {
+export function modeFor(policy: WritePolicy, trivial: boolean, tainted = false): AssistantEdit['mode'] {
+  if (tainted) return 'suggest'
   if (policy === 'direct') return 'direct'
   if (policy === 'direct-trivial' && trivial) return 'direct'
   return 'suggest'
+}
+
+/**
+ * Mark the run as having read outside text, and say so to the model when that
+ * changes what its edits will do.
+ */
+function taintWith(context: ToolContext, content: string): string {
+  const already = context.taint.tainted
+  context.taint.tainted = true
+  if (already || context.writePolicy === 'suggest') return content
+  return `${content}\n\n(This came from outside the project. From now on in this conversation, every edit you make will be offered to the author as a tracked-change suggestion rather than applied.)`
 }
 
 /** Split ops by the mode each should land in, so one call can suggest some and apply others. */
@@ -336,11 +355,38 @@ function emitByMode(
   docPath: string,
   items: { op: AssistantEditOp; trivial: boolean }[]
 ): { direct: number; suggested: number } {
-  const direct = items.filter((item) => modeFor(context.writePolicy, item.trivial) === 'direct').map((item) => item.op)
-  const suggested = items.filter((item) => modeFor(context.writePolicy, item.trivial) !== 'direct').map((item) => item.op)
+  const landsDirect = (item: { trivial: boolean }) =>
+    modeFor(context.writePolicy, item.trivial, context.taint.tainted) === 'direct'
+  const direct = items.filter(landsDirect).map((item) => item.op)
+  const suggested = items.filter((item) => !landsDirect(item)).map((item) => item.op)
   if (direct.length) context.onEdit(describeEdit(context, docId, docPath, direct, 'direct'))
   if (suggested.length) context.onEdit(describeEdit(context, docId, docPath, suggested, 'suggest'))
   return { direct: direct.length, suggested: suggested.length }
+}
+
+/**
+ * What the model is told about where its edits went. Said from what actually
+ * happened, not from the policy: a tainted run or a non-trivial fix under
+ * `direct-trivial` is suggested whatever the writer chose.
+ */
+function landedWording(landed: { direct: number; suggested: number }, described: string): string {
+  if (landed.suggested === 0) return `Applied ${described} directly, each marked as yours.`
+  if (landed.direct === 0) return `Suggested ${described} as tracked changes; the author will accept or reject each.`
+  return `Applied ${landed.direct} trivial correction${landed.direct === 1 ? '' : 's'} directly and suggested ${landed.suggested} as tracked changes (${described} in all).`
+}
+
+function landedResult(
+  landed: { direct: number; suggested: number },
+  noun: 'addition' | 'change',
+  summary: { direct: string; suggested: string }
+): ToolResult {
+  return landed.direct
+    ? { ok: true, content: `The ${noun} was made in the document, marked as yours. Do not repeat it.`, summary: summary.direct }
+    : {
+        ok: true,
+        content: `The ${noun} was suggested to the author as a tracked change they will accept or reject. Do not repeat it.`,
+        summary: summary.suggested
+      }
 }
 
 const suggestEdit = define({
@@ -364,13 +410,7 @@ const suggestEdit = define({
     if (!find.trim()) {
       if (!replace.trim()) return { ok: false, content: 'There is nothing to add.', summary: 'Empty suggestion' }
       const landed = emitByMode(context, loaded.doc.docId, path, [{ op: { kind: 'append', text: replace, reason }, trivial: false }])
-      return landed.direct
-        ? { ok: true, content: 'The addition was written into the document, marked as yours. Do not repeat it.', summary: `Added to ${loaded.doc.title}` }
-        : {
-            ok: true,
-            content: 'The addition was suggested to the author as a tracked change. Do not repeat it.',
-            summary: `Suggested an addition to ${loaded.doc.title}`
-          }
+      return landedResult(landed, 'addition', { direct: `Added to ${loaded.doc.title}`, suggested: `Suggested an addition to ${loaded.doc.title}` })
     }
 
     // Checked against the document before it is offered: a suggestion quoting
@@ -399,13 +439,7 @@ const suggestEdit = define({
         trivial: isTrivial(find, replace)
       }
     ])
-    return landed.direct
-      ? { ok: true, content: 'The change was made in the document, marked as yours. Do not repeat it.', summary: `Changed ${loaded.doc.title}` }
-      : {
-          ok: true,
-          content: 'The change was suggested to the author as a tracked change they will accept or reject. Do not repeat it.',
-          summary: `Suggested an edit to ${loaded.doc.title}`
-        }
+    return landedResult(landed, 'change', { direct: `Changed ${loaded.doc.title}`, suggested: `Suggested an edit to ${loaded.doc.title}` })
   }
 })
 
@@ -643,7 +677,8 @@ const webSearchTool = define({
     query: z.string().min(1),
     limit: z.number().int().min(1).max(10).default(5)
   }),
-  run: async ({ query, limit }, { web, search }) => {
+  run: async ({ query, limit }, context) => {
+    const { web, search } = context
     if (!web.canSearch || !search) {
       return { ok: false, content: 'The author has not allowed web search.', summary: 'Web search not allowed' }
     }
@@ -659,7 +694,7 @@ const webSearchTool = define({
     }
     if (result.hits.length === 0) return { ok: true, content: `Nothing found for "${query}".`, summary: `Searched the web for "${query}" — nothing` }
     const content = result.hits.map((hit, index) => `${index + 1}. ${hit.title}\n   ${hit.url}\n   ${hit.snippet}`).join('\n\n')
-    return { ok: true, content, summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
+    return { ok: true, content: taintWith(context, content), summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
   }
 })
 
@@ -688,7 +723,7 @@ const fetchPageTool = define({
     const clipped = text.length > MAX_PAGE_CHARS ? `${text.slice(0, MAX_PAGE_CHARS)}\n\n[…truncated…]` : text
     return {
       ok: true,
-      content: `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`,
+      content: taintWith(context, `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`),
       summary: `Read ${result.capture.title || url}`
     }
   }
@@ -767,13 +802,24 @@ const proofread = define({
 
     const placed: PlacedFinding[] = []
     let dropped = 0
+    let checked = 0
     for (const chunk of covered) {
       const prompt = proofreadPrompt(chunk, kinds, lang)
-      const reply = await context.complete(prompt.system, prompt.user, 2_048)
+      let reply: string
+      try {
+        reply = await context.complete(prompt.system, prompt.user, 2_048)
+      } catch (error) {
+        // Stopped partway — a budget, a dropped connection — the passes that
+        // finished are still worth delivering, with where to resume.
+        if (checked === 0) throw error
+        break
+      }
       const parsed = parseFindings(reply, chunk)
       placed.push(...parsed.placed)
       dropped += parsed.dropped
+      checked += 1
     }
+    covered.splice(checked)
 
     // One edit per mode for the whole pass: one undo step in the editor, one
     // write to a closed file, one row in the trail — not one of each per typo.
@@ -796,11 +842,7 @@ const proofread = define({
     const described = describeFindings(placed)
     const notes = [
       placed.length > 0
-        ? landed.suggested === 0
-          ? `Applied ${described} directly, each marked as yours. Do not repeat them in your reply.`
-          : landed.direct === 0
-            ? `Suggested ${described} as tracked changes; the author will accept or reject each. Do not repeat them in your reply.`
-            : `Applied ${landed.direct} trivial correction${landed.direct === 1 ? '' : 's'} directly and suggested ${landed.suggested} as tracked changes (${described} in all). Do not repeat them in your reply.`
+        ? `${landedWording(landed, described)} Do not repeat them in your reply.`
         : `Found nothing to correct${lastChecked !== undefined ? ` in paragraphs ${fromBlock}–${lastChecked}` : ''}.`,
       dropped > 0 ? `${dropped} finding${dropped === 1 ? '' : 's'} could not be placed and were dropped.` : '',
       remaining !== null

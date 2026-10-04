@@ -1,7 +1,9 @@
 import { Node, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
+import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
+import type { Node as PmNode } from '@tiptap/pm/model'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { FOOTNOTE_NODE } from '@shared/model/footnote.js'
+import { stepsTouch } from './stepRanges.js'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -12,7 +14,50 @@ declare module '@tiptap/core' {
   }
 }
 
-const footnoteViewKey = new PluginKey<{ openPos: number | null }>('footnoteView')
+export interface FootnoteViewState {
+  openPos: number | null
+  decorations: DecorationSet
+}
+
+const footnoteViewKey = new PluginKey<FootnoteViewState>('footnoteView')
+
+const isFootnote = (node: PmNode): boolean => node.type.name === FOOTNOTE_NODE
+
+/**
+ * The number-and-open-state decoration for every footnote. Numbering depends
+ * on document order, so this is rebuilt whenever a footnote is touched or the
+ * open one changes; any other edit only shifts positions, and the existing set
+ * is mapped instead of rescanning the whole chapter on every keystroke.
+ */
+export function footnoteDecorations(doc: PmNode, openPos: number | null): DecorationSet {
+  const decorations: Decoration[] = []
+  let number = 0
+  doc.descendants((node, pos) => {
+    if (!isFootnote(node)) return
+    number++
+    const attrs: Record<string, string> = { 'data-number': String(number) }
+    if (pos === openPos) attrs.class = 'is-open'
+    decorations.push(Decoration.node(pos, pos + node.nodeSize, attrs))
+  })
+  return DecorationSet.create(doc, decorations)
+}
+
+export function nextFootnoteViewState(
+  tr: Transaction,
+  value: FootnoteViewState,
+  doc: PmNode
+): FootnoteViewState {
+  const meta = tr.getMeta(footnoteViewKey) as number | null | undefined
+  if (meta !== undefined) return { openPos: meta, decorations: footnoteDecorations(doc, meta) }
+  if (!tr.docChanged) return value
+  let openPos = value.openPos
+  if (openPos !== null) {
+    const mapped = tr.mapping.mapResult(openPos)
+    openPos = mapped.deleted ? null : mapped.pos
+  }
+  if (stepsTouch(tr, isFootnote)) return { openPos, decorations: footnoteDecorations(doc, openPos) }
+  return { openPos, decorations: value.decorations.map(tr.mapping, doc) }
+}
 
 /**
  * A footnote: a superscript marker inline in the text, with its own content —
@@ -21,7 +66,7 @@ const footnoteViewKey = new PluginKey<{ openPos: number | null }>('footnoteView'
  * carry it: there is nothing elsewhere in the document pointing back at it.
  *
  * Numbering is never stored — the plugin below recomputes it from document
- * order on every decoration pass, the same way `pm/footnotes.ts` does for the
+ * order whenever a footnote changes, the same way `pm/footnotes.ts` does for the
  * JSON representation the endnotes region and DOCX export read.
  *
  * The note's content is real, always-present ProseMirror content (not a
@@ -72,31 +117,18 @@ export const Footnote = Node.create({
 
   addProseMirrorPlugins() {
     return [
-      new Plugin<{ openPos: number | null }>({
+      new Plugin<FootnoteViewState>({
         key: footnoteViewKey,
         state: {
-          init: (): { openPos: number | null } => ({ openPos: null }),
-          apply(tr, value) {
-            const meta = tr.getMeta(footnoteViewKey)
-            if (meta !== undefined) return { openPos: meta as number | null }
-            if (value.openPos === null || !tr.docChanged) return value
-            const mapped = tr.mapping.mapResult(value.openPos)
-            return { openPos: mapped.deleted ? null : mapped.pos }
-          }
+          init: (_config, state): FootnoteViewState => ({
+            openPos: null,
+            decorations: footnoteDecorations(state.doc, null)
+          }),
+          apply: (tr, value, _oldState, newState) => nextFootnoteViewState(tr, value, newState.doc)
         },
         props: {
           decorations(state) {
-            const { openPos } = footnoteViewKey.getState(state)!
-            const decorations: Decoration[] = []
-            let number = 0
-            state.doc.descendants((node, pos) => {
-              if (node.type.name !== FOOTNOTE_NODE) return
-              number++
-              const attrs: Record<string, string> = { 'data-number': String(number) }
-              if (pos === openPos) attrs.class = 'is-open'
-              decorations.push(Decoration.node(pos, pos + node.nodeSize, attrs))
-            })
-            return DecorationSet.create(state.doc, decorations)
+            return footnoteViewKey.getState(state)!.decorations
           },
           // Clicking a footnote opens its popover; clicking anywhere else closes
           // whichever one was open. Returning `false` either way leaves normal

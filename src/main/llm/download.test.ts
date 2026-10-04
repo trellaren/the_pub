@@ -168,4 +168,59 @@ describe('downloadModel', () => {
     expect(result.error).toContain('404')
     await expect(fs.stat(destination)).rejects.toThrow()
   })
+
+  it('fails and keeps the partial when the stream ends cleanly but short', async () => {
+    const short = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(BODY.subarray(0, 20)))
+            controller.close()
+          }
+        })
+      }) as unknown as Response) as unknown as typeof globalThis.fetch
+
+    const result = await downloadModel(
+      { url: 'https://example/model', destination, bytes: BODY.length, sha256: '' },
+      { fetch: short }
+    )
+
+    // No digest to catch it, so the size is the only thing standing between a
+    // truncated model and the destination.
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('ended early')
+    expect((await fs.stat(`${destination}.partial`)).size).toBe(20)
+    await expect(fs.stat(destination)).rejects.toThrow()
+  })
+
+  it('verifies a complete partial without fetching anything', async () => {
+    await fs.writeFile(`${destination}.partial`, BODY)
+    const server = serving(BODY)
+
+    const result = await downloadModel(
+      { url: 'https://example/model', destination, bytes: BODY.length, sha256: DIGEST },
+      { fetch: server.fetch }
+    )
+
+    expect(server.calls).toEqual([])
+    expect(result).toMatchObject({ ok: true, verify: 'verified', bytes: BODY.length })
+    expect(await fs.readFile(destination)).toEqual(BODY)
+  })
+
+  it('discards a complete partial that fails its checksum, so the next attempt starts over', async () => {
+    await fs.writeFile(`${destination}.partial`, Buffer.alloc(BODY.length))
+    const server = serving(BODY)
+
+    const result = await downloadModel(
+      { url: 'https://example/model', destination, bytes: BODY.length, sha256: DIGEST },
+      { fetch: server.fetch }
+    )
+
+    expect(server.calls).toEqual([])
+    expect(result.verify).toBe('mismatch')
+    await expect(fs.stat(`${destination}.partial`)).rejects.toThrow()
+  })
 })

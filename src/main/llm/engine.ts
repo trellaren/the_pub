@@ -54,6 +54,15 @@ export interface EngineStatus {
 
 const READY_POLL_MS = 250
 
+/** How llama-server, via cpp-httplib or the OS, says the port was taken first. */
+const PORT_TAKEN = /address already in use|EADDRINUSE|couldn't bind|could not bind|failed to bind/i
+
+interface StartAttempt {
+  modelId: string
+  cancelled: boolean
+  promise: Promise<string | null>
+}
+
 export class LlmEngine {
   private child: ChildProcess | null = null
   private port = 0
@@ -61,8 +70,12 @@ export class LlmEngine {
   private state: EngineState = 'stopped'
   private message = ''
   private idleTimer: NodeJS.Timeout | null = null
-  /** In-flight start, so two concurrent sends share one spawn rather than racing. */
-  private starting: Promise<string | null> | null = null
+  /**
+   * In-flight start, so two concurrent sends for one model share one spawn
+   * rather than racing — and so a send for another model can tell this start
+   * is not its own.
+   */
+  private starting: StartAttempt | null = null
 
   private idleMs: number
 
@@ -118,22 +131,38 @@ export class LlmEngine {
   async ensure(request: StartRequest): Promise<string | null> {
     this.touch()
 
+    const pending = this.starting
+    if (pending) {
+      if (pending.modelId === request.modelId) return pending.promise
+      // Another model is still loading. Its caller gets null, and this one
+      // waits for it to be gone rather than being handed its URL.
+      pending.cancelled = true
+      await this.stop()
+      await pending.promise
+      return this.ensure(request)
+    }
+
     if (this.state === 'running' && this.loaded === request.modelId && this.child) {
       return `http://127.0.0.1:${this.port}`
     }
 
-    // A different model than the one loaded: stop first. Running two at once is
-    // deliberately not offered — the memory is the entire constraint.
-    if (this.child) await this.stop()
-
-    if (this.starting) return this.starting
-    this.starting = this.start(request).finally(() => {
-      this.starting = null
+    const attempt: StartAttempt = { modelId: request.modelId, cancelled: false, promise: Promise.resolve(null) }
+    // The stop is inside the shared promise, not before it: a second caller
+    // arriving while the old model shuts down must find this start and join
+    // it, not begin a second one.
+    attempt.promise = (async () => {
+      // A different model than the one loaded: stop first. Running two at once
+      // is deliberately not offered — the memory is the entire constraint.
+      if (this.child) await this.stop()
+      return this.start(request, attempt)
+    })().finally(() => {
+      if (this.starting === attempt) this.starting = null
     })
-    return this.starting
+    this.starting = attempt
+    return attempt.promise
   }
 
-  private async start(request: StartRequest): Promise<string | null> {
+  private async start(request: StartRequest, attempt: StartAttempt): Promise<string | null> {
     const binary = this.binaryPath()
     if (!binary) {
       this.fail('No embedded model runtime shipped for this platform.')
@@ -148,14 +177,45 @@ export class LlmEngine {
     this.message = ''
     this.loaded = request.modelId
 
-    let port: number
-    try {
-      port = await freePort()
-    } catch {
-      this.fail('Could not find a free port for the embedded model.')
+    // The port is free when asked for and taken by the time the server binds
+    // it often enough to matter on a busy machine; one retry on a fresh port
+    // covers that without looping on a model that will never load.
+    for (let launch = 0; launch < 2; launch += 1) {
+      let port: number
+      try {
+        port = await freePort()
+      } catch {
+        this.fail('Could not find a free port for the embedded model.')
+        return null
+      }
+      if (attempt.cancelled) return null
+
+      const outcome = await this.launch(binary, request, port, attempt)
+      if (outcome.kind === 'ready') return outcome.url
+      if (outcome.kind === 'cancelled') return null
+      if (outcome.kind === 'port-taken' && launch === 0) {
+        this.state = 'starting'
+        this.message = ''
+        this.loaded = request.modelId
+        continue
+      }
+      this.fail(outcome.message)
       return null
     }
+    return null
+  }
 
+  private async launch(
+    binary: string,
+    request: StartRequest,
+    port: number,
+    attempt: StartAttempt
+  ): Promise<
+    | { kind: 'ready'; url: string }
+    | { kind: 'cancelled' }
+    | { kind: 'port-taken'; message: string }
+    | { kind: 'failed'; message: string }
+  > {
     const spawnFn = this.deps.spawn ?? spawn
     const child = spawnFn(
       binary,
@@ -168,7 +228,9 @@ export class LlmEngine {
         // port but us, and serving it would be a second surface for no gain.
         '--no-webui'
       ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
+      // stdout ignored rather than piped: nothing reads it, and a pipe nobody
+      // drains fills up and stalls the server mid-generation.
+      { stdio: ['ignore', 'ignore', 'pipe'] }
     )
 
     this.child = child
@@ -188,6 +250,9 @@ export class LlmEngine {
         code === 0
           ? 'The model stopped.'
           : lastLine(stderrTail) || `The model stopped unexpectedly (exit ${code}).`
+      // A superseded child exiting late must not clear the state of the one
+      // that replaced it.
+      if (this.child !== child) return
       this.child = null
       this.loaded = ''
       // A crash mid-stream surfaces on the in-flight request through the
@@ -204,6 +269,7 @@ export class LlmEngine {
     })
     child.on('error', (error) => {
       exitReason = error instanceof Error ? error.message : String(error)
+      if (this.child !== child) return
       this.child = null
       this.fail(exitReason)
     })
@@ -211,17 +277,19 @@ export class LlmEngine {
     const deadline = Date.now() + (this.deps.startTimeoutMs ?? 120_000)
     const doFetch = this.deps.fetch ?? globalThis.fetch
     while (Date.now() < deadline) {
+      if (attempt.cancelled) return { kind: 'cancelled' }
       if (exitReason !== null) {
-        this.fail(exitReason)
-        return null
+        return PORT_TAKEN.test(stderrTail)
+          ? { kind: 'port-taken', message: exitReason }
+          : { kind: 'failed', message: exitReason }
       }
       try {
         const response = await doFetch(`http://127.0.0.1:${port}/health`)
-        if (response.ok) {
+        if (response.ok && !attempt.cancelled && this.child === child) {
           this.state = 'running'
           this.message = ''
           this.touch()
-          return `http://127.0.0.1:${port}`
+          return { kind: 'ready', url: `http://127.0.0.1:${port}` }
         }
       } catch {
         // Not listening yet. A 27B takes tens of seconds to load; this is the
@@ -231,8 +299,7 @@ export class LlmEngine {
     }
 
     await this.stop()
-    this.fail('The model did not start in time.')
-    return null
+    return { kind: 'failed', message: 'The model did not start in time.' }
   }
 
   private fail(message: string): void {

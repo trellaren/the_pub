@@ -11,14 +11,14 @@ import { ASSETS_DIR, ASSET_PROTOCOL } from '../../shared/constants.js'
 import { parseAssetUrl } from '../../shared/model/asset.js'
 import { relativeToRoot, basename } from '../vfs/paths.js'
 import { buildPrintHtml, type PrintDocument, type PrintImage } from './printDocument.js'
-import { buildPdfOptions } from './printOptions.js'
+import { buildPdfOptions, buildPrintOptions } from './printOptions.js'
 
 export interface RendererServerLike {
   servePrintJob: (html: string) => { url: string; revoke: () => void }
 }
 
 export interface RunningHeader {
-  /** `Surname / TITLE / page` — page number is filled in by `printToPDF`'s own `headerTemplate` token. */
+  /** `Surname / TITLE`; the PDF route appends the page number through `headerTemplate`. */
   text: string
 }
 
@@ -46,8 +46,9 @@ export class PrintService {
   ) {}
 
   async exportPdf(items: ExportItem[], file: string, manifest: ProjectManifest): Promise<void> {
+    const header = runningHeader(manifest)
     const buffer = await this.render(items, manifest, (webContents, setup) =>
-      webContents.printToPDF(buildPdfOptions(setup, this.runningHeaderFooter(manifest)))
+      webContents.printToPDF(buildPdfOptions(setup, header ? { header: headerTemplate(header) } : undefined))
     )
     await fs.mkdir(path.dirname(file), { recursive: true })
     await fs.writeFile(file, buffer)
@@ -55,10 +56,11 @@ export class PrintService {
 
   /** Same route, `webContents.print` instead of `printToPDF` — what prints and what exports as PDF are the same pixels. */
   async print(items: ExportItem[], manifest: ProjectManifest): Promise<void> {
+    const header = runningHeader(manifest)
     await this.render(items, manifest, (webContents, setup) => {
       return new Promise<Buffer>((resolve, reject) => {
         webContents.print(
-          { silent: false, printBackground: true, landscape: setup.orientation === 'landscape' },
+          buildPrintOptions(setup, header ? { header: header.text } : undefined),
           (ok, error) => {
             if (ok) resolve(Buffer.alloc(0))
             else reject(new Error(error || 'Print was not completed.'))
@@ -81,7 +83,7 @@ export class PrintService {
         continue
       }
       const loaded = await this.documents.read(item.path)
-      documents.push({ title: loaded.doc.title, content: loaded.doc.content })
+      documents.push({ title: loaded.doc.title, content: loaded.doc.content, lang: loaded.doc.lang })
       if (!firstSection) firstSection = loaded.doc.sections?.[0]
     }
 
@@ -97,7 +99,7 @@ export class PrintService {
         }
 
     const images = await this.readImages(documents)
-    const html = buildPrintHtml(documents, manifest.styles, setup, images)
+    const html = buildPrintHtml(documents, manifest.styles, setup, images, manifest.publication.language)
 
     let window: BrowserWindow | null = null
     let revoke: (() => void) | null = null
@@ -122,15 +124,6 @@ export class PrintService {
     } finally {
       revoke?.()
       window?.destroy()
-    }
-  }
-
-  private runningHeaderFooter(manifest: ProjectManifest): { header?: string; footer?: string } | undefined {
-    const surname = (manifest.publication.authorName ?? '').trim().split(/\s+/).pop()
-    if (!surname) return undefined
-    const title = manifest.name.toUpperCase()
-    return {
-      header: `<div style="font-size: 9px; width: 100%; text-align: right;">${escapeHtml(surname)} / ${escapeHtml(title)} / <span class="pageNumber"></span></div>`
     }
   }
 
@@ -176,6 +169,18 @@ export class PrintService {
     const marker = absolute.replace(/\\/g, '/').lastIndexOf(`${ASSETS_DIR}/`)
     return marker === -1 ? null : absolute.replace(/\\/g, '/').slice(marker)
   }
+}
+
+/** `Surname / TITLE`, or nothing when the project has no author name. */
+export function runningHeader(manifest: ProjectManifest): RunningHeader | undefined {
+  const surname = (manifest.publication.authorName ?? '').trim().split(/\s+/).pop()
+  if (!surname) return undefined
+  return { text: `${surname} / ${manifest.name.toUpperCase()}` }
+}
+
+/** The PDF header template: the running header plus `printToPDF`'s own page-number token. */
+export function headerTemplate(header: RunningHeader): string {
+  return `<div style="font-size: 9px; width: 100%; text-align: right;">${escapeHtml(header.text)} / <span class="pageNumber"></span></div>`
 }
 
 function headingDocument(title: string) {

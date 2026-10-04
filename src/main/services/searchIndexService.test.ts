@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { SearchIndexService, toMatchExpression, buildSnippet, formMatchExpression } from './searchIndexService.js'
+import { SearchIndexService, toMatchExpression, buildSnippet, formMatchExpression, EmbeddingMismatchError } from './searchIndexService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
 import type { PubDocument, PmDoc } from '../../shared/model/document.js'
 import { storyEntitySchema, type EntityFile, type StoryEntity } from '../../shared/model/entity.js'
@@ -469,16 +469,70 @@ describe('embeddings', () => {
     expect(hits[0]!.score).toBeCloseTo(1, 5)
   })
 
-  it('returns nothing when the query vector has a different width', async () => {
-    // Reachable by changing the embedding model: the stored vectors keep their
-    // old width until the index is rebuilt. Nothing matches, rather than a
-    // crash mid-search.
+  it('refuses a query of a different width rather than answering with nothing', async () => {
+    // Reachable when the embedded engine swaps the model behind the same
+    // settings. "Nothing matches" would be a confident wrong answer.
     await write('a.pubdoc', document('doc-e5', 'A', ['The harbour was quiet.']))
     await index.syncAll()
     const block = index.pendingEmbeddings(1)[0]!
     index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0, 4))
 
-    expect(index.nearestBlocks(axis(0, 8), 5)).toEqual([])
+    expect(() => index.nearestBlocks(axis(0, 8), 5)).toThrow(EmbeddingMismatchError)
+  })
+
+  it('drops every vector when the embedder changes, and keeps them when it does not', async () => {
+    await write('a.pubdoc', document('doc-e8', 'A', ['The harbour was quiet.', 'Rain came late.']))
+    await index.syncAll()
+    index.useEmbedder('openai  text-embedding-3-small')
+    for (const block of index.pendingEmbeddings(10)) {
+      index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(block.blockIndex))
+    }
+
+    index.useEmbedder('openai  text-embedding-3-small')
+    expect(index.embeddingCoverage()).toEqual({ embedded: 2, total: 2 })
+
+    index.useEmbedder('lmstudio  nomic-embed')
+    expect(index.embeddingCoverage()).toEqual({ embedded: 0, total: 2 })
+    // The new model's vectors are a different width; nothing stale is left to
+    // collide with them.
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0, 8))
+    expect(index.nearestBlocks(axis(0, 8), 5)).toHaveLength(1)
+  })
+
+  it('remembers the embedder across a reopen', async () => {
+    await write('a.pubdoc', document('doc-e9', 'A', ['The harbour was quiet.']))
+    await index.syncAll()
+    index.useEmbedder('model-a')
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0))
+    index.close()
+
+    index = new SearchIndexService(adapter, dbPath(), () => {}, () => roster)
+    index.useEmbedder('model-a')
+    expect(index.embeddingCoverage().embedded).toBe(1)
+    index.useEmbedder('model-b')
+    expect(index.embeddingCoverage().embedded).toBe(0)
+  })
+
+  it('treats vectors written before any embedder was recorded as stale', async () => {
+    await write('a.pubdoc', document('doc-e10', 'A', ['The harbour was quiet.']))
+    await index.syncAll()
+    const block = index.pendingEmbeddings(1)[0]!
+    index.writeEmbedding(block.docId, block.blockIndex, block.text, axis(0))
+    index.useEmbedder('model-a')
+    expect(index.embeddingCoverage().embedded).toBe(0)
+  })
+
+  it('replaces vectors of an old width when the same embedder starts writing a new one', async () => {
+    await write('a.pubdoc', document('doc-e11', 'A', ['One.', 'Two.']))
+    await index.syncAll()
+    index.useEmbedder('embedded qwen ')
+    const [first, second] = index.pendingEmbeddings(10)
+    index.writeEmbedding(first!.docId, first!.blockIndex, first!.text, axis(0, 4))
+    index.writeEmbedding(second!.docId, second!.blockIndex, second!.text, axis(0, 8))
+    expect(index.embeddingCoverage().embedded).toBe(1)
+    expect(index.nearestBlocks(axis(0, 8), 5)).toHaveLength(1)
   })
 
   it('forgets a document’s vectors when the file goes away', async () => {

@@ -23,6 +23,7 @@ import { PRESENCE_DIR, PRESENCE_BEAT_MS, FORMAT_VERSIONS } from '../../shared/co
 export class PresenceService {
   private timer: NodeJS.Timeout | null = null
   private docId = ''
+  private readonly writes = new Set<Promise<void>>()
 
   constructor(
     private readonly adapter: VfsAdapter,
@@ -48,6 +49,9 @@ export class PresenceService {
 
   async leave(): Promise<void> {
     this.stop()
+    // A beat already on the wire would otherwise land after the delete and
+    // show this writer as present for a full TTL after they left.
+    await Promise.all(this.writes)
     // Best-effort: a beat left behind expires on its own, which is why the TTL
     // exists at all.
     await this.adapter.delete(this.pathFor(this.me().id)).catch(() => {})
@@ -63,7 +67,14 @@ export class PresenceService {
     return `${PRESENCE_DIR}/${authorId}.json`
   }
 
-  private async beat(): Promise<void> {
+  private beat(): Promise<void> {
+    const write = this.writeBeat()
+    this.writes.add(write)
+    void write.finally(() => this.writes.delete(write))
+    return write
+  }
+
+  private async writeBeat(): Promise<void> {
     if (!this.docId) return
     const profile = this.me()
     const beat: PresenceBeat = {

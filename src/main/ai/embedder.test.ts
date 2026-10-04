@@ -131,3 +131,18 @@ describe('Embedder', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
+
+describe('Embedder.key', () => {
+  const base = { provider: 'openai' as const, model: 'text-embedding-3-small', baseUrl: 'https://api.openai.com/', apiKey: null }
+
+  it('differs when the provider, address or model does', () => {
+    const key = new Embedder(base).key
+    expect(new Embedder({ ...base, baseUrl: 'https://api.openai.com' }).key).toBe(key)
+    expect(new Embedder({ ...base, model: 'text-embedding-3-large' }).key).not.toBe(key)
+    expect(new Embedder({ ...base, provider: 'lmstudio' }).key).not.toBe(key)
+  })
+
+  it('uses an explicit identity where the address is not stable', () => {
+    expect(new Embedder({ ...base, identity: 'embedded qwen ' }).key).toBe('embedded qwen ')
+  })
+})

@@ -46,11 +46,18 @@ export function pollingWatch(
     previous = current
   }
 
-  void tick()
-  const timer = setInterval(() => void tick(), intervalMs)
+  // Each tick is scheduled only once the last has finished: on a slow server a
+  // walk can outlast the interval, and overlapping walks would both diff
+  // against the same `previous` and report one edit twice.
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const loop = async (): Promise<void> => {
+    await tick()
+    if (!stopped) timer = setTimeout(() => void loop(), intervalMs)
+  }
+  void loop()
 
   return async () => {
     stopped = true
-    clearInterval(timer)
+    if (timer) clearTimeout(timer)
   }
 }

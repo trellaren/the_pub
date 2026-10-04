@@ -183,6 +183,32 @@ describe('GraphClient', () => {
     expect(backoffFor(response({ status: 429, headers: { 'retry-after': 'soon' } }), 1)).toBe(1000)
   })
 
+  it('reads a Retry-After given as an HTTP-date', () => {
+    const now = Date.parse('Sun, 04 Oct 2026 10:00:00 GMT')
+    const at = (date: string): number =>
+      backoffFor(response({ status: 503, headers: { 'retry-after': date } }), 0, now)
+    expect(at('Sun, 04 Oct 2026 10:00:03 GMT')).toBe(3000)
+    expect(at('Sun, 04 Oct 2026 09:59:00 GMT')).toBe(0)
+    expect(at('Sun, 04 Oct 2026 11:00:00 GMT')).toBe(10_000)
+  })
+
+  it('gives every request a timeout, combined with the caller’s own signal', async () => {
+    const signals: (AbortSignal | undefined)[] = []
+    const caller = new AbortController()
+    const client = new GraphClient({
+      tokens: { get: async () => 't', invalidate: () => {} },
+      fetch: async (_url, init) => {
+        signals.push(init.signal)
+        return response({ status: 200, body: {} })
+      }
+    })
+    await client.request('GET', itemUrl(''))
+    await client.request('GET', itemUrl(''), { signal: caller.signal })
+    expect(signals[0]).toBeInstanceOf(AbortSignal)
+    caller.abort()
+    expect(signals[1]?.aborted).toBe(true)
+  })
+
   it('stops retrying eventually and reports why', async () => {
     const { client, calls } = server(Array.from({ length: 6 }, () => ({ status: 429 })))
     await expect(client.json('GET', itemUrl(''))).rejects.toThrow(/HTTP 429/)

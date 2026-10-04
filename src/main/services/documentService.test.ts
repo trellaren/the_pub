@@ -144,4 +144,43 @@ describe('the provenance log', () => {
     await documents.write(created.path, created.doc, created.mtime)
     expect((await documents.read(created.path)).doc.provenance).toBeUndefined()
   })
+
+  it('retries a read whose file changed between the stats around it', async () => {
+    const created = await documents.create(`chapter-one${DOC_EXT}`, 'Chapter One')
+    const absolute = path.join(root, created.path)
+    let reads = 0
+    const racing = Object.create(adapter) as LocalAdapter
+    racing.readFile = async (target: string) => {
+      const bytes = await adapter.readFile(target)
+      reads += 1
+      if (reads === 1) {
+        const later = new Date(Date.now() + 60_000)
+        await fs.utimes(absolute, later, later)
+      }
+      return bytes
+    }
+    const service = new DocumentService(racing, new SnapshotService(adapter))
+    const loaded = await service.read(created.path)
+    expect(reads).toBe(2)
+    expect(loaded.mtime).toBe((await adapter.stat(created.path))?.mtime)
+  })
+
+  it('lets only one of two concurrent saves with the same baseline through', async () => {
+    const created = await documents.create(`chapter-one${DOC_EXT}`, 'Chapter One')
+    const later = new Date(created.mtime + 5_000)
+    const absolute = path.join(root, created.path)
+    const slow = Object.create(adapter) as LocalAdapter
+    slow.writeFileAtomic = async (target: string, data: Buffer) => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      await adapter.writeFileAtomic(target, data)
+      await fs.utimes(absolute, later, later)
+    }
+    const service = new DocumentService(slow, new SnapshotService(adapter))
+    const [first, second] = await Promise.all([
+      service.write(created.path, { ...created.doc, title: 'A' }, created.mtime),
+      service.write(created.path, { ...created.doc, title: 'B' }, created.mtime)
+    ])
+    expect(first.ok).toBe(true)
+    expect(second).toMatchObject({ ok: false, reason: 'conflict' })
+  })
 })

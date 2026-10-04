@@ -67,11 +67,46 @@ export class FtpAdapter extends RemoteAdapter {
         return await operation(await this.connected())
       } catch (error) {
         if (!isConnectionLost(error)) throw error
-        this.client?.close()
-        this.client = null
+        this.drop()
         return operation(await this.connected())
       }
     })
+  }
+
+  /**
+   * Run a command that must not simply be sent twice.
+   *
+   * A drop can land after the server acted but before the reply arrived, so a
+   * blind resend of a rename or a delete fails on a success, or — for a rename
+   * whose target has since been reused — acts on the wrong file. The state is
+   * re-read first, and the command is only resent when it evidently did not
+   * happen.
+   */
+  private async mutate(
+    operation: (client: Client) => Promise<unknown>,
+    happened: () => Promise<boolean>
+  ): Promise<void> {
+    const once = (): Promise<unknown> =>
+      this.queue.run(async () => {
+        try {
+          return await operation(await this.connected())
+        } catch (error) {
+          if (isConnectionLost(error)) this.drop()
+          throw error
+        }
+      })
+    try {
+      await once()
+    } catch (error) {
+      if (!isConnectionLost(error)) throw error
+      if (await happened()) return
+      await once()
+    }
+  }
+
+  private drop(): void {
+    this.client?.close()
+    this.client = null
   }
 
   private remote(path: string): string {
@@ -114,7 +149,7 @@ export class FtpAdapter extends RemoteAdapter {
     const match = listing.find((item) => item.name === name)
     if (!match) return null
     if (match.type === FileType.Directory) return this.entry(parent, name, true, match.size, stamp(match))
-    return this.entry(parent, name, false, match.size, await this.exactMtime(path, match))
+    return { ...this.entry(parent, name, false, match.size), mtime: await this.exactMtime(path) }
   }
 
   /**
@@ -129,14 +164,17 @@ export class FtpAdapter extends RemoteAdapter {
    *
    * Directories are excluded because `MDTM` is specified for files, and servers
    * that refuse it for a directory would cost a round trip to learn nothing.
-   * The listing's own time is the fallback wherever the server declines.
+   * Where the server declines, the answer is "unknown" rather than the
+   * listing's minute-resolution time: a reading that cannot tell two edits a
+   * minute apart would make the conflict check pass when it should refuse, and
+   * an absent mtime honestly switches that check off instead.
    */
-  private async exactMtime(path: string, listed: FileInfo): Promise<number> {
+  private async exactMtime(path: string): Promise<number | undefined> {
     try {
       const when = await this.exec((client) => client.lastMod(this.remote(path)))
       return when.getTime()
     } catch {
-      return stamp(listed)
+      return undefined
     }
   }
 
@@ -161,19 +199,31 @@ export class FtpAdapter extends RemoteAdapter {
   protected async mkdirRaw(path: string): Promise<void> {
     // `send` rather than ensureDir: ensureDir changes the working directory,
     // which every other queued command would then be relative to.
-    await this.exec((client) => client.send(`MKD ${this.remote(path)}`))
+    await this.mutate(
+      (client) => client.send(`MKD ${this.remote(path)}`),
+      async () => (await this.statRaw(path))?.kind === 'dir'
+    )
   }
 
   protected async renameRaw(from: string, to: string): Promise<void> {
-    await this.exec((client) => client.rename(this.remote(from), this.remote(to)))
+    await this.mutate(
+      (client) => client.rename(this.remote(from), this.remote(to)),
+      async () => !(await this.statRaw(from)) && (await this.statRaw(to)) !== null
+    )
   }
 
   protected async removeFile(path: string): Promise<void> {
-    await this.exec((client) => client.remove(this.remote(path)))
+    await this.mutate(
+      (client) => client.remove(this.remote(path)),
+      async () => !(await this.statRaw(path))
+    )
   }
 
   protected async removeDir(path: string): Promise<void> {
-    await this.exec((client) => client.send(`RMD ${this.remote(path)}`))
+    await this.mutate(
+      (client) => client.send(`RMD ${this.remote(path)}`),
+      async () => !(await this.statRaw(path))
+    )
   }
 
   async dispose(): Promise<void> {

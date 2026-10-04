@@ -50,3 +50,21 @@ describe('resolveEmbedder on a custom host', () => {
     expect((await resolveEmbedder(value, 7, true)).unavailable).toBe('No API key is set for OpenAI.')
   })
 })
+
+describe('resolveEmbedder on the embedded engine', () => {
+  it('keys the embedder by the loaded model rather than the port it happens to run on', async () => {
+    const make = (port: number) =>
+      ({
+        engine: { runningUrl: () => `http://127.0.0.1:${port}`, status: () => ({ state: 'running', model: 'qwen3-8b', message: '' }) },
+        models: {},
+        appState: { get: () => ({ aiEnabled: true }) },
+        sessions: { get: () => ({ chats: { settings: () => aiSettingsSchema.parse({ provider: 'embedded' }) } }) },
+        keyFor: async () => null,
+        hasKey: () => false
+      }) as unknown as EmbedderDeps
+    const first = (await resolveEmbedder(make(5001), 1, false)).embedder!
+    const second = (await resolveEmbedder(make(5002), 1, false)).embedder!
+    expect(first.key).toBe(second.key)
+    expect(first.key).toContain('qwen3-8b')
+  })
+})

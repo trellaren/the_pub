@@ -1,7 +1,8 @@
 import { RemoteAdapter } from './remoteAdapter.js'
 import type { Unwatch } from './types.js'
 import type { VfsEntry, VfsCapabilities, FileChangeEvent } from '../../shared/model/vfs.js'
-import { joinRelative, dirnameRelative, basename } from './paths.js'
+import { joinRelative, dirnameRelative, basename, normalizeRelative } from './paths.js'
+import { IGNORED_DIRS } from '../../shared/constants.js'
 import {
   GraphClient,
   GraphError,
@@ -192,7 +193,9 @@ export class OneDriveAdapter extends RemoteAdapter {
   protected async renameRaw(from: string, to: string): Promise<void> {
     const target = this.full(to)
     const parent = dirnameRelative(target)
-    await this.client.json('PATCH', itemUrl(this.full(from)), {
+    // Replacing in one request where Graph allows it, so a save does not need
+    // the shared move-aside fallback and its window with no file at the target.
+    await this.client.json('PATCH', `${itemUrl(this.full(from))}?@microsoft.graph.conflictBehavior=replace`, {
       name: basename(target),
       // Graph addresses the new parent by path, and the drive root has no path
       // fence — the same asymmetry `itemUrl` handles for URLs.
@@ -230,16 +233,45 @@ export class OneDriveAdapter extends RemoteAdapter {
     // Priming with a full delta instead would report every existing file as
     // new and re-index the entire project on open.
     let link: string | null = await this.deltaCursor().catch(() => null)
+    let busy = false
 
     const tick = async (): Promise<void> => {
-      if (stopped || !link) return
+      if (stopped || busy) return
+      busy = true
+      try {
+        await poll()
+      } finally {
+        busy = false
+      }
+    }
+
+    const poll = async (): Promise<void> => {
+      // Opened offline, or the first request was throttled: without retrying
+      // here the project would never hear of another change until reopened.
+      if (!link) {
+        link = await this.deltaCursor().catch(() => null)
+        return
+      }
       let events: FileChangeEvent[]
       try {
         const result = await this.deltaSince(link, prefix)
         link = result.link
         events = result.events
-      } catch {
-        return // Transient; the cursor is unchanged, so nothing is missed.
+      } catch (error) {
+        if (!(error instanceof GraphError) || error.status !== 410) {
+          return // Transient; the cursor is unchanged, so nothing is missed.
+        }
+        // The cursor has expired and whatever happened since is unknowable, so
+        // every file is reported as changed, the way a first poll would.
+        const fresh = await this.deltaCursor().catch(() => null)
+        if (!fresh) return
+        link = fresh
+        const base = normalizeRelative(dir)
+        events = (await this.walk(dir, IGNORED_DIRS).catch(() => [])).map((entry) => ({
+          type: 'change' as const,
+          path: base ? entry.path.slice(base.length + 1) : entry.path,
+          ...(entry.mtime === undefined ? {} : { mtime: entry.mtime })
+        }))
       }
       if (events.length > 0 && !stopped) onChange(events)
     }

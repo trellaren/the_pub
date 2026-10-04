@@ -49,6 +49,7 @@ export async function streamCompletion(
   // Keyed by the index the provider assigns, because arguments arrive in
   // fragments and the events interleave when a model calls two tools at once.
   const pending = new Map<number, { id: string; name: string; args: string }>()
+  let streamError: string | null = null
 
   const collect = (payload: string): void => {
     for (const part of partsFrom(request.settings.provider, payload)) {
@@ -57,6 +58,10 @@ export async function streamCompletion(
         // Deltas go straight out rather than being buffered: watching a reply
         // arrive is most of why streaming is worth the complexity.
         onText(part.text)
+        continue
+      }
+      if (part.kind === 'error') {
+        streamError ??= part.message
         continue
       }
       if (part.kind === 'toolStart') {
@@ -103,7 +108,7 @@ export async function streamCompletion(
     }
     for (const payload of parser.flush()) collect(payload)
 
-    return finish(null)
+    return finish(streamError)
   } catch (error) {
     if (signal.aborted) return finish(null, true)
     return finish(describe(error, request.settings))

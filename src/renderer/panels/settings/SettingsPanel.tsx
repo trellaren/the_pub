@@ -218,7 +218,9 @@ export function SettingsPanel() {
           type="button"
           className="pub-focus-ring mt-1 h-7 rounded border border-border px-2 text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
           disabled={Object.keys(overrides).length === 0}
-          onClick={() => void resetKeybindings()}
+          onClick={() => {
+            if (window.confirm('Reset every keyboard shortcut to its default?')) void resetKeybindings()
+          }}
         >
           Reset all shortcuts
         </button>

@@ -40,6 +40,7 @@ import {
 } from './units.js'
 import { wordStyleFor } from './styleMap.js'
 import { rawBlockText } from '../../shared/pm/extractText.js'
+import { ANCHOR_MARK } from '../../shared/model/anchor.js'
 
 /**
  * Writing a `.docx`.
@@ -711,5 +712,9 @@ export const EDITOR_MARK_TYPES = new Set([
   // Attribution for assistant-written words. Exported as plain text: Word has
   // no run property for "a model wrote this", and the document's own
   // `provenance` log is the record that outlives the export.
-  'aiAuthored'
+  'aiAuthored',
+  // Where a margin note or review thread is attached. Dropped on export, on
+  // purpose: notes and threads live in their own files, not in the prose, and
+  // an anchor with nothing hanging from it means nothing to Word.
+  ANCHOR_MARK
 ])

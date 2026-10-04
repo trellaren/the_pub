@@ -98,8 +98,34 @@ const UNSUPPORTED: { tag: string; label: string }[] = [
   { tag: 'w:headerReference', label: 'Headers and footers' }
 ]
 
+/** Above any real manuscript; what a zip bomb inflates to is far beyond it. */
+export const MAX_DOCX_PART_BYTES = 100 * 1024 * 1024
+export const MAX_DOCX_TOTAL_BYTES = 400 * 1024 * 1024
+const READ_PARTS = new Set([DOCUMENT_PART, STYLES_PART, NUMBERING_PART, RELS_PART, FOOTNOTES_PART])
+
+/**
+ * Inflate only the parts this importer reads, within a budget. `unzipSync`
+ * otherwise inflates every entry at once, synchronously on the main process,
+ * so a few megabytes crafted to expand to gigabytes would freeze every window
+ * and then exhaust memory.
+ */
+function unzipBounded(bytes: Uint8Array): Record<string, Uint8Array> {
+  let total = 0
+  let oversized: string | null = null
+  const zip = unzipSync(bytes, {
+    filter: (entry) => {
+      if (!READ_PARTS.has(entry.name) && !entry.name.startsWith('word/media/')) return false
+      total += entry.originalSize
+      if (entry.originalSize > MAX_DOCX_PART_BYTES || total > MAX_DOCX_TOTAL_BYTES) oversized ??= entry.name
+      return oversized === null
+    }
+  })
+  if (oversized !== null) throw new Error(`This Word document is too large to import (${oversized}).`)
+  return zip
+}
+
 export function importDocx(bytes: Uint8Array): DocxImport {
-  const zip = unzipSync(bytes)
+  const zip = unzipBounded(bytes)
   const documentXml = zip[DOCUMENT_PART]
   if (!documentXml) {
     throw new Error('This is not a Word document: it has no word/document.xml part.')
@@ -114,7 +140,8 @@ export function importDocx(bytes: Uint8Array): DocxImport {
     warnings: [],
     seen: new Set(),
     used: new Set(),
-    authors: new Map()
+    authors: new Map(),
+    listNumIds: new WeakMap()
   }
 
   const { styles, byId } = readStyles(zip[STYLES_PART])
@@ -177,6 +204,8 @@ interface Context {
   used: Set<string>
   /** Word author name to the id minted for them. */
   authors: Map<string, AuthorProfile>
+  /** The `w:numId` each rebuilt list came from, so a restarted list stays separate. */
+  listNumIds: WeakMap<PmNode, string>
 }
 
 function warn(context: Context, message: string): void {
@@ -333,25 +362,52 @@ function readBlocks(container: XmlNode, context: Context): PmNode[] {
 
 function pushParagraph(nodes: PmNode[], paragraph: XmlNode, context: Context): void {
   const properties = child(paragraph, 'w:pPr')
-  const numId = att(path(properties, ['w:numPr', 'w:numId']), 'w:val')
+  const numPr = path(properties, ['w:numPr'])
+  const numId = att(child(numPr, 'w:numId'), 'w:val')
   const block = readParagraph(paragraph, context)
 
-  if (numId === undefined) {
+  // `numId` 0 is Word's "no numbering", used to switch off a list a paragraph
+  // style would otherwise apply — not a reference to an unknown list.
+  if (numId === undefined || numId === '0') {
     nodes.push(block)
     return
   }
 
   // Word has no list node: every item is an ordinary paragraph carrying a
-  // numbering reference. Consecutive items have to be gathered back into one
-  // list, because that is the shape this editor's schema needs.
+  // numbering reference and a level. Consecutive items of one `numId` are
+  // gathered back into one list, and deeper levels nest inside the item
+  // before them, because that is the shape this editor's schema needs.
   const listType = (context.numbering.get(numId) ?? 'bullet') === 'ordered' ? 'orderedList' : 'bulletList'
+  const level = Math.min(Math.max(Number(att(child(numPr, 'w:ilvl'), 'w:val') ?? 0) || 0, 0), 8)
   const item: PmNode = { type: 'listItem', content: [stripListIndent(block)] }
-  const previous = nodes[nodes.length - 1]
-  if (previous?.type === listType) {
-    previous.content = [...(previous.content ?? []), item]
+
+  const top = nodes[nodes.length - 1]
+  const continues = top !== undefined && isList(top) && context.listNumIds.get(top) === numId
+  if (!continues) {
+    const list: PmNode = { type: listType, content: [item] }
+    context.listNumIds.set(list, numId)
+    nodes.push(list)
     return
   }
-  nodes.push({ type: listType, content: [item] })
+
+  let list = top
+  for (let depth = 0; depth < level; depth++) {
+    const parentItem = list.content?.[list.content.length - 1]
+    if (!parentItem) break
+    const nested = parentItem.content?.[parentItem.content.length - 1]
+    if (nested && isList(nested)) {
+      list = nested
+    } else {
+      const created: PmNode = { type: listType, content: [] }
+      parentItem.content = [...(parentItem.content ?? []), created]
+      list = created
+    }
+  }
+  list.content = [...(list.content ?? []), item]
+}
+
+function isList(node: PmNode): boolean {
+  return node.type === 'bulletList' || node.type === 'orderedList'
 }
 
 /** A list item's paragraph carries the list's own indent; keeping it double-indents. */

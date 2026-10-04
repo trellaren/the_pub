@@ -10,6 +10,8 @@ import {
   type AiSettings
 } from '../../shared/model/ai.js'
 import { CHATS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 
 function emptyFile(): ChatFile {
   return { formatVersion: FORMAT_VERSIONS.chats, chats: [], settings: aiSettingsSchema.parse({}) }
@@ -25,6 +27,8 @@ function emptyFile(): ChatFile {
  */
 export class ChatService {
   private cache: ChatFile = emptyFile()
+  /** A newer build wrote the file; see `JsonCollectionService.readOnly`. */
+  readOnly = false
   private queue: Promise<void> = Promise.resolve()
 
   constructor(private readonly adapter: VfsAdapter) {}
@@ -35,9 +39,17 @@ export class ChatService {
       this.cache = emptyFile()
       return this.snapshot()
     }
+    this.readOnly = false
     try {
       const raw = await this.adapter.readFile(CHATS_FILE)
-      this.cache = chatFileSchema.parse(JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('chats', JSON.parse(raw.toString('utf8')))
+      if (tooNew) {
+        this.readOnly = true
+        const parsed = chatFileSchema.safeParse(value)
+        this.cache = parsed.success ? parsed.data : emptyFile()
+        return this.snapshot()
+      }
+      this.cache = chatFileSchema.parse(value)
     } catch {
       await this.adapter.rename(CHATS_FILE, `${CHATS_FILE}.corrupt-${Date.now()}`).catch(() => {})
       this.cache = emptyFile()
@@ -105,6 +117,7 @@ export class ChatService {
   }
 
   private async flush(): Promise<void> {
+    if (this.readOnly) throw new TooNewError(CHATS_FILE)
     const file: ChatFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.chats }
     this.queue = this.queue.then(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})

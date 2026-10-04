@@ -10,7 +10,7 @@ import type { SearchIndexService } from './searchIndexService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
 import { pubDocumentSchema, type PubDocument } from '../../shared/model/document.js'
 import { ANCHOR_MARK } from '../../shared/model/anchor.js'
-import { SNAPSHOTS_DIR } from '../../shared/constants.js'
+import { SNAPSHOT_MAX_PER_DOC, SNAPSHOTS_DIR } from '../../shared/constants.js'
 
 /**
  * Restoring a version, against a real adapter in a temporary directory.
@@ -104,6 +104,25 @@ describe('restoring in place', () => {
     expect(result.ok).toBe(true)
     const now = await documents.read('chapter.pubdoc')
     expect(textOf(now.doc)).toContain('The first draft.')
+  })
+
+  it('restores the oldest version even when archiving the current one prunes it', async () => {
+    const created = await documents.create('chapter.pubdoc', 'Chapter')
+    paths.set(created.doc.docId, created.path)
+    for (let i = 0; i < SNAPSHOT_MAX_PER_DOC; i++) {
+      await snapshots.forceSnapshot(await write('chapter.pubdoc', `Draft number ${i}.`))
+      await new Promise((resolve) => setTimeout(resolve, 2))
+    }
+    expect(await snapshotCount(created.doc.docId)).toBe(SNAPSHOT_MAX_PER_DOC)
+    await write('chapter.pubdoc', 'The current text.')
+
+    const result = await history.restoreInPlace(
+      created.doc.docId,
+      await versionContaining(created.doc.docId, 'Draft number 0.')
+    )
+
+    expect(result.ok).toBe(true)
+    expect(textOf((await documents.read('chapter.pubdoc')).doc)).toContain('Draft number 0.')
   })
 
   it('keeps the document’s own identity rather than the snapshot’s', async () => {

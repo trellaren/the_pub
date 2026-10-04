@@ -49,13 +49,13 @@ async function readIdentities(
  * `fs` directly rather than the project's `VfsAdapter`, deliberately: these
  * are files being imported *from* the machine, chosen in a native file
  * dialog, and have nothing to do with where the project itself lives — the
- * same reason `docx:import` takes absolute paths.
+ * same reason the Word import reads its picked files with `fs`.
  *
  * The format is chosen by extension, falling back to sniffing the contents,
  * because a file saved as `references.txt` from a browser is common and
  * refusing it on the name alone would be unhelpful.
  */
-async function importSourceFiles(session: ProjectSession, files: string[]): Promise<IpcRes<'sources:import'>> {
+async function importSourceFiles(session: ProjectSession, files: string[]): Promise<NonNullable<IpcRes<'sources:importDialog'>>> {
   const items: CslItem[] = []
   const warnings: string[] = []
 
@@ -87,7 +87,7 @@ async function importSourceFiles(session: ProjectSession, files: string[]): Prom
 }
 
 export function register(ctx: HandlerContext): void {
-  const { handle, windows, requireSession, ownerWindow, rescan, noteChanged, highlightChanged } = ctx
+  const { handle, windows, requireSession, ownerWindow, pickFiles, rescan, noteChanged, highlightChanged } = ctx
 
   handle('entities:list', (_payload, event) => requireSession(event).entities.snapshot())
   handle('entities:create', async ({ kind, name }, event) => {
@@ -294,20 +294,17 @@ export function register(ctx: HandlerContext): void {
     return { ok: true as const }
   })
   handle('sources:accept', ({ id }, event) => requireSession(event).sources.accept(id))
-  handle('sources:import', ({ files }, event) => importSourceFiles(requireSession(event), files))
   handle('sources:importDialog', async (_payload, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import sources',
       filters: [
         { name: 'Bibliography files', extensions: ['bib', 'bibtex', 'ris'] },
         { name: 'BibTeX', extensions: ['bib', 'bibtex'] },
         { name: 'RIS', extensions: ['ris'] }
-      ],
-      properties: ['openFile', 'multiSelections']
+      ]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importSourceFiles(session, picked.filePaths)
+    return files && importSourceFiles(session, files)
   })
   handle('sources:lookup', async ({ query }, event) => {
     const session = requireSession(event)

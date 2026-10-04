@@ -24,6 +24,8 @@ interface Delta {
  */
 export class StatsService {
   private file: StatsFile | null = null
+  /** A newer build wrote the rollup; flushes are skipped rather than strip it. */
+  private tooNew = false
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private dirty = false
 
@@ -46,7 +48,13 @@ export class StatsService {
     }
     try {
       const raw = await this.adapter.readFile(path)
-      const { value } = migrate('stats', JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('stats', JSON.parse(raw.toString('utf8')))
+      this.tooNew = tooNew
+      const shown = statsFileSchema.safeParse(value)
+      if (tooNew) {
+        this.file = shown.success ? shown.data : structuredClone(EMPTY_STATS_FILE)
+        return this.file
+      }
       this.file = statsFileSchema.parse(value)
     } catch {
       // An unreadable rollup is not worth a project's writing history — start
@@ -113,7 +121,8 @@ export class StatsService {
       clearTimeout(this.flushTimer)
       this.flushTimer = null
     }
-    if (!this.dirty || !this.file) return
+    // Quietly: stats flush in the background, and a counter is not work to warn about.
+    if (!this.dirty || !this.file || this.tooNew) return
     this.dirty = false
     await this.adapter.mkdir(STATS_DIR).catch(() => {})
     await this.adapter.writeFileAtomic(

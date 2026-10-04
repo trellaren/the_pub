@@ -1,3 +1,4 @@
+import { handleTreeKeyDown, handleTreeFocus } from '@renderer/ui/treeKeyboard.js'
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
 import {
   isPart,
@@ -294,6 +295,9 @@ export function ManuscriptPanel() {
       ) : (
         <div
           role="tree"
+          tabIndex={selected ? -1 : 0}
+          onKeyDown={handleTreeKeyDown}
+          onFocus={handleTreeFocus}
           data-testid="manuscript-tree"
           // The whole resolved target, mid-drag — so a test can assert *what*
           // a drag is currently aimed at (not just that something moved after

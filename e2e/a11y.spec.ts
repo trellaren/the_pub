@@ -190,3 +190,26 @@ test('the dock stays usable at 200% zoom', async () => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.setZoomFactor(1)
   })
 })
+
+test('the file tree is one Tab stop, walked with the arrow keys', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createDocument(harness.page, 'alpha.pubdoc')
+  await createDocument(harness.page, 'beta.pubdoc')
+  await harness.page.evaluate(() => window.__pub.runCommand('panel.explorer'))
+
+  const tree = harness.page.getByTestId('file-tree')
+  await expect(tree.getByRole('treeitem', { name: 'beta.pubdoc' })).toBeVisible()
+  await tree.focus()
+  const first = tree.getByRole('treeitem').first()
+  await expect(first).toBeFocused()
+
+  await first.press('ArrowDown')
+  const second = tree.getByRole('treeitem').nth(1)
+  await expect(second).toBeFocused()
+  await expect(second).toHaveAttribute('tabindex', '0')
+  await expect(first).toHaveAttribute('tabindex', '-1')
+
+  await second.press('Home')
+  await expect(first).toBeFocused()
+})

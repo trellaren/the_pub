@@ -35,7 +35,7 @@ async function importDocxFiles(
   session: ProjectSession,
   files: string[],
   targetDir: string
-): Promise<IpcRes<'docx:import'>> {
+): Promise<NonNullable<IpcRes<'docx:importDialog'>>> {
   const result = await session.docx.import(files, targetDir, session.manifest)
   if (result.stylesAdded > 0) {
     await session.saveManifest({ ...session.manifest, styles: result.styles })
@@ -51,7 +51,7 @@ async function importFountainFiles(
   session: ProjectSession,
   files: string[],
   targetDir: string
-): Promise<IpcRes<'fountain:import'>> {
+): Promise<NonNullable<IpcRes<'fountain:importDialog'>>> {
   const result = await session.fountain.import(files, targetDir)
   for (const document of result.imported) {
     await session.search.indexDocument(document.path).catch(() => {})
@@ -107,7 +107,7 @@ const publishDialogTitle: Record<PublishFormat, string> = {
 }
 
 export function register(ctx: HandlerContext): void {
-  const { handle, requireSession, ownerWindow, commitDocumentWrite } = ctx
+  const { handle, requireSession, ownerWindow, pickFiles, commitDocumentWrite } = ctx
 
   handle('doc:read', ({ path: target }, event) => requireSession(event).documents.read(target))
 
@@ -134,19 +134,13 @@ export function register(ctx: HandlerContext): void {
     return { path: assetPath, url: assetUrl(session, assetPath) }
   })
 
-  handle('docx:import', ({ files, targetDir }, event) =>
-    importDocxFiles(requireSession(event), files, targetDir)
-  )
-
   handle('docx:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import Word documents',
-      filters: [{ name: 'Word documents', extensions: ['docx'] }],
-      properties: ['openFile', 'multiSelections']
+      filters: [{ name: 'Word documents', extensions: ['docx'] }]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importDocxFiles(session, picked.filePaths, targetDir)
+    return files && importDocxFiles(session, files, targetDir)
   })
 
   handle('docx:export', async ({ paths, items, file }, event) => {
@@ -215,19 +209,13 @@ export function register(ctx: HandlerContext): void {
     return exportWarnings(format, requireSession(event).manifest)
   })
 
-  handle('fountain:import', ({ files, targetDir }, event) =>
-    importFountainFiles(requireSession(event), files, targetDir)
-  )
-
   handle('fountain:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)
-    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+    const files = await pickFiles(event, {
       title: 'Import Fountain screenplays',
-      filters: [{ name: 'Fountain', extensions: ['fountain'] }],
-      properties: ['openFile', 'multiSelections']
+      filters: [{ name: 'Fountain', extensions: ['fountain'] }]
     })
-    if (picked.canceled || picked.filePaths.length === 0) return null
-    return importFountainFiles(session, picked.filePaths, targetDir)
+    return files && importFountainFiles(session, files, targetDir)
   })
 
   handle('fountain:export', async ({ path: sourcePath, file }, event) => {

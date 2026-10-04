@@ -8,7 +8,7 @@ import { LocalAdapter } from '../vfs/localAdapter.js'
 import { ANCHOR_MARK } from '../../shared/model/anchor.js'
 import type { AuthorProfile } from '../../shared/model/author.js'
 import type { PmDoc } from '../../shared/model/document.js'
-import { REVIEWS_DIR } from '../../shared/constants.js'
+import { AUTHORS_FILE, FORMAT_VERSIONS, REVIEWS_DIR } from '../../shared/constants.js'
 
 const MARTA: AuthorProfile = { id: 'marta', name: 'Marta', color: '#c2410c' }
 const SAM: AuthorProfile = { id: 'sam', name: 'Sam', color: '#0369a1' }
@@ -134,6 +134,14 @@ describe('ReviewService', () => {
     await fs.writeFile(path.join(root, REVIEWS_DIR, 'doc-1', 'broken.json'), '{ not json')
     hers.invalidate()
     expect(await hers.list('doc-1')).toHaveLength(1)
+  })
+
+  it('never replaces an author registry it cannot safely rewrite', async () => {
+    const newer = JSON.stringify({ formatVersion: FORMAT_VERSIONS.authors + 1, authors: [SAM, { id: 'x' }] })
+    await fs.mkdir(path.dirname(path.join(root, AUTHORS_FILE)), { recursive: true })
+    await fs.writeFile(path.join(root, AUTHORS_FILE), newer)
+    await hers.registerAuthor(MARTA)
+    expect(await fs.readFile(path.join(root, AUTHORS_FILE), 'utf8')).toBe(newer)
   })
 
   it('registers an author once and updates a changed name in place', async () => {

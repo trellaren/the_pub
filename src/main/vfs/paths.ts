@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 
 export class VfsPathError extends Error {
@@ -72,4 +73,19 @@ export function extname(rel: string): string {
   const name = basename(rel)
   const index = name.lastIndexOf('.')
   return index <= 0 ? '' : name.slice(index)
+}
+
+/**
+ * `absolute`, with symlinks resolved, if that is still inside `root` — else
+ * null. `resolveInRoot` is lexical, and `net.fetch` follows links, so a shared
+ * project holding `assets/cover.png -> ~/.ssh/id_rsa` would otherwise hand that
+ * file to the renderer.
+ */
+export async function realPathInside(root: string, absolute: string): Promise<string | null> {
+  try {
+    const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(absolute)])
+    return realFile === realRoot || realFile.startsWith(realRoot + path.sep) ? realFile : null
+  } catch {
+    return null
+  }
 }

@@ -27,6 +27,17 @@ async function readFile(): Promise<string> {
 }
 
 describe('EntityService', () => {
+  it('reads a file from a newer build but refuses to save over it', async () => {
+    const newer = { formatVersion: FORMAT_VERSIONS.entities + 1, entities: [], dismissed: [], futureField: 'keep me' }
+    await fs.mkdir(path.dirname(path.join(root, ENTITIES_FILE)), { recursive: true })
+    await fs.writeFile(path.join(root, ENTITIES_FILE), JSON.stringify(newer))
+    await entities.load()
+
+    expect(entities.readOnly).toBe(true)
+    await expect(entities.create('character', 'Harlan')).rejects.toThrow(/newer version/)
+    expect(JSON.parse(await readFile())).toEqual(newer)
+  })
+
   it('starts empty when there is no file', async () => {
     expect(entities.snapshot().entities).toEqual([])
     expect(entities.snapshot().dismissed).toEqual([])

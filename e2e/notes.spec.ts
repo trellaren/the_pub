@@ -183,3 +183,34 @@ test('rewriting the anchored text orphans the note, and a matching candidate re-
     return note.orphaned === false && note.blockIndex === 0
   }, 'the note to be re-attached')
 })
+
+test('a note edited moments before the window closes is still saved', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
+  await setText('The quick brown fox jumps.')
+  await selectRange(4, 15)
+  await (await addNoteButton()).click()
+  await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
+  const noteId = (await readNotes(docId)).notes[0]!.id
+  // The file lands before the store hears back; a patch before then edits nothing.
+  await waitFor(
+    () => harness.page.evaluate(([doc]) => (window.__pub.notes.getState().notesByDoc[doc!] ?? []).length === 1, [docId]),
+    'the note to reach the store'
+  )
+
+  // Inside the save debounce, then straight to closing: only the close-time
+  // flush can write this.
+  await harness.page.evaluate(
+    ([doc, note]) => window.__pub.notes.getState().patch(doc!, note!, { resolved: true }),
+    [docId, noteId]
+  )
+  // Closed the way a person closes it, so main asks the renderer to flush;
+  // `app.close()` would end the process without that handshake.
+  // Closing the only window quits the app, which is the end of the handshake.
+  const quit = harness.app.waitForEvent('close')
+  await harness.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
+  await quit
+
+  expect((await readNotes(docId)).notes[0]!.resolved).toBe(true)
+})

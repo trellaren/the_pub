@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { EntityFile } from '../src/shared/model/entity.js'
 import type { ManuscriptFile } from '../src/shared/model/manuscript.js'
@@ -226,10 +226,7 @@ test('a script exports to .fountain and reads back into a new document with the 
   expect(text).toContain('INT. KITCHEN - NIGHT')
   expect(text).toContain('Rain against the window.')
 
-  const imported = await harness.page.evaluate(
-    ({ files }) => window.pub.invoke('fountain:import', { files, targetDir: '' }),
-    { files: [fountainFile] }
-  )
+  const imported = await importPicked(harness, 'fountain:importDialog', [fountainFile], { targetDir: '' })
   expect(imported.imported).toHaveLength(1)
 
   const reimported = await readJson<PubDocument>(path.join(harness.projectDir, imported.imported[0]!.path))

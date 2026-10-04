@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { CslItem } from '../src/shared/model/source.js'
 import type { SourceFile } from '../src/shared/model/source.js'
@@ -174,10 +174,7 @@ test('a BibTeX file imports into the source library', async () => {
     'utf8'
   )
 
-  const result = await harness.page.evaluate(
-    (file) => window.pub.invoke('sources:import', { files: [file] }),
-    bib
-  )
+  const result = await importPicked(harness, 'sources:importDialog', [bib], {})
   expect(result.added).toBe(1)
   expect(result.skipped).toBe(0)
 
@@ -199,17 +196,11 @@ test('a RIS file imports, and re-importing it updates rather than duplicating', 
     fs.writeFile(ris, `TY  - JOUR\nAU  - Smith, Jane\nTI  - ${title}\nPY  - 2019\nER  -\n`, 'utf8')
 
   await write('First Title')
-  const first = await harness.page.evaluate(
-    (file) => window.pub.invoke('sources:import', { files: [file] }),
-    ris
-  )
+  const first = await importPicked(harness, 'sources:importDialog', [ris], {})
   expect(first.added).toBe(1)
 
   await write('Corrected Title')
-  const second = await harness.page.evaluate(
-    (file) => window.pub.invoke('sources:import', { files: [file] }),
-    ris
-  )
+  const second = await importPicked(harness, 'sources:importDialog', [ris], {})
   // Re-importing a corrected file is how a typo gets fixed; doubling the
   // library for it would be a cleanup job for the author.
   expect(second).toMatchObject({ added: 0, replaced: 1 })
@@ -229,10 +220,7 @@ test('an unreadable bibliography file is reported without losing the good one', 
   await fs.writeFile(good, '@book{ok2020, title = {Fine}, author = {Real, Author}, year = {2020}}\n', 'utf8')
   await fs.writeFile(bad, 'this file is not a bibliography at all\n', 'utf8')
 
-  const result = await harness.page.evaluate(
-    (files) => window.pub.invoke('sources:import', { files }),
-    [good, bad]
-  )
+  const result = await importPicked(harness, 'sources:importDialog', [good, bad], {})
 
   expect(result.added).toBe(1)
   expect(result.warnings.join(' ')).toContain('bad.bib')

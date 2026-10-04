@@ -16,6 +16,8 @@ import {
 } from '../../shared/model/manuscript.js'
 import { keyBetween } from '../../shared/model/ordering.js'
 import { MANUSCRIPT_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 
 function emptyFile(): ManuscriptFile {
   return { formatVersion: FORMAT_VERSIONS.manuscript, nodes: [] }
@@ -53,6 +55,8 @@ export interface DocumentResolver {
  */
 export class ManuscriptService {
   private cache: ManuscriptFile = emptyFile()
+  /** A newer build wrote the file; see `JsonCollectionService.readOnly`. */
+  readOnly = false
   private queue: Promise<void> = Promise.resolve()
 
   constructor(
@@ -66,9 +70,17 @@ export class ManuscriptService {
       this.cache = emptyFile()
       return this.snapshot()
     }
+    this.readOnly = false
     try {
       const raw = await this.adapter.readFile(MANUSCRIPT_FILE)
-      const parsed = manuscriptFileSchema.parse(JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('manuscript', JSON.parse(raw.toString('utf8')))
+      if (tooNew) {
+        this.readOnly = true
+        const shown = manuscriptFileSchema.safeParse(value)
+        this.cache = shown.success ? { ...shown.data, nodes: reconcile(shown.data.nodes) } : emptyFile()
+        return this.snapshot()
+      }
+      const parsed = manuscriptFileSchema.parse(value)
       // Repair rather than trust: a hand-edited or half-written file must not
       // be able to hide a chapter behind a parent that does not exist.
       this.cache = { ...parsed, nodes: reconcile(parsed.nodes) }
@@ -274,6 +286,7 @@ export class ManuscriptService {
   }
 
   private async flush(): Promise<void> {
+    if (this.readOnly) throw new TooNewError(MANUSCRIPT_FILE)
     this.cache.nodes = reconcile(this.refreshHints(this.cache.nodes))
     const file: ManuscriptFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.manuscript }
     this.queue = this.queue.then(async () => {

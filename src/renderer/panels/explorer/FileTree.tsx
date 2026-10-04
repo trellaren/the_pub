@@ -1,3 +1,4 @@
+import { handleTreeKeyDown, handleTreeFocus } from '@renderer/ui/treeKeyboard.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { VfsEntry } from '@shared/model/vfs.js'
 import { DOC_EXT, IGNORED_DIRS } from '@shared/constants.js'
@@ -228,6 +229,12 @@ export function FileTree() {
 
   const remove = useCallback(
     async (entry: VfsEntry) => {
+      // A local delete goes to the OS trash and can be taken back. On a server
+      // there is no trash: the delete is permanent, and a folder's is recursive.
+      if (project && !project.isLocal) {
+        const what = entry.kind === 'dir' ? `the folder “${entry.name}” and everything in it` : `“${entry.name}”`
+        if (!window.confirm(`Permanently delete ${what} from the server? This cannot be undone.`)) return
+      }
       const done = await attempt(
         invoke('vfs:delete', { path: entry.path, recursive: entry.kind === 'dir' }),
         'Could not delete'
@@ -237,7 +244,7 @@ export function FileTree() {
         void loadDirectory(parent)
       }
     },
-    [loadDirectory]
+    [loadDirectory, project]
   )
 
   if (!project) {
@@ -281,6 +288,9 @@ export function FileTree() {
         ref={treeRef}
         role="tree"
         aria-label={`${project.manifest.name} files`}
+        tabIndex={selected ? -1 : 0}
+        onKeyDown={handleTreeKeyDown}
+        onFocus={handleTreeFocus}
         className="flex-1 overflow-auto py-1"
         data-testid="file-tree"
         onContextMenu={(event) => {
@@ -394,7 +404,7 @@ function TreeRow({
         aria-expanded={node.kind === 'dir' ? expanded : undefined}
         aria-selected={selected}
         aria-level={node.depth + 1}
-        tabIndex={0}
+        tabIndex={selected ? 0 : -1}
         onClick={() => {
           onSelect()
           onActivate()
@@ -402,6 +412,10 @@ function TreeRow({
         onKeyDown={(event) => {
           if (event.key === 'Enter') onActivate()
           if (event.key === 'F2') onRename()
+          if (node.kind === 'dir' && ((event.key === 'ArrowRight' && !expanded) || (event.key === 'ArrowLeft' && expanded))) {
+            event.preventDefault()
+            onActivate()
+          }
         }}
         onContextMenu={(event) => {
           event.preventDefault()

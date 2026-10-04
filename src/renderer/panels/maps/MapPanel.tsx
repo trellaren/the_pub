@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MapShape, MapIcon } from '@shared/model/map.js'
+import type { MapShape } from '@shared/model/map.js'
 import {
   breadcrumbTo,
   wouldCycle,
   clampStrokeWidth,
   DEFAULT_STROKE_WIDTH,
-  DEFAULT_AREA_OPACITY,
-  MIN_STROKE_WIDTH,
-  MAX_STROKE_WIDTH
+  DEFAULT_AREA_OPACITY
 } from '@shared/model/map.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useMapStore } from '@renderer/stores/mapStore.js'
@@ -24,7 +22,6 @@ import {
   Field,
   NumberField,
   SectionTitle,
-  Divider,
   cx
 } from '@renderer/ui/primitives.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
@@ -32,17 +29,12 @@ import { invoke, attempt, errorMessage, reportError } from '@renderer/lib/ipc.js
 import { bytesToBase64 } from '@renderer/lib/assets.js'
 import { fitToMapBox } from '@shared/model/map.js'
 import { MapCanvas, type MapTool } from './MapCanvas.js'
+import { MapToolbar } from './MapToolbar.js'
+import { useBrush } from './useBrush.js'
 import { MAP_ICON_KEYS, MAP_ICON_LABELS } from './icons.js'
 import { MapIconGlyph } from './MapIconGlyph.js'
 import { NewMapDialog } from './NewMapDialog.js'
 
-const TOOLS: { id: MapTool; label: string; glyph: string }[] = [
-  { id: 'select', label: 'Select and pan', glyph: '✥' },
-  { id: 'marker', label: 'Place a marker', glyph: '◉' },
-  { id: 'path', label: 'Draw a route or border', glyph: '〜' },
-  { id: 'area', label: 'Draw a region', glyph: '⬠' },
-  { id: 'label', label: 'Write a label', glyph: 'T' }
-]
 
 /**
  * Draw, review and drill down.
@@ -59,10 +51,8 @@ export function MapPanel() {
   const entities = useEntityStore((store) => store.entities)
 
   const [tool, setTool] = useState<MapTool>('select')
-  const [color, setColor] = useState('#7aa2f7')
-  const [icon, setIcon] = useState<MapIcon | null>(null)
-  const [strokeWidth, setStrokeWidth] = useState(DEFAULT_STROKE_WIDTH)
-  const [opacity, setOpacity] = useState(DEFAULT_AREA_OPACITY)
+  const brush = useBrush()
+  const { color, icon, strokeWidth, opacity } = brush
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
   const [newMap, setNewMap] = useState<{ owner?: Document } | null>(null)
   /** Where this pane actually lives — the popout's document when torn off. */
@@ -199,83 +189,17 @@ export function MapPanel() {
         />
       ) : (
         <>
-          <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
-            <Select
-              value={activeMapId ?? ''}
-              onChange={(event) => {
-                useMapStore.getState().setActive(event.target.value)
-                setSelectedShapeId(null)
-              }}
-              data-testid="map-picker"
-            >
-              {maps.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                </option>
-              ))}
-            </Select>
-            <Divider />
-            {TOOLS.map((item) => (
-              <ToolbarButton
-                key={item.id}
-                label={item.label}
-                active={tool === item.id}
-                onClick={() => setTool(item.id)}
-                data-testid={`map-tool-${item.id}`}
-              >
-                {item.glyph}
-              </ToolbarButton>
-            ))}
-            <input
-              type="color"
-              value={color}
-              onChange={(event) => setColor(event.target.value)}
-              title="Colour for new shapes"
-              className="pub-focus-ring ml-1 h-6 w-8 cursor-pointer rounded border border-border bg-surface-2"
-            />
-            {tool === 'marker' ? (
-              <Select
-                value={icon ?? ''}
-                onChange={(event) => setIcon((event.target.value || null) as MapIcon | null)}
-                title="Icon for new markers"
-                data-testid="map-tool-icon"
-                className="ml-1 h-6"
-              >
-                <option value="">Plain marker</option>
-                {MAP_ICON_KEYS.map((key) => (
-                  <option key={key} value={key}>
-                    {MAP_ICON_LABELS[key]}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
-            {tool === 'path' || tool === 'area' ? (
-              <input
-                type="number"
-                min={MIN_STROKE_WIDTH}
-                max={MAX_STROKE_WIDTH}
-                step={0.5}
-                value={strokeWidth}
-                onChange={(event) => setStrokeWidth(clampStrokeWidth(Number(event.target.value)))}
-                title="Stroke width for new shapes"
-                data-testid="map-tool-stroke-width"
-                className="pub-focus-ring ml-1 h-6 w-14 rounded border border-border bg-surface-2 px-1 text-[12px] text-text"
-              />
-            ) : null}
-            {tool === 'area' ? (
-              <input
-                type="range"
-                min={0.05}
-                max={1}
-                step={0.05}
-                value={opacity}
-                onChange={(event) => setOpacity(Number(event.target.value))}
-                title="Fill opacity for new regions"
-                data-testid="map-tool-opacity"
-                className="ml-1 h-6 w-16 cursor-pointer"
-              />
-            ) : null}
-          </div>
+          <MapToolbar
+            maps={maps}
+            activeMapId={activeMapId}
+            onPickMap={(mapId) => {
+              useMapStore.getState().setActive(mapId)
+              setSelectedShapeId(null)
+            }}
+            tool={tool}
+            setTool={setTool}
+            brush={brush}
+          />
 
           {trail.length > 1 ? (
             <nav className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-[11px] text-muted">

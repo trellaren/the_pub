@@ -88,6 +88,11 @@ export interface HandlerContext extends HandlerDeps {
   requireSession(event: IpcMainInvokeEvent): ProjectSession
   /** The window a dialog should be parented to: the one the request came from. */
   ownerWindow(event: IpcMainInvokeEvent): BrowserWindow
+  /** Files chosen in a native picker over the requesting window, or null if cancelled. */
+  pickFiles(
+    event: IpcMainInvokeEvent,
+    options: { title: string; filters: Electron.FileFilter[]; multiple?: boolean }
+  ): Promise<string[] | null>
   openInto(ownerId: number, uri: string): Promise<ProjectSession>
   commitDocumentWrite(
     event: IpcMainInvokeEvent,
@@ -193,6 +198,18 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
     return window
   }
 
+  async function pickFiles(
+    event: IpcMainInvokeEvent,
+    { title, filters, multiple = true }: { title: string; filters: Electron.FileFilter[]; multiple?: boolean }
+  ): Promise<string[] | null> {
+    const picked = await dialog.showOpenDialog(ownerWindow(event), {
+      title,
+      filters,
+      properties: multiple ? ['openFile', 'multiSelections'] : ['openFile']
+    })
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths
+  }
+
   function notify(event: IpcMainInvokeEvent, send: (ownerId: number) => void): void {
     const ownerId = windows.ownerWindowId(event.sender)
     if (ownerId !== null) send(ownerId)
@@ -254,7 +271,24 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
       allowStart
     )
 
-  async function openInto(ownerId: number, uri: string): Promise<ProjectSession> {
+  /**
+   * One open at a time per window. Two overlapping opens — a double-click on a
+   * recent project — would each close, each open, and the second `set` would
+   * drop the first session without closing it: its watcher, index database and
+   * server connection left running for the life of the app.
+   */
+  const opening = new Map<number, Promise<unknown>>()
+  function openInto(ownerId: number, uri: string): Promise<ProjectSession> {
+    const previous = opening.get(ownerId) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(() => openIntoNow(ownerId, uri))
+    opening.set(ownerId, next)
+    void next.finally(() => {
+      if (opening.get(ownerId) === next) opening.delete(ownerId)
+    }).catch(() => {})
+    return next
+  }
+
+  async function openIntoNow(ownerId: number, uri: string): Promise<ProjectSession> {
     await sessions.close(ownerId)
     const session = await ProjectSession.open(uri, {
       onFileChange: (events) => windows.sendToSession(ownerId, 'vfs:changed', events),
@@ -294,6 +328,7 @@ export function createHandlerContext(deps: HandlerDeps): HandlerContext {
     keyFor,
     requireSession,
     ownerWindow,
+    pickFiles,
     openInto,
     commitDocumentWrite,
     rescan,

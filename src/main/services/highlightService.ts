@@ -6,6 +6,7 @@ import {
   type HighlightFile
 } from '../../shared/model/highlight.js'
 import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 import { findAnchor, type AnchorMarkConfig } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
 import { HIGHLIGHTS_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
@@ -19,6 +20,8 @@ const HIGHLIGHT_MARK_CONFIG: AnchorMarkConfig = { markType: 'highlight', attrKey
  */
 export class HighlightService {
   private cache = new Map<string, HighlightFile>()
+  /** Files a newer build wrote: shown as far as they parse, never written back. */
+  private tooNew = new Set<string>()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -39,7 +42,14 @@ export class HighlightService {
     }
     try {
       const raw = await this.adapter.readFile(path)
-      const { value } = migrate('highlights', JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('highlights', JSON.parse(raw.toString('utf8')))
+      if (tooNew) {
+        this.tooNew.add(docId)
+        const shown = highlightFileSchema.safeParse(value)
+        const file: HighlightFile = shown.success ? shown.data : { formatVersion: FORMAT_VERSIONS.highlights, highlights: [] }
+        this.cache.set(docId, file)
+        return file
+      }
       const file = highlightFileSchema.parse(value)
       this.cache.set(docId, file)
       return file
@@ -53,6 +63,7 @@ export class HighlightService {
   }
 
   private async flush(docId: string): Promise<void> {
+    if (this.tooNew.has(docId)) throw new TooNewError(this.pathFor(docId))
     const file = this.cache.get(docId)
     if (!file) return
     await this.adapter.mkdir(HIGHLIGHTS_DIR).catch(() => {})

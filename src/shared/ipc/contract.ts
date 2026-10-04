@@ -228,15 +228,11 @@ export const ipcContract = defineContract({
     },
 
     /*
-     * Word import and export, each split into a dialog-free half and a dialog
-     * wrapper. Playwright cannot operate a native dialog, so without the split
-     * the whole feature would be untestable end to end — and the halves are the
-     * same code either way, which is the point.
+     * Imports take files only from a native picker, never a path from the
+     * renderer: a channel that reads whatever path it is handed would let a
+     * compromised page copy any file on the machine into a synced project.
+     * E2E tests answer the picker by stubbing `dialog.showOpenDialog` in main.
      */
-    'docx:import': {
-      req: z.object({ files: z.array(z.string()), targetDir: z.string().default('') }),
-      res: docxImportResultSchema
-    },
     'docx:importDialog': {
       req: z.object({ targetDir: z.string().default('') }),
       res: docxImportResultSchema.nullable()
@@ -289,10 +285,6 @@ export const ipcContract = defineContract({
      * a screenplay is conventionally a single continuous script, so there is
      * no binder to compile here.
      */
-    'fountain:import': {
-      req: z.object({ files: z.array(z.string()), targetDir: z.string().default('') }),
-      res: fountainImportResultSchema
-    },
     'fountain:importDialog': {
       req: z.object({ targetDir: z.string().default('') }),
       res: fountainImportResultSchema.nullable()
@@ -568,12 +560,7 @@ export const ipcContract = defineContract({
     'sources:delete': { req: z.object({ id: z.string() }), res: ok },
     /** The writer has checked a citation the assistant attributed. */
     'sources:accept': { req: z.object({ id: z.string() }), res: cslItemSchema },
-    /*
-     * Bibliography import, split into a dialog-free half and a dialog wrapper
-     * for the reason `docx:import` is: Playwright cannot operate a native
-     * dialog, so without the split the feature would be untestable end to end.
-     */
-    'sources:import': { req: z.object({ files: z.array(z.string()) }), res: sourceImportResultSchema },
+    /** From a native picker only, like `docx:importDialog`. */
     'sources:importDialog': { req: empty, res: sourceImportResultSchema.nullable() },
     /**
      * Fetch a source by DOI or ISBN, deciding which from the text itself.

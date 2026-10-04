@@ -1,4 +1,5 @@
 import type { PmDoc, PmNode } from '../../shared/model/document.js'
+import { rawBlockText } from '../../shared/pm/extractText.js'
 import {
   STYLE_SCENE_HEADING,
   STYLE_ACTION,
@@ -101,12 +102,7 @@ function fountainLine(kind: ElementKind, text: string): string {
 /** What other Fountain tools recognise as a scene heading without a forcing `.` — shared with `fromFountain.ts`. */
 export const SCENE_HEADING_PREFIX = /^(int|ext|est|int\.?\/ext|i\/e)[. ]/i
 
+/** One Fountain line per block, so a hard break inside it becomes a space. */
 function plainText(node: PmNode): string {
-  return (node.content ?? []).map(runText).join('')
-}
-
-function runText(node: PmNode): string {
-  if (node.type === 'text') return node.text ?? ''
-  if (node.type === 'hardBreak') return ' '
-  return (node.content ?? []).map(runText).join('')
+  return rawBlockText(node).replace(/\n/g, ' ')
 }

@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { unzipSync, strFromU8 } from 'fflate'
 import asar from '@electron/asar'
-import { launch, packagedExecutable, cleanup, createDocument, openProject, waitFor, type Harness } from './helpers.js'
+import { launch, packagedExecutable, cleanup, createDocument, openProject, waitFor, type Harness, importPicked } from './helpers.js'
 
 /**
  * The app as it is actually installed, rather than as it is developed.
@@ -113,10 +113,7 @@ test('prose written in the packaged app reaches disk and comes back out as .docx
   expect(xml).toContain('The lighthouse keeper counted the days.')
 
   // Import exercises fflate and fast-xml-parser, which export does not.
-  const imported = await harness.page.evaluate(
-    (file) => window.pub.invoke('docx:import', { files: [file], targetDir: '' }),
-    target
-  )
+  const imported = await importPicked(harness, 'docx:importDialog', [target], { targetDir: '' })
   expect(imported.imported).toHaveLength(1)
 
   // And the search index proves node:sqlite opened a database under the real

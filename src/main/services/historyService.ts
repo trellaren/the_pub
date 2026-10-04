@@ -54,8 +54,10 @@ export class HistoryService {
       return { ok: false, reason: 'missing-document' }
     }
 
-    await this.snapshots.forceSnapshot(current.doc)
+    // Read before archiving: the archive's write prunes the oldest snapshots,
+    // and the one being restored may be among them.
     const restored = await this.snapshots.read(docId, timestamp)
+    await this.snapshots.forceSnapshot(current.doc)
     // The document keeps its own identity and creation date; only the content
     // and title come back. Taking the snapshot's `docId` wholesale would be the
     // same thing here, but not for a restore into a new file, and one rule for

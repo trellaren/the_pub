@@ -66,7 +66,7 @@ export function ManuscriptNodeRow({
       aria-label={node.title}
       aria-expanded={isPart ? expanded : undefined}
       aria-selected={selected}
-      tabIndex={0}
+      tabIndex={selected ? 0 : -1}
       draggable
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -80,6 +80,10 @@ export function ManuscriptNodeRow({
       onDoubleClick={(event) => isPart && onRename(node.title, event.currentTarget.ownerDocument)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !isPart) onActivate()
+        if (isPart && ((event.key === 'ArrowRight' && !expanded) || (event.key === 'ArrowLeft' && expanded))) {
+          event.preventDefault()
+          onToggle()
+        }
         if (event.key === 'F2') onRename(node.title, event.currentTarget.ownerDocument)
       }}
       onContextMenu={onContextMenu}

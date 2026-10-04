@@ -13,6 +13,7 @@ import {
 } from '../../shared/model/review.js'
 import { authorsFileSchema, EMPTY_AUTHORS_FILE, type AuthorProfile } from '../../shared/model/author.js'
 import { migrate } from '../../shared/model/migrate.js'
+import { TooNewError } from './jsonCollectionService.js'
 import { findAnchor } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
 import { REVIEWS_DIR, AUTHORS_FILE, FORMAT_VERSIONS } from '../../shared/constants.js'
@@ -33,6 +34,14 @@ export class ReviewService {
   /** Per document, by author id. Loaded lazily, like notes. */
   private cache = new Map<string, Map<string, ReviewFile>>()
   private authors: AuthorProfile[] | null = null
+  /** Review files (`docId/authorId`) a newer build wrote: read, never rewritten. */
+  private tooNew = new Set<string>()
+  /**
+   * False when `authors.json` exists but this build cannot safely rewrite it —
+   * too new, or unreadable. Registering ourselves would otherwise replace the
+   * whole shared registry with a list of one.
+   */
+  private authorsWritable = true
 
   constructor(
     private readonly adapter: VfsAdapter,
@@ -65,8 +74,12 @@ export class ReviewService {
       const authorId = entry.name.replace(/\.json$/, '')
       try {
         const raw = await this.adapter.readFile(entry.path)
-        const { value } = migrate('reviews', JSON.parse(raw.toString('utf8')))
-        byAuthor.set(authorId, reviewFileSchema.parse(value))
+        const { value, tooNew } = migrate('reviews', JSON.parse(raw.toString('utf8')))
+        if (tooNew) this.tooNew.add(`${docId}/${authorId}`)
+        else this.tooNew.delete(`${docId}/${authorId}`)
+        const parsed = reviewFileSchema.safeParse(value)
+        if (parsed.success) byAuthor.set(authorId, parsed.data)
+        else if (!tooNew) throw parsed.error
       } catch {
         // One unreadable reviewer's file must not empty the whole discussion.
         // Skipped rather than renamed: it is not ours to move, and the person
@@ -95,6 +108,7 @@ export class ReviewService {
   }
 
   private async flush(docId: string, as: AuthorProfile = this.me()): Promise<void> {
+    if (this.tooNew.has(`${docId}/${as.id}`)) throw new TooNewError(`${this.dirFor(docId)}/${as.id}.json`)
     const file = (await this.loadDoc(docId)).get(as.id)
     if (!file) return
     await this.adapter.mkdir(REVIEWS_DIR).catch(() => {})
@@ -262,11 +276,20 @@ export class ReviewService {
   /** The project's author registry, read once per session unless invalidated. */
   async listAuthors(): Promise<AuthorProfile[]> {
     if (this.authors) return this.authors
+    this.authorsWritable = true
+    if (!(await this.adapter.stat(AUTHORS_FILE).catch(() => null))) {
+      this.authors = []
+      return this.authors
+    }
     try {
       const raw = await this.adapter.readFile(AUTHORS_FILE)
-      const { value } = migrate('authors', JSON.parse(raw.toString('utf8')))
-      this.authors = authorsFileSchema.parse(value).authors
+      const { value, tooNew } = migrate('authors', JSON.parse(raw.toString('utf8')))
+      if (tooNew) this.authorsWritable = false
+      const parsed = authorsFileSchema.safeParse(value)
+      if (!parsed.success && !tooNew) throw parsed.error
+      this.authors = parsed.success ? parsed.data.authors : []
     } catch {
+      this.authorsWritable = false
       this.authors = []
     }
     return this.authors
@@ -287,6 +310,7 @@ export class ReviewService {
       ? authors.map((author) => (author.id === profile.id ? profile : author))
       : [...authors, profile]
     this.authors = next
+    if (!this.authorsWritable) return
     await this.adapter
       .writeFileAtomic(
         AUTHORS_FILE,

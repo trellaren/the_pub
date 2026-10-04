@@ -1,3 +1,4 @@
+import type { IpcReq, IpcRes } from '../src/shared/ipc/contract.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -169,4 +170,28 @@ export async function waitFor(
     await new Promise((resolve) => setTimeout(resolve, 150))
   }
   throw new Error(`Timed out waiting for: ${message}${lastError ? ` (last error: ${String(lastError)})` : ''}`)
+}
+
+type PickerChannel = 'docx:importDialog' | 'fountain:importDialog' | 'sources:importDialog'
+
+/**
+ * Import files the way a person does: through the native picker, answered here
+ * with `files`. There is deliberately no channel that takes a path from the
+ * renderer, so a test cannot skip the dialog either.
+ */
+export async function importPicked<K extends PickerChannel>(
+  harness: Harness,
+  channel: K,
+  files: string[],
+  payload: IpcReq<K>
+): Promise<NonNullable<IpcRes<K>>> {
+  await harness.app.evaluate(({ dialog }, chosen) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: chosen })) as typeof dialog.showOpenDialog
+  }, files)
+  const result = await harness.page.evaluate(
+    ([name, body]) => window.pub.invoke(name as K, body as IpcReq<K>),
+    [channel, payload] as const
+  )
+  if (!result) throw new Error(`${channel} returned nothing`)
+  return result as NonNullable<IpcRes<K>>
 }

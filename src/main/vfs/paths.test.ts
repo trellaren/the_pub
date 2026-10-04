@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { normalizeRelative, resolveInRoot, relativeToRoot, VfsPathError, extname, basename, dirnameRelative } from './paths.js'
+import { normalizeRelative, resolveInRoot, relativeToRoot, VfsPathError, extname, basename, dirnameRelative, realPathInside } from './paths.js'
 
 const root = path.resolve('/tmp/pub-project')
 
@@ -58,5 +58,30 @@ describe('path helpers', () => {
 
   it('treats a leading dot as part of the name, not an extension', () => {
     expect(extname('.thepub')).toBe('')
+  })
+})
+
+describe('realPathInside', () => {
+  it('follows a link that stays inside the root, and refuses one that leaves it', async () => {
+    const fsp = await import('node:fs/promises')
+    const os = await import('node:os')
+    const nodePath = await import('node:path')
+    const root = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'pub-real-'))
+    const outside = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'pub-secret-'))
+    try {
+      await fsp.writeFile(nodePath.join(root, 'cover.png'), 'img')
+      await fsp.writeFile(nodePath.join(outside, 'id_rsa'), 'secret')
+      await fsp.symlink(nodePath.join(root, 'cover.png'), nodePath.join(root, 'alias.png'))
+      await fsp.symlink(nodePath.join(outside, 'id_rsa'), nodePath.join(root, 'leak.png'))
+
+      expect(await realPathInside(root, nodePath.join(root, 'alias.png'))).toBe(
+        await fsp.realpath(nodePath.join(root, 'cover.png'))
+      )
+      expect(await realPathInside(root, nodePath.join(root, 'leak.png'))).toBeNull()
+      expect(await realPathInside(root, nodePath.join(root, 'missing.png'))).toBeNull()
+    } finally {
+      await fsp.rm(root, { recursive: true, force: true })
+      await fsp.rm(outside, { recursive: true, force: true })
+    }
   })
 })

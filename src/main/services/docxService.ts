@@ -11,6 +11,9 @@ import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
 import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
 import { sanitizeFileName } from '../../shared/model/filename.js'
 import { importDocx, IMAGE_PLACEHOLDER_PREFIX, type ImportedImage } from '../docx/fromDocx.js'
+
+/** Read whole into memory before parsing, so capped before reading. */
+const MAX_DOCX_FILE_BYTES = 200 * 1024 * 1024
 import { exportDocx } from '../docx/toDocx.js'
 import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
 import { reconcileStyles } from '../docx/styleMap.js'
@@ -79,6 +82,10 @@ export class DocxService {
     let stylesAdded = 0
 
     for (const file of files) {
+      const { size } = await fs.stat(file)
+      if (size > MAX_DOCX_FILE_BYTES) {
+        throw new Error(`${path.basename(file)} is too large to import as a Word document.`)
+      }
       const bytes = await fs.readFile(file)
       const result = importDocx(new Uint8Array(bytes))
       for (const author of result.authors) {

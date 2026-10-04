@@ -49,13 +49,13 @@ async function readIdentities(
  * `fs` directly rather than the project's `VfsAdapter`, deliberately: these
  * are files being imported *from* the machine, chosen in a native file
  * dialog, and have nothing to do with where the project itself lives — the
- * same reason `docx:import` takes absolute paths.
+ * same reason the Word import reads its picked files with `fs`.
  *
  * The format is chosen by extension, falling back to sniffing the contents,
  * because a file saved as `references.txt` from a browser is common and
  * refusing it on the name alone would be unhelpful.
  */
-async function importSourceFiles(session: ProjectSession, files: string[]): Promise<IpcRes<'sources:import'>> {
+async function importSourceFiles(session: ProjectSession, files: string[]): Promise<NonNullable<IpcRes<'sources:importDialog'>>> {
   const items: CslItem[] = []
   const warnings: string[] = []
 
@@ -294,7 +294,6 @@ export function register(ctx: HandlerContext): void {
     return { ok: true as const }
   })
   handle('sources:accept', ({ id }, event) => requireSession(event).sources.accept(id))
-  handle('sources:import', ({ files }, event) => importSourceFiles(requireSession(event), files))
   handle('sources:importDialog', async (_payload, event) => {
     const session = requireSession(event)
     const picked = await dialog.showOpenDialog(ownerWindow(event), {

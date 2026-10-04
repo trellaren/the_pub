@@ -98,8 +98,34 @@ const UNSUPPORTED: { tag: string; label: string }[] = [
   { tag: 'w:headerReference', label: 'Headers and footers' }
 ]
 
+/** Above any real manuscript; what a zip bomb inflates to is far beyond it. */
+export const MAX_DOCX_PART_BYTES = 100 * 1024 * 1024
+export const MAX_DOCX_TOTAL_BYTES = 400 * 1024 * 1024
+const READ_PARTS = new Set([DOCUMENT_PART, STYLES_PART, NUMBERING_PART, RELS_PART, FOOTNOTES_PART])
+
+/**
+ * Inflate only the parts this importer reads, within a budget. `unzipSync`
+ * otherwise inflates every entry at once, synchronously on the main process,
+ * so a few megabytes crafted to expand to gigabytes would freeze every window
+ * and then exhaust memory.
+ */
+function unzipBounded(bytes: Uint8Array): Record<string, Uint8Array> {
+  let total = 0
+  let oversized: string | null = null
+  const zip = unzipSync(bytes, {
+    filter: (entry) => {
+      if (!READ_PARTS.has(entry.name) && !entry.name.startsWith('word/media/')) return false
+      total += entry.originalSize
+      if (entry.originalSize > MAX_DOCX_PART_BYTES || total > MAX_DOCX_TOTAL_BYTES) oversized ??= entry.name
+      return oversized === null
+    }
+  })
+  if (oversized !== null) throw new Error(`This Word document is too large to import (${oversized}).`)
+  return zip
+}
+
 export function importDocx(bytes: Uint8Array): DocxImport {
-  const zip = unzipSync(bytes)
+  const zip = unzipBounded(bytes)
   const documentXml = zip[DOCUMENT_PART]
   if (!documentXml) {
     throw new Error('This is not a Word document: it has no word/document.xml part.')

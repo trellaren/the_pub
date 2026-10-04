@@ -35,7 +35,7 @@ async function importDocxFiles(
   session: ProjectSession,
   files: string[],
   targetDir: string
-): Promise<IpcRes<'docx:import'>> {
+): Promise<NonNullable<IpcRes<'docx:importDialog'>>> {
   const result = await session.docx.import(files, targetDir, session.manifest)
   if (result.stylesAdded > 0) {
     await session.saveManifest({ ...session.manifest, styles: result.styles })
@@ -51,7 +51,7 @@ async function importFountainFiles(
   session: ProjectSession,
   files: string[],
   targetDir: string
-): Promise<IpcRes<'fountain:import'>> {
+): Promise<NonNullable<IpcRes<'fountain:importDialog'>>> {
   const result = await session.fountain.import(files, targetDir)
   for (const document of result.imported) {
     await session.search.indexDocument(document.path).catch(() => {})
@@ -134,10 +134,6 @@ export function register(ctx: HandlerContext): void {
     return { path: assetPath, url: assetUrl(session, assetPath) }
   })
 
-  handle('docx:import', ({ files, targetDir }, event) =>
-    importDocxFiles(requireSession(event), files, targetDir)
-  )
-
   handle('docx:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)
     const picked = await dialog.showOpenDialog(ownerWindow(event), {
@@ -214,10 +210,6 @@ export function register(ctx: HandlerContext): void {
   handle('publish:warnings', ({ format }, event) => {
     return exportWarnings(format, requireSession(event).manifest)
   })
-
-  handle('fountain:import', ({ files, targetDir }, event) =>
-    importFountainFiles(requireSession(event), files, targetDir)
-  )
 
   handle('fountain:importDialog', async ({ targetDir }, event) => {
     const session = requireSession(event)

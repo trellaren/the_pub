@@ -5,7 +5,7 @@ import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { unzipSync, strFromU8 } from 'fflate'
-import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness, importPicked } from './helpers.js'
 import { buildDocx, paragraph, run, WORD_STYLES } from '../src/main/docx/fixtures.js'
 import { writeTinyPng, tinyPngBytes } from './images.js'
 import type { ProjectManifest } from '../src/shared/model/manifest.js'
@@ -138,10 +138,7 @@ test('an exported document comes back in with its text and headings intact', asy
     target
   )
 
-  const imported = await harness.page.evaluate(
-    (file) => window.pub.invoke('docx:import', { files: [file], targetDir: '' }),
-    target
-  )
+  const imported = await importPicked(harness, 'docx:importDialog', [target], { targetDir: '' })
   expect(imported.imported).toHaveLength(1)
 
   const written = await readJson<{ content: { content: { type: string; content?: unknown[] }[] } }>(
@@ -174,10 +171,7 @@ test('a Word document maps onto the project’s styles and adds only what is new
     )
   )
 
-  const result = await harness.page.evaluate(
-    (target) => window.pub.invoke('docx:import', { files: [target], targetDir: '' }),
-    file
-  )
+  const result = await importPicked(harness, 'docx:importDialog', [file], { targetDir: '' })
   // Heading 1 and Normal already exist here; only Epigraph is genuinely new.
   expect(result.stylesAdded).toBe(1)
 
@@ -202,10 +196,7 @@ test('an imported document is searchable straight away', async () => {
     file,
     Buffer.from(buildDocx({ body: paragraph(run('The lighthouse keeper counted the days.')) }))
   )
-  await harness.page.evaluate(
-    (target) => window.pub.invoke('docx:import', { files: [target], targetDir: '' }),
-    file
-  )
+  await importPicked(harness, 'docx:importDialog', [file], { targetDir: '' })
 
   await waitFor(async () => {
     const hits = await harness.page.evaluate(() =>

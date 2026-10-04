@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { protocol, net } from 'electron'
 import { ASSET_PROTOCOL } from '../../shared/constants.js'
 import { buildAssetUrl, parseAssetUrl, assetMimeType } from '../../shared/model/asset.js'
-import { resolveInRoot, normalizeRelative } from '../vfs/paths.js'
+import { resolveInRoot, normalizeRelative, realPathInside } from '../vfs/paths.js'
 import type { VfsAdapter } from '../vfs/types.js'
 
 /**
@@ -64,7 +64,9 @@ export function registerAssetProtocol(lookup: AssetLookup): void {
       // which is precisely what makes images on SFTP/FTP/OneDrive work.
       if (owner.isLocal) {
         try {
-          return await net.fetch(pathToFileURL(resolveInRoot(owner.root, relative)).toString())
+          const real = await realPathInside(owner.root, resolveInRoot(owner.root, relative))
+          if (!real) return new Response('Not found', { status: 404 })
+          return await net.fetch(pathToFileURL(real).toString())
         } catch {
           return new Response('Not found', { status: 404 })
         }
@@ -109,7 +111,11 @@ export function registerAssetProtocol(lookup: AssetLookup): void {
     if (!allowed) return new Response('Forbidden', { status: 403 })
 
     try {
-      return await net.fetch(pathToFileURL(absolute).toString())
+      const real = (
+        await Promise.all(lookup.roots().map((root) => realPathInside(root, absolute)))
+      ).find((candidate) => candidate !== null)
+      if (!real) return new Response('Forbidden', { status: 403 })
+      return await net.fetch(pathToFileURL(real).toString())
     } catch {
       return new Response('Not found', { status: 404 })
     }

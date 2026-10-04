@@ -398,7 +398,9 @@ test('with web access set to pages you name, the assistant reads only those, and
   const pageAddress = pageServer.address()
   if (typeof pageAddress === 'string' || !pageAddress) throw new Error('No address')
   // Loopback is private by the gate's rules, so the fixture is reached by a
-  // name the resolver maps there — the one public-looking host that always does.
+  // name the resolver maps there, which the harness lists as a fixture host
+  // (QUOTH_E2E_FIXTURE_HOSTS) — without that, the resolved-address check
+  // refuses it like any other name pointing at this machine.
   const pageUrl = `http://localtest.me:${pageAddress.port}/docks`
 
   try {

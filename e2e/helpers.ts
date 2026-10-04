@@ -39,7 +39,13 @@ export async function launch(
     // without a virtual display that is otherwise a window in your face per
     // test. The app reads the flag under its own name so that nothing but the
     // harness can set it by accident.
-    env: { ...process.env, ...(process.env.QUOTH_E2E_HIDDEN === '1' ? { QUOTH_HIDDEN_WINDOWS: '1' } : {}) },
+    env: {
+      ...process.env,
+      ...(process.env.QUOTH_E2E_HIDDEN === '1' ? { QUOTH_HIDDEN_WINDOWS: '1' } : {}),
+      // localtest.me resolves to 127.0.0.1, which the page-fetch address check
+      // refuses; fixture pages are served there, so the harness vouches for it.
+      QUOTH_E2E_FIXTURE_HOSTS: 'localtest.me'
+    },
     ...(options.executablePath ? { executablePath: options.executablePath } : {})
   })
 

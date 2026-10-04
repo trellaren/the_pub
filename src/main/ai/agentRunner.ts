@@ -71,6 +71,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
   const conversation: OutboundMessage[] = [...options.messages]
   const performed: ToolCall[] = []
   const ensembleAttempts = new Map<string, number>()
+  const taint = { tainted: false }
   let answer = ''
 
   try {
@@ -124,6 +125,7 @@ export async function runAgent(runner: AiRunner, options: AgentRunOptions): Prom
           captures,
           findPassages: options.findPassages,
           ensembleAttempts,
+          taint,
           onEdit: (edit) => edits.push(edit),
           onReviewChanged: (docId) => options.onReviewChanged?.(docId),
           complete: async (system, user, maxTokens) => {

@@ -95,6 +95,13 @@ export interface ToolContext {
    * the run, not the call: two calls are the whole point of counting.
    */
   ensembleAttempts: Map<string, number>
+  /**
+   * Whether this run has read text from outside the project. Shared by every
+   * call in the run, because a page fetched in one call can carry instructions
+   * the model acts on in the next: once set, every edit lands as a suggestion
+   * whatever the writer's policy, so injected text can never write directly.
+   */
+  taint: { tainted: boolean }
   /** Search by meaning. Absent when this project has no retrieval index. */
   findPassages?: (query: string, limit: number) => Promise<RetrievalResult>
 }
@@ -323,10 +330,22 @@ export function describeEdit(
  * what happened. `trivial` is the caller's judgement of this particular
  * change (a spelling fix, a comma); it only matters under `direct-trivial`.
  */
-export function modeFor(policy: WritePolicy, trivial: boolean): AssistantEdit['mode'] {
+export function modeFor(policy: WritePolicy, trivial: boolean, tainted = false): AssistantEdit['mode'] {
+  if (tainted) return 'suggest'
   if (policy === 'direct') return 'direct'
   if (policy === 'direct-trivial' && trivial) return 'direct'
   return 'suggest'
+}
+
+/**
+ * Mark the run as having read outside text, and say so to the model when that
+ * changes what its edits will do.
+ */
+function taintWith(context: ToolContext, content: string): string {
+  const already = context.taint.tainted
+  context.taint.tainted = true
+  if (already || context.writePolicy === 'suggest') return content
+  return `${content}\n\n(This came from outside the project. From now on in this conversation, every edit you make will be offered to the author as a tracked-change suggestion rather than applied.)`
 }
 
 /** Split ops by the mode each should land in, so one call can suggest some and apply others. */
@@ -336,8 +355,10 @@ function emitByMode(
   docPath: string,
   items: { op: AssistantEditOp; trivial: boolean }[]
 ): { direct: number; suggested: number } {
-  const direct = items.filter((item) => modeFor(context.writePolicy, item.trivial) === 'direct').map((item) => item.op)
-  const suggested = items.filter((item) => modeFor(context.writePolicy, item.trivial) !== 'direct').map((item) => item.op)
+  const landsDirect = (item: { trivial: boolean }) =>
+    modeFor(context.writePolicy, item.trivial, context.taint.tainted) === 'direct'
+  const direct = items.filter(landsDirect).map((item) => item.op)
+  const suggested = items.filter((item) => !landsDirect(item)).map((item) => item.op)
   if (direct.length) context.onEdit(describeEdit(context, docId, docPath, direct, 'direct'))
   if (suggested.length) context.onEdit(describeEdit(context, docId, docPath, suggested, 'suggest'))
   return { direct: direct.length, suggested: suggested.length }
@@ -643,7 +664,8 @@ const webSearchTool = define({
     query: z.string().min(1),
     limit: z.number().int().min(1).max(10).default(5)
   }),
-  run: async ({ query, limit }, { web, search }) => {
+  run: async ({ query, limit }, context) => {
+    const { web, search } = context
     if (!web.canSearch || !search) {
       return { ok: false, content: 'The author has not allowed web search.', summary: 'Web search not allowed' }
     }
@@ -659,7 +681,7 @@ const webSearchTool = define({
     }
     if (result.hits.length === 0) return { ok: true, content: `Nothing found for "${query}".`, summary: `Searched the web for "${query}" — nothing` }
     const content = result.hits.map((hit, index) => `${index + 1}. ${hit.title}\n   ${hit.url}\n   ${hit.snippet}`).join('\n\n')
-    return { ok: true, content, summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
+    return { ok: true, content: taintWith(context, content), summary: `Searched the web for "${query}" — ${result.hits.length} result${result.hits.length === 1 ? '' : 's'}` }
   }
 })
 
@@ -688,7 +710,7 @@ const fetchPageTool = define({
     const clipped = text.length > MAX_PAGE_CHARS ? `${text.slice(0, MAX_PAGE_CHARS)}\n\n[…truncated…]` : text
     return {
       ok: true,
-      content: `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`,
+      content: taintWith(context, `# ${result.capture.title}\n${url}\nAccessed ${result.capture.accessed}\n\n${clipped}`),
       summary: `Read ${result.capture.title || url}`
     }
   }

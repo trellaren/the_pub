@@ -253,7 +253,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
 
   const signOut = async (): Promise<void> => {
     if (!draft.id) return
-    await invoke('connections:signOut', { id: draft.id }).catch(() => {})
+    await attempt(invoke('connections:signOut', { id: draft.id }), 'Could not sign out')
     setDraft((current) => ({ ...current, account: '', signedIn: false }))
     setStatus('Signed out on this machine.')
     await load()
@@ -713,7 +713,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   label={isOneDrive ? 'Forget this drive' : 'Forget this server'}
                   disabled={busy}
                   onClick={async () => {
-                    await invoke('connections:delete', { id: draft.id! }).catch(() => {})
+                    const deleted = await attempt(invoke('connections:delete', { id: draft.id! }), 'Could not forget it')
+                    if (deleted === null) return
                     setDraft(BLANK)
                     await load()
                   }}

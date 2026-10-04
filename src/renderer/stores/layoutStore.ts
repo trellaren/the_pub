@@ -360,6 +360,6 @@ export function scheduleLayoutSave(api: DockviewApi): void {
   saveTimer = setTimeout(() => {
     saveTimer = null
     if (!useProjectStore.getState().project) return
-    void invoke('layout:saveLast', { layout: api.toJSON() as unknown as DockLayout }).catch(() => {})
+    void attempt(invoke('layout:saveLast', { layout: api.toJSON() as unknown as DockLayout }), 'Could not save the layout')
   }, LAYOUT_SAVE_DEBOUNCE_MS)
 }

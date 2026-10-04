@@ -167,7 +167,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   removeModel: async (variantId) => {
-    await invoke('llm:remove', { variantId }).catch(() => {})
+    await attempt(invoke('llm:remove', { variantId }), 'Could not remove the model')
     await get().refreshLlm()
   },
 

@@ -45,6 +45,32 @@ test('typing autosaves to disk and the file stays valid JSON', async () => {
   expect(saved.wordCount).toBeGreaterThan(0)
 })
 
+test('closing a tab while its autosave is in flight still writes the latest typing', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'chapter-closing.pubdoc')
+
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  await editor.click()
+  await harness.page.keyboard.type('First draft.')
+  await expect(editor).toContainText('First draft.')
+
+  // Start a save, type more while it is writing, then close before it lands:
+  // the close must not leave the second sentence to a save that finds no editor.
+  await harness.page.evaluate((id) => {
+    const documents = window.__pub.documents.getState()
+    void documents.save(id)
+    window.__pub.getEditor(id)!.commands.insertContent(' Second thoughts.')
+    documents.close(id)
+  }, docId)
+
+  const file = path.join(harness.projectDir, 'chapter-closing.pubdoc')
+  await waitFor(async () => {
+    const doc = await readJson<PubDocument>(file)
+    return JSON.stringify(doc.content).includes('Second thoughts.')
+  }, 'the closed tab to save its last edit')
+})
+
 test('global search finds typed text and reports the right block', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

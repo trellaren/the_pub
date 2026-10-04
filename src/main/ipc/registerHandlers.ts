@@ -509,7 +509,13 @@ export function registerHandlers(context: HandlerContext): void {
     // Only what fonts:importDialog wrote. This channel must not become a generic
     // delete-anything-in-the-project with a friendlier name.
     if (!relative.startsWith(`${FONTS_DIR}/`)) throw new Error('That is not an imported font.')
-    await session.adapter.delete(relative).catch(() => {})
+    try {
+      await session.adapter.delete(relative)
+    } catch (error) {
+      // Already gone is the outcome asked for; anything else is a real failure.
+      const stillThere = await session.adapter.stat(relative).then(() => true, () => false)
+      if (stillThere) throw error
+    }
     return { ok: true as const }
   })
 

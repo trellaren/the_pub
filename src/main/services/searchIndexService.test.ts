@@ -172,6 +172,27 @@ describe('SearchIndexService', () => {
     expect(index.query({ ...query, text: 'Real' }).some((hit) => hit.kind === 'content')).toBe(true)
   })
 
+  it('indexes more documents than it reads ahead, each one exactly once', async () => {
+    for (let i = 0; i < 15; i++) {
+      await write(`ch${i}.pubdoc`, document(`doc-many-${i}`, `Chapter ${i}`, [`Marker${String.fromCharCode(97 + i)}q appears here.`]))
+    }
+    await index.syncAll()
+    for (let i = 0; i < 15; i++) {
+      expect(index.query({ ...query, text: `Marker${String.fromCharCode(97 + i)}q` }).filter((hit) => hit.kind === 'content')).toHaveLength(1)
+    }
+  })
+
+  it('rebuilds in place: a forced sync keeps results and still-valid vectors', async () => {
+    await write('a.pubdoc', document('doc-force', 'A', ['Lanterns over the harbour.']))
+    await index.syncAll()
+    index.writeEmbedding('doc-force', 0, 'Lanterns over the harbour.', new Float32Array([1, 0]))
+
+    await index.syncAll(true)
+
+    expect(index.query({ ...query, text: 'Lanterns' }).filter((hit) => hit.kind === 'content')).toHaveLength(1)
+    expect(index.embeddingCoverage()).toEqual({ embedded: 1, total: 1 })
+  })
+
   it('ignores its own cache directory when scanning', async () => {
     await write('a.pubdoc', document('doc-9', 'A', ['Indexed.']))
     await write('.thepub/snapshots/doc-9/old.pubdoc', document('doc-9', 'A', ['Indexed.']))

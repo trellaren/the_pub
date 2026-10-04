@@ -122,7 +122,13 @@ export function mysqlDialect(target: DbTarget): DbDialect {
     // MySQL cannot index an unbounded TEXT, and `path` is the primary key.
     // 768 is the byte budget of an InnoDB index prefix at four bytes a
     // character; no project-relative path comes close.
-    pathType: 'VARCHAR(768)',
+    //
+    // Binary collation because MySQL's default compares case- and
+    // accent-insensitively, which would make `Chapter.pubdoc` and
+    // `chapter.pubdoc` one primary key and break the byte-order range scans in
+    // `DbStore.children`. Only tables created from now on get it: the
+    // `CREATE TABLE IF NOT EXISTS` leaves an existing table's collation as it was.
+    pathType: 'VARCHAR(768) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',
     connect: async () => {
       const mysql = await import('mysql2/promise')
       const connection = await mysql.createConnection({

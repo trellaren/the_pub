@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { serialiseConnection, type RawDbConnection } from './serialised.js'
-import { sqliteDialect } from './dialects.js'
+import { mysqlDialect, sqliteDialect } from './dialects.js'
 
 function fakeClient(): { raw: RawDbConnection; log: string[] } {
   const log: string[] = []
@@ -120,5 +120,12 @@ describe('the SQLite connection', () => {
     await other
     expect(await connection.all('SELECT v FROM t')).toEqual([{ v: 'kept' }])
     await connection.close()
+  })
+})
+
+describe('the MySQL path column', () => {
+  it('compares paths byte for byte, so case-different names stay distinct keys', () => {
+    const dialect = mysqlDialect({ host: 'h', port: 3306, user: 'u', password: 'p', database: 'd' })
+    expect(dialect.pathType).toMatch(/COLLATE utf8mb4_bin$/)
   })
 })

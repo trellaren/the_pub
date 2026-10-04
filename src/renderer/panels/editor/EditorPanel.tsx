@@ -297,9 +297,22 @@ function StatusBar({ docId }: { docId: string }) {
           Suggesting
         </span>
       ) : null}
-      <span className={cx(state.saving && 'text-accent')}>
-        {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
-      </span>
+      {state.saveError && !state.saving ? (
+        <span className="flex items-center gap-1 text-danger" title={state.saveError} data-testid="save-failed">
+          Save failed —
+          <button
+            type="button"
+            className="underline hover:text-text"
+            onClick={() => void useDocumentStore.getState().save(docId)}
+          >
+            Retry
+          </button>
+        </span>
+      ) : (
+        <span className={cx(state.saving && 'text-accent')}>
+          {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
+        </span>
+      )}
       <span className="tabular-nums">{words.toLocaleString()} words</span>
       {goals && goals.dailyTarget > 0 ? (
         <span className="tabular-nums text-faint" title="Today's writing, against the daily target">

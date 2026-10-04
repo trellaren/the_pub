@@ -29,6 +29,8 @@ export interface OpenDocument {
   tooNew: boolean
   /** The file backing this panel has disappeared. */
   missing: boolean
+  /** Why the last save threw, until a save succeeds — distinct from merely unsaved. */
+  saveError: string | null
   /** Last mtime we know about, used to detect outside edits. */
   mtime: number | null
   envelope: PubDocument
@@ -158,6 +160,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           conflict: false,
           tooNew: false,
           missing: false,
+          saveError: null,
           mtime,
           envelope: doc
         }
@@ -259,7 +262,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         })
         if (result.ok) {
           settle(result.mtime)
-          patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false })
+          patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false, saveError: null })
           // Suggested-edit marks count as-if-accepted here too, since
           // `countWords` walks through `extractPlainText`, the one
           // text-walking implementation — same reasoning as the plan's
@@ -277,7 +280,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           patch(docId, { saving: false, dirty: true, tooNew: true })
         }
       } catch (error) {
-        patch(docId, { saving: false, dirty: true })
+        patch(docId, { saving: false, dirty: true, saveError: errorMessage(error) })
         reportError(`Could not save ${state.path}: ${errorMessage(error)}`)
       } finally {
         settle(null)
@@ -315,6 +318,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         conflict: false,
         tooNew: false,
         missing: false,
+        saveError: null,
         mtime: loaded.mtime,
         envelope: loaded.doc,
         title: loaded.doc.title

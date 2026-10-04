@@ -205,7 +205,11 @@ export function ManuscriptPanel() {
     // on the way in. `window.confirm` is the one native dialog Electron
     // implements (see `noNativeDialogs.test.ts`), so it is what a yes/no gate
     // like this one uses.
-    const warnings = await invoke('publish:warnings', { format })
+    const warnings = await attempt(
+      invoke('publish:warnings', { format }),
+      'Could not check what this format can carry'
+    )
+    if (!warnings) return
     if (warnings.length > 0 && !window.confirm(`${warnings.join('\n\n')}\n\nContinue?`)) return
 
     // The compiler reads chapters from disk; the last few seconds of typing

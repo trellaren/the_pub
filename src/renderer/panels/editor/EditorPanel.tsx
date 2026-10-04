@@ -15,7 +15,7 @@ import { localDayKey } from '@renderer/stats/session.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { currentSources } from '@renderer/stores/sourceStore.js'
 import { DiffView } from '../history/DiffView.js'
-import { invoke } from '@renderer/lib/ipc.js'
+import { invoke, attempt } from '@renderer/lib/ipc.js'
 import type { PmDoc } from '@shared/model/document.js'
 import { validateFileName } from '@shared/model/filename.js'
 import { DOC_EXT } from '@shared/constants.js'
@@ -258,7 +258,7 @@ function ConflictBar({ docId }: { docId: string }) {
    * history already shows, against the file as it now stands on disk.
    */
   const compare = async (): Promise<void> => {
-    const loaded = await invoke('doc:read', { path }).catch(() => null)
+    const loaded = await attempt(invoke('doc:read', { path }), `Could not read ${path} to compare`)
     if (loaded) setTheirs(loaded.doc.content)
   }
 

@@ -6,7 +6,8 @@ import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { FindHighlight } from './extensions/findHighlight.js'
 import { Insertion, Deletion } from './extensions/suggestions.js'
-import { replaceCurrent, replaceDocumentTransaction, setFind } from './editorActions.js'
+import { removeAnchor, replaceCurrent, replaceDocumentTransaction, setFind } from './editorActions.js'
+import { Anchors } from './extensions/anchors.js'
 import type { PmDoc } from '@shared/model/document.js'
 
 const schema = getSchema([StarterKit, Insertion, Deletion])
@@ -79,5 +80,36 @@ describe('replaceCurrent', () => {
     replaceCurrent(editor, 'cats')
     replaceCurrent(editor, 'cats')
     expect(editor.state.doc.textContent).toBe('cats cats')
+  })
+})
+
+describe('removeAnchor', () => {
+  let editor: Editor | null = null
+  afterEach(() => editor?.destroy())
+
+  it('takes off only the named anchor, leaving the text and other anchors', () => {
+    editor = new Editor({
+      element: document.createElement('div'),
+      extensions: [StarterKit, Anchors],
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'kept', marks: [{ type: 'anchor', attrs: { anchorId: 'keep' } }] },
+              { type: 'text', text: ' gone', marks: [{ type: 'anchor', attrs: { anchorId: 'drop' } }] }
+            ]
+          }
+        ]
+      }
+    })
+    removeAnchor(editor, 'drop')
+    const ids: string[] = []
+    editor.state.doc.descendants((node) => {
+      for (const mark of node.marks) ids.push(String(mark.attrs.anchorId))
+    })
+    expect(ids).toEqual(['keep'])
+    expect(editor.state.doc.textContent).toBe('kept gone')
   })
 })

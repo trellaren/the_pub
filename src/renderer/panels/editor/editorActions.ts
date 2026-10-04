@@ -4,6 +4,7 @@ import { findPluginKey, getFindState, type FindOptions } from './extensions/find
 import { suggestionModeKey } from './extensions/suggestions.js'
 import { resolveSuggestions, resolveSuggestionAt } from '@shared/pm/suggestions.js'
 import type { PmDoc } from '@shared/model/document.js'
+import { ANCHOR_MARK } from '@shared/model/anchor.js'
 
 /** Start (or clear) a find. Matches are recomputed by the plugin. */
 export function setFind(editor: Editor, options: FindOptions): void {
@@ -105,6 +106,26 @@ export function setSuggesting(editor: Editor, enabled: boolean, authorId: string
   editor.view.dispatch(
     editor.state.tr.setMeta(suggestionModeKey, { enabled: enabled && Boolean(authorId), authorId })
   )
+}
+
+/**
+ * Take one anchor back off the text, wherever it now is — the selection it
+ * was set on may have moved while the sidecar write was awaited.
+ */
+export function removeAnchor(editor: Editor, anchorId: string): void {
+  const transaction = editor.state.tr
+  editor.state.doc.descendants((node, position) => {
+    for (const mark of node.marks) {
+      if (mark.type.name === ANCHOR_MARK && mark.attrs.anchorId === anchorId) {
+        transaction.removeMark(position, position + node.nodeSize, mark)
+      }
+    }
+  })
+  if (!transaction.docChanged) return
+  // Through the suggesting-mode meta like `replaceDocument`: retracting an
+  // anchor is not an edit anyone should be asked to review.
+  transaction.setMeta(suggestionModeKey, suggestionModeKey.getState(editor.state) ?? { authorId: '', enabled: false })
+  editor.view.dispatch(transaction)
 }
 
 /**

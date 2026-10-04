@@ -16,7 +16,8 @@ interface ReviewStore {
   loadForDoc: (docId: string) => Promise<void>
   loadMe: () => Promise<void>
   setMe: (changes: { name?: string; color?: string }) => Promise<void>
-  createThread: (docId: string, anchorId: string, anchorText: string, blockIndex: number) => Promise<void>
+  /** Whether the thread was written — the caller rolls its anchor back if not. */
+  createThread: (docId: string, anchorId: string, anchorText: string, blockIndex: number) => Promise<boolean>
   setStatus: (docId: string, threadId: string, status: 'open' | 'resolved') => Promise<void>
   removeThread: (docId: string, threadId: string) => Promise<void>
   reply: (docId: string, threadId: string, text: string) => Promise<void>
@@ -54,11 +55,13 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   },
 
   createThread: async (docId, anchorId, anchorText, blockIndex) => {
-    await attempt(
+    const created = await attempt(
       invoke('review:createThread', { docId, anchorId, anchorText, blockIndex }),
       'Could not add a comment'
     )
+    if (created === null) return false
     await get().loadForDoc(docId)
+    return true
   },
 
   setStatus: async (docId, threadId, status) => {

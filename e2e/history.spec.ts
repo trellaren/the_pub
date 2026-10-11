@@ -80,6 +80,26 @@ async function versionCount(): Promise<number> {
   return harness.page.evaluate(() => window.__pub.history.getState().snapshots.length)
 }
 
+test('the open list picks up new versions after a save, and on Refresh', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
+  await writeVersion(docId, '2026-08-01T09:00:00.000Z', ['The oldest draft.'])
+  await showHistory()
+  const items = harness.page.getByTestId('history-item')
+  await expect(items).toHaveCount(1)
+
+  await writeVersion(docId, '2026-08-02T09:00:00.000Z', ['A second draft.'])
+  await harness.page.getByTestId('history-refresh').click()
+  await expect(items).toHaveCount(2)
+
+  // Seeded behind the panel's back, then a save of the followed document: the
+  // list must notice without being asked.
+  await writeVersion(docId, '2026-08-03T09:00:00.000Z', ['A third draft.'])
+  await harness.page.evaluate((id) => window.__pub.documents.getState().save(id), docId)
+  await expect.poll(() => items.count()).toBeGreaterThanOrEqual(3)
+})
+
 test('earlier versions are listed newest first, and one can be read', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

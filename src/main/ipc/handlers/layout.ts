@@ -20,7 +20,6 @@ function runMenuRole(role: MenuItemRole, contents: Electron.WebContents): void {
     case 'copy': return contents.copy()
     case 'paste': return contents.paste()
     case 'selectAll': return contents.selectAll()
-    case 'reload': return contents.reload()
     case 'toggleDevTools': return contents.toggleDevTools()
     // Zoom is per web contents, and the steps match Electron's own roles.
     case 'resetZoom': return contents.setZoomLevel(0)

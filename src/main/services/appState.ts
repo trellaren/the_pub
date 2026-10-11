@@ -203,6 +203,15 @@ export class AppStateService {
     return this.state
   }
 
+  removeRecent(uri: string): AppState {
+    this.state = {
+      ...this.state,
+      recentProjects: this.state.recentProjects.filter((item) => item.uri !== uri)
+    }
+    this.persist()
+    return this.state
+  }
+
   addRecent(uri: string, name: string): void {
     const entry: RecentProject = { uri, name, opened: new Date().toISOString() }
     this.state = {

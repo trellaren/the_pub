@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { beatsInColumn } from '@shared/model/beat.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
 import { useBeatStore } from '@renderer/stores/beatStore.js'
@@ -8,6 +8,7 @@ import { promptForName } from '@renderer/ui/PromptDialog.js'
 import { BeatCard } from './BeatCard.js'
 import { BeatInspector } from './BeatInspector.js'
 import { openBeatScene } from './beatScene.js'
+import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 
 /**
  * The story in the order it is told: columns of cards, dragged into shape.
@@ -27,7 +28,7 @@ export function StoryboardPanel() {
   const moveInColumn = useBeatStore((store) => store.moveInColumn)
   const saveColumns = useBeatStore((store) => store.saveColumns)
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = usePanelSelection<string | null>('storyboard.beat', null)
   const selected = beats.find((beat) => beat.id === selectedId) ?? null
 
   useEffect(() => {

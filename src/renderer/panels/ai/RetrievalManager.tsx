@@ -17,6 +17,7 @@ import { ToolbarButton, SectionTitle } from '@renderer/ui/primitives.js'
  */
 export function RetrievalManager() {
   const retrieval = useChatStore((store) => store.retrieval)
+  const retrievalError = useChatStore((store) => store.retrievalError)
 
   useEffect(() => {
     void useChatStore.getState().refreshRetrieval()
@@ -24,7 +25,14 @@ export function RetrievalManager() {
 
   useEffect(() => listenForRetrievalProgress(), [])
 
-  if (!retrieval) return null
+  if (!retrieval) {
+    return retrievalError ? (
+      <div data-testid="retrieval-manager">
+        <SectionTitle>Search by meaning</SectionTitle>
+        <p role="alert" className="mb-2 text-[11px] text-danger" data-testid="retrieval-store-error">{retrievalError}</p>
+      </div>
+    ) : null
+  }
 
   const { embedded, total, building, unavailable, error } = retrieval
   const complete = total > 0 && embedded >= total
@@ -33,6 +41,7 @@ export function RetrievalManager() {
   return (
     <div data-testid="retrieval-manager">
       <SectionTitle>Search by meaning</SectionTitle>
+      {retrievalError ? <p role="alert" className="mb-2 text-[11px] text-danger" data-testid="retrieval-store-error">{retrievalError}</p> : null}
 
       <p className="mb-1 text-[11px] text-muted" data-testid="retrieval-coverage">
         {total === 0

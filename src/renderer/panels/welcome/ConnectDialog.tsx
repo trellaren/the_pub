@@ -23,6 +23,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     secret,
     setSecret,
     status,
+    statusIsError,
     setStatus,
     busy,
     signingIn,
@@ -90,7 +91,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                 className="w-full justify-start"
                 onClick={startNew}
               >
-                ＋ new server
+                ＋ New server
               </ToolbarButton>
             </li>
           </ul>
@@ -237,7 +238,11 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
             ) : null}
 
             {status ? (
-              <p className="mb-2 text-[11px] text-muted" data-testid="connect-status">
+              <p
+                className={cx('mb-2 text-[11px]', statusIsError ? 'text-danger' : 'text-muted')}
+                role={statusIsError ? 'alert' : 'status'}
+                data-testid="connect-status"
+              >
                 {status}
               </p>
             ) : null}
@@ -286,7 +291,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                     data-testid="connect-accept-host-key"
                     onClick={() => void acceptHostKey()}
                   >
-                    {hostKey.verdict === 'changed' ? 'accept the new fingerprint' : 'accept fingerprint'}
+                    {hostKey.verdict === 'changed' ? 'Accept the new fingerprint' : 'Accept fingerprint'}
                   </ToolbarButton>
                 </div>
               </div>
@@ -315,7 +320,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                     data-testid="connect-create-db-confirm"
                     onClick={() => void createDatabase()}
                   >
-                    create the project here
+                    Create the project here
                   </ToolbarButton>
                 </div>
               </div>
@@ -323,7 +328,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
 
             <div className="flex flex-wrap gap-1">
               <ToolbarButton label="Save this server" disabled={busy} onClick={() => void save()}>
-                save
+                Save
               </ToolbarButton>
               {isOneDrive && signingIn ? (
                 <ToolbarButton
@@ -331,7 +336,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   data-testid="connect-cancel-signin"
                   onClick={() => void cancelSignIn()}
                 >
-                  cancel sign-in
+                  Cancel sign-in
                 </ToolbarButton>
               ) : isOneDrive ? (
                 <ToolbarButton
@@ -340,16 +345,16 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   data-testid="connect-signin"
                   onClick={() => void signIn()}
                 >
-                  {draft.signedIn ? 'sign in again' : 'sign in'}
+                  {draft.signedIn ? 'Sign in again' : 'Sign in'}
                 </ToolbarButton>
               ) : null}
               {isOneDrive && draft.signedIn && !signingIn ? (
                 <ToolbarButton label="Sign out on this machine" disabled={busy} onClick={() => void signOut()}>
-                  sign out
+                  Sign out
                 </ToolbarButton>
               ) : null}
               <ToolbarButton label="Test the connection" disabled={busy} onClick={() => void test()}>
-                test
+                Test
               </ToolbarButton>
               <ToolbarButton
                 label="Open a project here"
@@ -360,7 +365,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   if (saved) await openThere(saved)
                 }}
               >
-                open project
+                Open project
               </ToolbarButton>
               {draft.id ? (
                 <ToolbarButton
@@ -368,7 +373,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   disabled={busy}
                   onClick={() => void forget()}
                 >
-                  forget
+                  Forget
                 </ToolbarButton>
               ) : null}
             </div>

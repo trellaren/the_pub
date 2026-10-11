@@ -184,6 +184,18 @@ export function ManuscriptPanel() {
    * behind it.
    */
   const [format, setFormat] = useState<PublishFormat>('docx')
+  // A compile can take long enough on a big book to look like a dead click,
+  // and a second click would start a second compile and a second save dialog.
+  const [compiling, setCompiling] = useState(false)
+  const compileOnce = async (): Promise<void> => {
+    if (compiling) return
+    setCompiling(true)
+    try {
+      await compile()
+    } finally {
+      setCompiling(false)
+    }
+  }
 
   const compile = useCallback(async () => {
     const { items, skipped } = toExportItems(view.nodes)
@@ -205,9 +217,16 @@ export function ManuscriptPanel() {
     // on the way in. `window.confirm` is the one native dialog Electron
     // implements (see `noNativeDialogs.test.ts`), so it is what a yes/no gate
     // like this one uses.
-    const warnings = await invoke('publish:warnings', { format })
+    const warnings = await attempt(
+      invoke('publish:warnings', { format }),
+      'Could not check what this format can carry'
+    )
+    if (!warnings) return
     if (warnings.length > 0 && !window.confirm(`${warnings.join('\n\n')}\n\nContinue?`)) return
 
+    // The compiler reads chapters from disk; the last few seconds of typing
+    // are still in the editor until this lands.
+    await useDocumentStore.getState().saveAll()
     const result = await attempt(
       invoke('publish:exportDialog', { format, paths: [], items, suggestedName: project?.manifest.name }),
       format === 'print' ? 'Could not print the manuscript' : 'Could not compile the manuscript'
@@ -261,8 +280,13 @@ export function ManuscriptPanel() {
           <option value="pdf">PDF</option>
           <option value="print">Print</option>
         </select>
-        <ToolbarButton label="Compile the manuscript" onClick={() => void compile()}>
-          Compile
+        <ToolbarButton
+          label="Compile the manuscript"
+          disabled={compiling}
+          aria-busy={compiling}
+          onClick={() => void compileOnce()}
+        >
+          {compiling ? 'Compiling…' : 'Compile'}
         </ToolbarButton>
       </PanelHeader>
 

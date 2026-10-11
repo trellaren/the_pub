@@ -15,6 +15,7 @@ import { ToolbarButton, SectionTitle } from '@renderer/ui/primitives.js'
 export function ModelManager() {
   const llm = useChatStore((store) => store.llm)
   const downloads = useChatStore((store) => store.downloads)
+  const llmError = useChatStore((store) => store.llmError)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -23,7 +24,14 @@ export function ModelManager() {
 
   useEffect(() => listenForModelProgress(), [])
 
-  if (!llm) return null
+  if (!llm) {
+    return llmError ? (
+      <div data-testid="model-manager">
+        <SectionTitle>Embedded models</SectionTitle>
+        <p role="alert" className="mb-2 text-[11px] text-danger" data-testid="llm-store-error">{llmError}</p>
+      </div>
+    ) : null
+  }
 
   const statusOf = (variantId: string): VariantStatus | undefined =>
     llm.variants.find((variant) => variant.variantId === variantId)
@@ -31,6 +39,7 @@ export function ModelManager() {
   return (
     <div data-testid="model-manager">
       <SectionTitle>Embedded models</SectionTitle>
+      {llmError ? <p role="alert" className="mb-2 text-[11px] text-danger" data-testid="llm-store-error">{llmError}</p> : null}
 
       {!llm.runtimeAvailable ? (
         <p className="mb-2 text-[11px] text-muted" data-testid="no-runtime">

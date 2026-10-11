@@ -15,8 +15,11 @@ import { localDayKey } from '@renderer/stats/session.js'
 import { refreshCitations, insertOrRefreshBibliography } from './citationActions.js'
 import { currentSources } from '@renderer/stores/sourceStore.js'
 import { DiffView } from '../history/DiffView.js'
-import { invoke } from '@renderer/lib/ipc.js'
+import { invoke, attempt } from '@renderer/lib/ipc.js'
 import type { PmDoc } from '@shared/model/document.js'
+import { validateFileName } from '@shared/model/filename.js'
+import { DOC_EXT } from '@shared/constants.js'
+import { promptForName } from '@renderer/ui/PromptDialog.js'
 
 export interface EditorPanelParams {
   docId: string
@@ -133,7 +136,30 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   if (state.missing) {
     return (
       <PanelShell>
-        <EmptyState title="This file no longer exists" hint={state.path} />
+        <EmptyState
+          title="This file no longer exists"
+          hint={`${state.path} was deleted or moved outside Quoth. What you had open is still here.`}
+          action={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                data-testid="missing-save-as"
+                className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[12px] text-accent"
+                onClick={(event) => void saveMissingAs(docId, state.path, event.currentTarget.ownerDocument)}
+              >
+                Save as new file…
+              </button>
+              <button
+                type="button"
+                data-testid="missing-close"
+                className="rounded border border-border px-2 py-0.5 text-[12px] hover:bg-surface-3"
+                onClick={() => props.api.close()}
+              >
+                Close
+              </button>
+            </div>
+          }
+        />
       </PanelShell>
     )
   }
@@ -190,6 +216,24 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
   )
 }
 
+/** Offered beside the deleted file's own folder, under its own name, as the likeliest place it belongs. */
+async function saveMissingAs(docId: string, oldPath: string, ownerDocument: Document): Promise<void> {
+  const slash = oldPath.lastIndexOf('/')
+  const folder = slash === -1 ? '' : oldPath.slice(0, slash + 1)
+  const name = await promptForName({
+    title: 'Save as new file',
+    confirmLabel: 'Save',
+    defaultValue: oldPath.slice(slash + 1),
+    ownerDocument,
+    validate: (value) => {
+      const checked = validateFileName(value)
+      return checked.ok ? null : checked.reason
+    }
+  })
+  if (!name) return
+  await useDocumentStore.getState().saveAs(docId, `${folder}${name.endsWith(DOC_EXT) ? name : `${name}${DOC_EXT}`}`)
+}
+
 /** No keep-mine/reload choice here, unlike `ConflictBar` — overwriting is exactly what must not happen. */
 function TooNewBar() {
   return (
@@ -214,7 +258,7 @@ function ConflictBar({ docId }: { docId: string }) {
    * history already shows, against the file as it now stands on disk.
    */
   const compare = async (): Promise<void> => {
-    const loaded = await invoke('doc:read', { path }).catch(() => null)
+    const loaded = await attempt(invoke('doc:read', { path }), `Could not read ${path} to compare`)
     if (loaded) setTheirs(loaded.doc.content)
   }
 
@@ -297,9 +341,22 @@ function StatusBar({ docId }: { docId: string }) {
           Suggesting
         </span>
       ) : null}
-      <span className={cx(state.saving && 'text-accent')}>
-        {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
-      </span>
+      {state.saveError && !state.saving ? (
+        <span className="flex items-center gap-1 text-danger" title={state.saveError} data-testid="save-failed">
+          Save failed —
+          <button
+            type="button"
+            className="underline hover:text-text"
+            onClick={() => void useDocumentStore.getState().save(docId)}
+          >
+            Retry
+          </button>
+        </span>
+      ) : (
+        <span className={cx(state.saving && 'text-accent')}>
+          {state.saving ? 'Saving…' : state.dirty ? 'Unsaved' : 'Saved'}
+        </span>
+      )}
       <span className="tabular-nums">{words.toLocaleString()} words</span>
       {goals && goals.dailyTarget > 0 ? (
         <span className="tabular-nums text-faint" title="Today's writing, against the daily target">

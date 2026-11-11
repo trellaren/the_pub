@@ -56,6 +56,15 @@ const inflight = new Map<string, Promise<number | null>>()
 /** Opens still reading, keyed by `path:` or `id:`, so a double open shares one editor. */
 const opening = new Map<string, Promise<string | null>>()
 
+/**
+ * Main reports a write to a deleted file as a conflict against mtime 0; an
+ * older contract may name it `missing` outright. Either is the missing-file
+ * state, not an outside edit to compare against.
+ */
+function isMissingResult(result: { ok: false; reason: string; diskMtime?: number }): boolean {
+  return result.reason === 'missing' || (result.reason === 'conflict' && result.diskMtime === 0)
+}
+
 async function saveClosed(docId: string, state: OpenDocument, content: PmDoc): Promise<void> {
   const project = useProjectStore.getState().project
   if (!project || project.readOnly) return
@@ -66,8 +75,15 @@ async function saveClosed(docId: string, state: OpenDocument, content: PmDoc): P
       doc: { ...state.envelope, content },
       expectedMtime: written ?? state.mtime
     })
-    if (!result.ok) {
+    if (result.ok) return
+    if (isMissingResult(result)) {
+      reportError(`Could not save ${state.path} as its tab closed: the file was deleted.`)
+    } else if (result.reason === 'conflict') {
       reportError(`Could not save ${state.path} as its tab closed: the file changed on disk. Reopen it to compare.`)
+    } else {
+      reportError(
+        `Could not save ${state.path} as its tab closed: a newer version of Quoth wrote it, and this one cannot safely overwrite it.`
+      )
     }
   } catch (error) {
     reportError(`Could not save ${state.path}: ${errorMessage(error)}`)
@@ -311,14 +327,14 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           // text-walking implementation — same reasoning as the plan's
           // "one definition of how long is this manuscript".
           void useStatsStore.getState().recordChange(docId, wordsBefore, countWords(content))
+        } else if (isMissingResult(result)) {
+          // The file was deleted underneath us: the same state the watcher
+          // reports, whose bar offers Save As for the buffer still open.
+          patch(docId, { saving: false, dirty: true, missing: true })
         } else if (result.reason === 'conflict') {
           // Someone else wrote the file. Keep the buffer dirty so nothing is lost
           // and let the writer choose.
           patch(docId, { saving: false, dirty: true, conflict: true })
-        } else if ((result.reason as string) === 'missing') {
-          // The file was deleted underneath us: the same state the watcher
-          // reports, whose bar offers Save As for the buffer still open.
-          patch(docId, { saving: false, dirty: true, missing: true })
         } else {
           // The file on disk is newer than this build understands. Keep the
           // buffer dirty — nothing here is lost — but there is no choice to

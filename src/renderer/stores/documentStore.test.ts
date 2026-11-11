@@ -136,6 +136,14 @@ describe('documentStore open', () => {
     expect(useDocumentStore.getState().docs.d1!.tooNew).toBe(true)
   })
 
+  it('treats a conflict against mtime 0 as the missing-file state', async () => {
+    await openDoc('d1', 'a.pub')
+    invoke.mockImplementation(async () => ({ ok: false, reason: 'conflict', diskMtime: 0 }))
+    await useDocumentStore.getState().save('d1')
+    const state = useDocumentStore.getState().docs.d1!
+    expect([state.missing, state.conflict, state.dirty]).toEqual([true, false, true])
+  })
+
   it('treats a write to a deleted file as the missing-file state', async () => {
     await openDoc('d1', 'a.pub')
     invoke.mockImplementation(async () => ({ ok: false, reason: 'missing' }))

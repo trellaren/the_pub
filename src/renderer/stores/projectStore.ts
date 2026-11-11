@@ -29,7 +29,9 @@ export function onBeforeProjectSwitch(flush: () => Promise<void>): void {
   beforeSwitch = flush
 }
 
-let projectLost: () => Promise<void> = async () => {}
+let manifestRequest = 0
+
+let projectLost:() => Promise<void> = async () => {}
 
 /**
  * Registered by the app shell for the same reason as `onBeforeProjectSwitch`:
@@ -103,14 +105,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // Show the change immediately — style edits should feel instant — and let
     // the write happen behind it.
     set({ project: { ...current, manifest: next } })
+    const request = ++manifestRequest
     const saved = await attempt(
       invoke('project:updateManifest', { manifest: next }),
       'Could not save project settings'
     )
-    if (saved) {
-      const latest = get().project
-      if (latest) set({ project: { ...latest, manifest: saved } })
-    }
+    // A newer edit has already been shown and will settle itself; and a reply
+    // for a project that is no longer open has nothing to land on.
+    const latest = get().project
+    if (request !== manifestRequest || !latest || latest.uri !== current.uri) return
+    set({ project: { ...latest, manifest: saved ?? current.manifest } })
   }
 }))
 

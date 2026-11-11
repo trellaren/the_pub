@@ -97,9 +97,12 @@ test('the dock has no axe violations with each panel open', async () => {
     const ran = await harness.page.evaluate((id) => window.__pub.runCommand(id), commandId)
     expect(ran, `${commandId} should be a registered command`).toBe(true)
     // Panels mount async data (records, beats, settings) before axe should
-    // judge them — waiting a tick for the network-idle-ish quiet is cheaper
-    // and less flaky than guessing a fixed panel-specific selector for each.
-    await harness.page.waitForTimeout(150)
+    // judge them: wait until no panel is still showing its loading state, then
+    // two frames so React has committed and painted what replaced it.
+    await expect(harness.page.getByText('Loading…', { exact: true })).toHaveCount(0)
+    await harness.page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    )
 
     // Colour contrast is asserted separately, per-theme, in
     // `shared/themes.test.ts` (WCAG ratios computed straight from the token

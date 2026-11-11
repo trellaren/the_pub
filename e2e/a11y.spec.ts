@@ -160,11 +160,13 @@ test('the dock stays usable at 200% zoom', async () => {
   await harness.page.evaluate(() => window.__pub.runCommand('panel.search'))
   await harness.page.evaluate(() => window.__pub.runCommand('panel.explorer'))
 
+  const baseRatio = await harness.page.evaluate(() => window.devicePixelRatio)
   await harness.app.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.setZoomFactor(2)
   })
-  // `setZoomFactor` takes effect asynchronously in the renderer.
-  await harness.page.waitForTimeout(300)
+  // `setZoomFactor` takes effect asynchronously in the renderer; page zoom
+  // shows up there as a scaled devicePixelRatio.
+  await harness.page.waitForFunction((base) => window.devicePixelRatio >= base * 2 - 0.01, baseRatio)
 
   // Still on screen and not clipped to nothing: a broken-at-scale layout
   // typically collapses a panel to zero width/height rather than merely

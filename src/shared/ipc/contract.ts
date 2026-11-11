@@ -244,6 +244,10 @@ export const ipcContract = defineContract({
      * list every existing caller already sends. The handler folds `paths` into
      * `items` at the boundary, so `DocxService.export` only ever sees one
      * shape; a request needs at least one entry across the two.
+     *
+     * The path-taking `docx:`/`epub:`/`fountain:`/`publish:export` channels are
+     * registered only under the e2e harness (`QUOTH_E2E_DIRECT_EXPORT`); the
+     * app itself goes through the `*Dialog` variants.
      */
     'docx:export': {
       req: z

@@ -45,7 +45,10 @@ export async function launch(
       ...(process.env.QUOTH_E2E_HIDDEN === '1' ? { QUOTH_HIDDEN_WINDOWS: '1' } : {}),
       // localtest.me resolves to 127.0.0.1, which the page-fetch address check
       // refuses; fixture pages are served there, so the harness vouches for it.
-      QUOTH_E2E_FIXTURE_HOSTS: 'localtest.me'
+      QUOTH_E2E_FIXTURE_HOSTS: 'localtest.me',
+      // The native save dialog can't be driven, so the harness opts in to the
+      // path-taking export channels that production never registers.
+      QUOTH_E2E_DIRECT_EXPORT: '1'
     },
     ...(options.executablePath ? { executablePath: options.executablePath } : {})
   })

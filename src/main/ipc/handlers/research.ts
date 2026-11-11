@@ -1,5 +1,6 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { capturePage } from '../../research/capture.js'
+import { fetchWithLimits } from '../../ai/assistantSupport.js'
 import type { HandlerContext } from '../context.js'
 
 export function register(ctx: HandlerContext): void {
@@ -32,7 +33,7 @@ export function register(ctx: HandlerContext): void {
   )
   handle('research:capture', async ({ url }, event) => {
     requireSession(event) // a project must be open, even though capture itself is project-agnostic
-    return capturePage(url, (target) => fetch(target))
+    return capturePage(url, fetchWithLimits)
   })
 
   handle('research:highlights:list', ({ sourceId, attachmentId }, event) =>

@@ -34,9 +34,8 @@ export function normalizeRelative(rel: string): string {
 /**
  * Resolve a project-relative path to an absolute one inside `root`.
  *
- * Note: this blocks `..` traversal but not symlinks pointing outside the project.
- * A symlinked chapter folder is a legitimate thing for an author to have, so the
- * containment check deliberately stops at the lexical level.
+ * Lexical only: it blocks `..` traversal but not symlinks. `LocalAdapter`
+ * resolves links on top of this, so one pointing out of the project is refused.
  */
 export function resolveInRoot(root: string, rel: string): string {
   const relative = normalizeRelative(rel)

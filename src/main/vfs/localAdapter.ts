@@ -4,7 +4,7 @@ import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import { ulid } from 'ulid'
 import type { VfsAdapter, Unwatch } from './types.js'
 import type { VfsEntry, VfsCapabilities, FileChangeEvent } from '../../shared/model/vfs.js'
-import { resolveInRoot, relativeToRoot, joinRelative, normalizeRelative } from './paths.js'
+import { resolveInRoot, relativeToRoot, joinRelative, normalizeRelative, VfsPathError } from './paths.js'
 import { IGNORED_DIRS } from '../../shared/constants.js'
 
 const CAPS: VfsCapabilities = {
@@ -80,6 +80,15 @@ function escapeForRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function isInside(realRoot: string, real: string): boolean {
+  return real === realRoot || real.startsWith(realRoot + path.sep)
+}
+
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
+
 export class LocalAdapter implements VfsAdapter {
   readonly caps = CAPS
   readonly root: string
@@ -89,8 +98,77 @@ export class LocalAdapter implements VfsAdapter {
     this.root = path.resolve(root)
   }
 
+  /**
+   * `resolveInRoot` is lexical; this resolves symlinks. A shared project
+   * holding `notes -> ~/.ssh` must not let a read, write or delete through it
+   * reach outside the project. A path that does not exist yet is left for the
+   * operation itself to report.
+   */
+  private async existingInside(target: string): Promise<string> {
+    const absolute = resolveInRoot(this.root, target)
+    const realRoot = await this.realRoot()
+    if (!realRoot) return absolute
+    let real: string
+    try {
+      real = await fs.realpath(absolute)
+    } catch (error) {
+      if (isMissing(error)) return absolute
+      throw error
+    }
+    if (!isInside(realRoot, real)) throw new VfsPathError(`Path leaves the project through a link: ${target}`)
+    return absolute
+  }
+
+  /**
+   * For writes the target may not exist, so the nearest thing that does —
+   * the target itself (a link, even a dangling one, would be followed), or
+   * failing that its closest existing ancestor — must resolve inside the root.
+   */
+  private async writableInside(target: string): Promise<string> {
+    const absolute = resolveInRoot(this.root, target)
+    const realRoot = await this.realRoot()
+    if (!realRoot) return absolute
+    let probe = absolute
+    for (;;) {
+      let exists = true
+      try {
+        await fs.lstat(probe)
+      } catch (error) {
+        if (!isMissing(error)) throw error
+        exists = false
+      }
+      if (exists) {
+        const real = await fs.realpath(probe).catch(() => null)
+        if (!real || !isInside(realRoot, real)) {
+          throw new VfsPathError(`Path leaves the project through a link: ${target}`)
+        }
+        return absolute
+      }
+      const parent = path.dirname(probe)
+      if (parent === probe) throw new VfsPathError(`Path is outside the project: ${target}`)
+      probe = parent
+    }
+  }
+
+  /** Null while the root itself does not exist yet, when there is no link to follow. */
+  private async realRoot(): Promise<string | null> {
+    try {
+      return await fs.realpath(this.root)
+    } catch (error) {
+      if (isMissing(error)) return null
+      throw error
+    }
+  }
+
+  private async parentWritableInside(target: string): Promise<string> {
+    const absolute = resolveInRoot(this.root, target)
+    const parent = normalizeRelative(path.posix.dirname(normalizeRelative(target)))
+    await this.writableInside(parent === '.' ? '' : parent)
+    return absolute
+  }
+
   async list(dir: string): Promise<VfsEntry[]> {
-    const absolute = resolveInRoot(this.root, dir)
+    const absolute = await this.existingInside(dir)
     const dirents = await fs.readdir(absolute, { withFileTypes: true })
     const entries: VfsEntry[] = []
     for (const dirent of dirents) {
@@ -120,8 +198,8 @@ export class LocalAdapter implements VfsAdapter {
   }
 
   async stat(target: string): Promise<VfsEntry | null> {
-    const absolute = resolveInRoot(this.root, target)
     try {
+      const absolute = await this.existingInside(target)
       const stats = await fs.stat(absolute)
       const normalized = normalizeRelative(target)
       return {
@@ -137,17 +215,17 @@ export class LocalAdapter implements VfsAdapter {
   }
 
   async readFile(target: string): Promise<Buffer> {
-    return fs.readFile(resolveInRoot(this.root, target))
+    return fs.readFile(await this.existingInside(target))
   }
 
   async writeFile(target: string, data: Buffer): Promise<void> {
-    const absolute = resolveInRoot(this.root, target)
+    const absolute = await this.writableInside(target)
     await fs.mkdir(path.dirname(absolute), { recursive: true })
     await fs.writeFile(absolute, data)
   }
 
   async writeFileAtomic(target: string, data: Buffer): Promise<void> {
-    const absolute = resolveInRoot(this.root, target)
+    const absolute = await this.writableInside(target)
     await fs.mkdir(path.dirname(absolute), { recursive: true })
     const temp = `${absolute}.tmp-${ulid()}`
     try {
@@ -160,17 +238,18 @@ export class LocalAdapter implements VfsAdapter {
   }
 
   async mkdir(target: string): Promise<void> {
-    await fs.mkdir(resolveInRoot(this.root, target), { recursive: true })
+    await fs.mkdir(await this.writableInside(target), { recursive: true })
   }
 
   async rename(from: string, to: string): Promise<void> {
-    const absoluteTo = resolveInRoot(this.root, to)
+    const absoluteFrom = await this.parentWritableInside(from)
+    const absoluteTo = await this.writableInside(to)
     await fs.mkdir(path.dirname(absoluteTo), { recursive: true })
-    await renameWithRetry(resolveInRoot(this.root, from), absoluteTo)
+    await renameWithRetry(absoluteFrom, absoluteTo)
   }
 
   async delete(target: string, options: { recursive?: boolean } = {}): Promise<void> {
-    await fs.rm(resolveInRoot(this.root, target), {
+    await fs.rm(await this.parentWritableInside(target), {
       recursive: options.recursive ?? false,
       force: true
     })

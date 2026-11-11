@@ -12,6 +12,33 @@ import { migrate } from '../../shared/model/migrate.js'
 import { FORMAT_VERSIONS } from '../../shared/constants.js'
 import { writeFileAtomicSync } from './atomicFile.js'
 
+/**
+ * Fields that say who the secret is for. A password saved for one host must not
+ * follow the profile to another — an edit that repoints it would otherwise hand
+ * the old server's credential to whatever the new host is.
+ */
+const SECRET_BINDING_FIELDS = [
+  'protocol',
+  'host',
+  'port',
+  'user',
+  'auth',
+  'engine',
+  'privateKeyPath',
+  'clientId',
+  'tenant'
+] as const satisfies readonly (keyof ConnectionProfile)[]
+
+export function secretBindingChanged(
+  existing: ConnectionProfile | undefined,
+  incoming: Partial<ConnectionProfile>
+): boolean {
+  if (!existing) return false
+  return SECRET_BINDING_FIELDS.some(
+    (field) => incoming[field] !== undefined && incoming[field] !== existing[field]
+  )
+}
+
 interface StoredFile extends ConnectionFile {
   /** Encrypted secrets by profile id. Written here, never read by anything else. */
   secrets?: Record<string, string>
@@ -91,7 +118,8 @@ export class ConnectionStore {
 
   /**
    * Create or update a profile. `secret` is written only when given, so saving
-   * an edited profile does not require retyping the password.
+   * an edited profile does not require retyping the password — unless the edit
+   * changes where or as whom it connects, which drops the stored one.
    */
   save(incoming: Partial<ConnectionProfile> & { id?: string }, secret?: string): ConnectionProfile {
     const stored = this.read()
@@ -102,6 +130,7 @@ export class ConnectionStore {
 
     const secrets = stored.secrets ?? {}
     const id = existing?.id ?? incoming.id ?? ulid()
+    if (secret === undefined && secretBindingChanged(existing, incoming)) delete secrets[id]
     if (secret !== undefined) {
       if (secret === '') delete secrets[id]
       // A password is dropped rather than written in the clear when there is no

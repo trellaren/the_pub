@@ -9,7 +9,8 @@ import {
   isPublicAddress,
   isPublicHttpUrl,
   pinnedLookup,
-  resolvesPublic
+  resolvesPublic,
+  type ResolveAll
 } from './webGate.js'
 
 describe('isPublicHttpUrl', () => {
@@ -139,11 +140,8 @@ describe('the wider private ranges', () => {
   })
 })
 
-type FakeResolve = Parameters<typeof pinnedLookup>[1]
-
-function resolvingTo(address: string, family = 4): FakeResolve {
-  return ((_hostname: string, _options: unknown, callback: (e: null, a: { address: string; family: number }[]) => void) =>
-    callback(null, [{ address, family }])) as unknown as FakeResolve
+function resolvingTo(address: string, family = 4): ResolveAll {
+  return (_hostname, _options, callback) => callback(null, [{ address, family }])
 }
 
 describe('pinnedLookup', () => {

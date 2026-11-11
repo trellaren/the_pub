@@ -1,8 +1,9 @@
 import dns from 'node:dns/promises'
+import { lookup as dnsLookup } from 'node:dns'
 import type { ProjectSession } from '../services/projectSession.js'
 import { describeProject } from './projectContext.js'
 import { Agent, fetch as undiciFetch } from 'undici'
-import { fetchPublic, pinnedLookup } from './webGate.js'
+import { fetchPublic, pinnedLookup, type ResolveAll } from './webGate.js'
 
 /** Long enough for a local model on a slow machine, short enough not to hang the card. */
 export const PROMPT_TIMEOUT_MS = 30_000
@@ -38,8 +39,17 @@ const LOOPBACK_FIXTURE_HOSTS = new Set(
  * The dispatcher every page read connects through: its `lookup` re-checks the
  * addresses at connect time, so what `fetchPublic` checked is what is dialled.
  */
+const isFixtureHost = (hostname: string): boolean => LOOPBACK_FIXTURE_HOSTS.has(hostname)
+
+// Fixture hosts dial loopback directly rather than asking DNS, so the harness
+// does not depend on `localtest.me` resolving wherever it runs.
+const resolveForConnect: ResolveAll = (hostname, options, callback) =>
+  isFixtureHost(hostname)
+    ? callback(null, [{ address: '127.0.0.1', family: 4 }])
+    : dnsLookup(hostname, { ...options, all: true }, (error, addresses) => callback(error, addresses ?? []))
+
 const pinnedAgent = new Agent({
-  connect: { lookup: pinnedLookup((hostname) => LOOPBACK_FIXTURE_HOSTS.has(hostname)) }
+  connect: { lookup: pinnedLookup(isFixtureHost, resolveForConnect) }
 })
 
 const pinnedFetch = ((input: string, init?: RequestInit) =>
@@ -55,7 +65,7 @@ export async function fetchWithLimits(url: string): Promise<LimitedResponse> {
       headers: { accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' }
     },
     (hostname) =>
-      LOOPBACK_FIXTURE_HOSTS.has(hostname)
+      isFixtureHost(hostname)
         ? Promise.resolve([{ address: '93.184.216.34' }])
         : dns.lookup(hostname, { all: true }),
     pinnedFetch

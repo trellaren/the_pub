@@ -182,14 +182,22 @@ type LookupCallback = (error: NodeJS.ErrnoException | null, address: string | Lo
  *
  * `trusted` names skip the check — the e2e harness's loopback fixture hosts.
  */
+export type ResolveAll = (
+  hostname: string,
+  options: LookupOptions,
+  callback: (error: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void
+) => void
+
+const resolveWithDns: ResolveAll = (hostname, options, callback) =>
+  dnsLookup(hostname, { ...options, all: true }, (error, addresses) => callback(error, addresses ?? []))
+
 export function pinnedLookup(
   trusted: (hostname: string) => boolean = () => false,
-  resolve: typeof dnsLookup = dnsLookup
+  resolve: ResolveAll = resolveWithDns
 ): (hostname: string, options: LookupOptions, callback: LookupCallback) => void {
   return (hostname, options, callback) => {
-    resolve(hostname, { ...options, all: true }, (error, addresses) => {
+    resolve(hostname, options, (error, list) => {
       if (error) return callback(error, [])
-      const list = addresses as LookupAddress[]
       if (!trusted(hostname) && (list.length === 0 || !list.every(({ address }) => isPublicAddress(address)))) {
         const refused: NodeJS.ErrnoException = new Error(`Refused to connect to a non-public address for ${hostname}`)
         refused.code = 'ENOTPUBLIC'

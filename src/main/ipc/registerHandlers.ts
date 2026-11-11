@@ -1,4 +1,3 @@
-import path from 'node:path'
 import { createHandlerContext, type HandlerDeps } from './context.js'
 import { register as registerApp } from './handlers/app.js'
 import { register as registerProject } from './handlers/project.js'
@@ -25,9 +24,4 @@ export function registerHandlers(deps: HandlerDeps): void {
   registerAi(context)
   registerConnections(context)
   registerLayout(context)
-}
-
-/** Human-readable project name for a folder path, used before a manifest exists. */
-export function projectNameFor(uri: string): string {
-  return path.basename(uri)
 }

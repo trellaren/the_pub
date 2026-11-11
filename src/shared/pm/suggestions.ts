@@ -175,8 +175,3 @@ export function listSuggestions(doc: PmDoc, filter: SuggestionFilter = {}): Pend
 export function hasSuggestions(doc: PmDoc): boolean {
   return listSuggestions(doc).length > 0
 }
-
-/** Everyone with a pending suggestion in this document. */
-export function suggestionAuthors(doc: PmDoc): string[] {
-  return [...new Set(listSuggestions(doc).map((suggestion) => suggestion.authorId))]
-}

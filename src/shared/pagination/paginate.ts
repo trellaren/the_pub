@@ -1,3 +1,4 @@
+// Intentionally unconsumed until Phase 7 (docs/ROADMAP.md) wires it into screen and print.
 import type { PmDoc, PmNode, PageSetup } from '../model/document.js'
 import { pageMargins } from '../model/document.js'
 import type { NamedStyle } from '../model/style.js'

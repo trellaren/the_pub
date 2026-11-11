@@ -98,10 +98,10 @@ These aren't aspirational — the existing code follows them, and tests exist to
   entry in `MIGRATIONS` (`src/shared/model/migrate.ts`). A new node/mark type or on-disk shape
   change for a given kind bumps *that kind's* counter and adds a migration step — even a no-op
   one — so an older build doesn't silently drop content it doesn't understand when it re-saves a
-  file. Import the kind-specific constant (`FORMAT_VERSIONS.document`, `.manifest`, …); the bare
-  `FORMAT_VERSION` export is `@deprecated`, aliased to `.document` only, and a real bug class in
-  this repo's history came from other kinds importing it by mistake — check for that specifically
-  after touching any model file.
+  file. Import the kind-specific constant (`FORMAT_VERSIONS.document`, `.manifest`, …); there is
+  deliberately no bare `FORMAT_VERSION` export. One used to exist, aliased to `.document` only,
+  and a real bug class in this repo's history came from other kinds importing it by mistake;
+  `shared/formatVersionAlias.test.ts` fails if anything imports that name again.
 - **Records link by id, never by name or path.** A mention mark holds a record id; a beat's cast
   list and scene link are ids. This is what makes renaming a character or moving a chapter on disk
   free.

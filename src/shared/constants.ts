@@ -22,14 +22,11 @@ export const FORMAT_VERSIONS = {
   pdfHighlights: 2, // 2 = capture highlights (kind/offset fields)
   stats: 1,
   // Starts at 10, not 1: before it had its own counter the known-hosts file was
-  // stamped through the deprecated `FORMAT_VERSION` alias, i.e. the document
+  // stamped through the since-removed `FORMAT_VERSION` alias, i.e. the document
   // version, and existing files carry 10. Its next bump is 11.
   knownHosts: 10
 } as const
 export type FileKind = keyof typeof FORMAT_VERSIONS
-
-/** @deprecated Use `FORMAT_VERSIONS.document`. Kept so existing call sites need no churn. */
-export const FORMAT_VERSION = FORMAT_VERSIONS.document
 
 /**
  * Project-relative directory holding all app-managed data.

@@ -4,6 +4,7 @@ import { findPluginKey, getFindState, type FindOptions } from './extensions/find
 import { suggestionModeKey } from './extensions/suggestions.js'
 import { resolveSuggestions, resolveSuggestionAt } from '@shared/pm/suggestions.js'
 import type { PmDoc } from '@shared/model/document.js'
+import { countWords } from '@shared/pm/extractText.js'
 import { ANCHOR_MARK } from '@shared/model/anchor.js'
 
 /** Start (or clear) a find. Matches are recomputed by the plugin. */
@@ -90,9 +91,12 @@ export function revealBlock(editor: Editor, blockIndex: number, term?: string): 
   if (term) setFind(editor, { term, matchCase: false, wholeWord: false })
 }
 
+/**
+ * Through `countWords`, the one text walker, so the status bar agrees with the
+ * stats, the manuscript total and every other count of the same document.
+ */
 export function wordCount(editor: Editor): number {
-  const storage = editor.storage.characterCount as { words?: () => number } | undefined
-  return storage?.words?.() ?? 0
+  return countWords(editor.getJSON() as PmDoc)
 }
 
 /**

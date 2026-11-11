@@ -21,6 +21,8 @@ import { validateFileName } from '@shared/model/filename.js'
 import { DOC_EXT } from '@shared/constants.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
 
+const WORD_COUNT_DEBOUNCE_MS = 300
+
 export interface EditorPanelParams {
   docId: string
   path: string
@@ -319,10 +321,20 @@ function StatusBar({ docId }: { docId: string }) {
 
   useEffect(() => {
     if (!editor) return
-    const update = (): void => setWords(wordCount(editor))
-    update()
+    // Walking the whole document is too much per keystroke on a long chapter;
+    // a count that settles a moment after typing pauses is plenty.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const update = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        if (!editor.isDestroyed) setWords(wordCount(editor))
+      }, WORD_COUNT_DEBOUNCE_MS)
+    }
+    setWords(wordCount(editor))
     editor.on('update', update)
     return () => {
+      if (timer) clearTimeout(timer)
       editor.off('update', update)
     }
   }, [editor])

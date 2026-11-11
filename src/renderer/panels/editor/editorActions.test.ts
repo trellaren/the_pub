@@ -6,9 +6,25 @@ import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { FindHighlight } from './extensions/findHighlight.js'
 import { Insertion, Deletion } from './extensions/suggestions.js'
-import { removeAnchor, replaceCurrent, replaceDocumentTransaction, setFind } from './editorActions.js'
+import { removeAnchor, replaceCurrent, replaceDocumentTransaction, setFind, wordCount } from './editorActions.js'
 import { Anchors } from './extensions/anchors.js'
 import type { PmDoc } from '@shared/model/document.js'
+
+describe('wordCount', () => {
+  it('counts through the shared text walker, so a hard break separates words', () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'one' }, { type: 'hardBreak' }, { type: 'text', text: 'two' }] }
+        ]
+      }
+    })
+    expect(wordCount(editor)).toBe(2)
+    editor.destroy()
+  })
+})
 
 const schema = getSchema([StarterKit, Insertion, Deletion])
 

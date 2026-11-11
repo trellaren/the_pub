@@ -5,7 +5,6 @@ import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import TextAlign from '@tiptap/extension-text-align'
 import Image from '@tiptap/extension-image'
-import CharacterCount from '@tiptap/extension-character-count'
 import Typography from '@tiptap/extension-typography'
 import Placeholder from '@tiptap/extension-placeholder'
 import { TableKit } from '@tiptap/extension-table'
@@ -109,7 +108,6 @@ export function createEditor(options: CreateEditorOptions): Editor {
       }),
       TableKit.configure({ table: { resizable: true } }),
       Image.configure({ inline: false, allowBase64: false }),
-      CharacterCount,
       Typography,
       Placeholder.configure({ placeholder: 'Begin writing…' }),
       NamedStyles.configure({ getStyles: options.getStyles }),

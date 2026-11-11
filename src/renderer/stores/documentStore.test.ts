@@ -83,6 +83,27 @@ describe('documentStore.save', () => {
   })
 })
 
+describe('documentStore.renamePath', () => {
+  it('moves open documents inside a renamed folder, and only those', async () => {
+    await openDoc('d1', 'part1/ch1.pub')
+    await openDoc('d2', 'part1/sub/ch2.pub')
+    await openDoc('d3', 'part10/ch3.pub')
+    await openDoc('d4', 'part1.pub')
+    useDocumentStore.getState().renamePath('part1', 'act1')
+    const docs = useDocumentStore.getState().docs
+    expect(docs.d1!.path).toBe('act1/ch1.pub')
+    expect(docs.d2!.path).toBe('act1/sub/ch2.pub')
+    expect(docs.d3!.path).toBe('part10/ch3.pub')
+    expect(docs.d4!.path).toBe('part1.pub')
+  })
+
+  it('still renames a single file', async () => {
+    await openDoc('d1', 'a.pub')
+    useDocumentStore.getState().renamePath('a.pub', 'b.pub')
+    expect(useDocumentStore.getState().docs.d1!.path).toBe('b.pub')
+  })
+})
+
 describe('documentStore.discardAll', () => {
   it('destroys every editor and forgets every document', async () => {
     await openDoc('d1', 'a.pub')

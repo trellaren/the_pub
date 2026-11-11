@@ -389,8 +389,14 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     },
 
     renamePath: (from, to) => {
-      const state = Object.values(get().docs).find((candidate) => candidate.path === from)
-      if (state) patch(state.docId, { path: to, missing: false })
+      // A folder rename moves every open document beneath it, too.
+      const prefix = `${from}/`
+      for (const state of Object.values(get().docs)) {
+        if (state.path === from) patch(state.docId, { path: to, missing: false })
+        else if (state.path.startsWith(prefix)) {
+          patch(state.docId, { path: `${to}/${state.path.slice(prefix.length)}`, missing: false })
+        }
+      }
     },
 
     appendProvenance: (docId, entries) => {

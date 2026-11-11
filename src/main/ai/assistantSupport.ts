@@ -34,9 +34,7 @@ const LOOPBACK_FIXTURE_HOSTS = new Set(
 )
 
 /** `fetch` for the assistant's page reads: bounded in time and size, following no credentials. */
-export async function fetchWithLimits(
-  url: string
-): Promise<{ ok: boolean; status: number; text(): Promise<string> }> {
+export async function fetchWithLimits(url: string): Promise<LimitedResponse> {
   const response = await fetchPublic(
     url,
     {
@@ -49,14 +47,53 @@ export async function fetchWithLimits(
         ? Promise.resolve([{ address: '93.184.216.34' }])
         : dns.lookup(hostname, { all: true })
   )
+  return limitedResponse(response)
+}
+
+type LimitedResponse = { ok: boolean; status: number; text(): Promise<string> }
+
+/**
+ * Size-capped view of a response. A declared length over the cap is refused
+ * unread; otherwise the body is streamed and cancelled once the cap is
+ * reached, so an endless or lying body costs at most `maxBytes` of memory.
+ */
+export function limitedResponse(response: Response, maxBytes = MAX_PAGE_BYTES): LimitedResponse {
+  const declared = Number(response.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    void response.body?.cancel().catch(() => {})
+    return { ok: false, status: 413, text: async () => '' }
+  }
   return {
     ok: response.ok,
     status: response.status,
-    text: async () => {
-      const bytes = await response.arrayBuffer()
-      return new TextDecoder().decode(bytes.slice(0, MAX_PAGE_BYTES))
-    }
+    text: async () => new TextDecoder().decode(await readCapped(response, maxBytes))
   }
+}
+
+export async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const room = maxBytes - total
+      const chunk = value.byteLength > room ? value.subarray(0, room) : value
+      chunks.push(chunk)
+      total += chunk.byteLength
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
 }
 
 /**

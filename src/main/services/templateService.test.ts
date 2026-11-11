@@ -131,6 +131,37 @@ describe('TemplateService.instantiate', () => {
     }
   })
 
+  it('leaves behind the session data a template folder picked up by being opened', async () => {
+    const dir = path.join(builtinDir, 'novel')
+    const runtime = [
+      '.thepub/chats.json',
+      '.thepub/index.db',
+      '.thepub/index.db-wal',
+      '.thepub/authors.json',
+      '.thepub/snapshots/doc/1.json',
+      '.thepub/presence/me.json',
+      '.thepub/stats/me.json',
+      '.thepub/notes/doc.json',
+      '.thepub/highlights/doc.json',
+      '.thepub/reviews/doc/me.json',
+      '.thepub/entities.json.corrupt-1700000000000'
+    ]
+    for (const file of [...runtime, '.thepub/entities.json']) {
+      await fs.mkdir(path.dirname(path.join(dir, file)), { recursive: true })
+      await fs.writeFile(path.join(dir, file), '{}')
+    }
+    const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-target-'))
+    const target = new LocalAdapter(targetDir)
+    try {
+      await templates.instantiate('builtin-novel', target, 'My Novel')
+      for (const file of runtime) await expect(fs.stat(path.join(targetDir, file))).rejects.toThrow()
+      await expect(fs.stat(path.join(targetDir, '.thepub/entities.json'))).resolves.toBeTruthy()
+    } finally {
+      await target.dispose()
+      await fs.rm(targetDir, { recursive: true, force: true })
+    }
+  })
+
   it('copies seeded project files verbatim', async () => {
     await fs.writeFile(path.join(builtinDir, 'novel', 'chapter-1.pubdoc'), '{"hello":true}')
     const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-target-'))
@@ -217,6 +248,43 @@ describe('TemplateService.saveAsTemplate', () => {
    * Characters and Locations — invisible until a project made from it opened
    * with the wrong panels.
    */
+  it('carries highlight categories, publication details, goals and imported fonts with their files', async () => {
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-source-'))
+    const source = new LocalAdapter(sourceDir)
+    await fs.mkdir(path.join(sourceDir, '.thepub', 'fonts'), { recursive: true })
+    await fs.writeFile(path.join(sourceDir, '.thepub', 'fonts', 'f1.ttf'), 'font-bytes')
+    try {
+      const manifest: ProjectManifest = projectManifestSchema.parse({
+        id: 'p1',
+        name: 'Draft',
+        created: '2026-01-01T00:00:00.000Z',
+        modified: '2026-01-01T00:00:00.000Z',
+        settings: {},
+        styles: BUILTIN_STYLES,
+        highlightCategories: [{ id: 'theme', label: 'Theme', color: '#ff0' }],
+        publication: { publisher: 'Gull Press' },
+        goals: { targetWords: 90000 },
+        fonts: [{ id: 'f1', family: 'Garamond', file: '.thepub/fonts/f1.ttf' }]
+      })
+      const summary = await templates.saveAsTemplate(source, manifest, {
+        name: 'Press',
+        description: '',
+        projectType: 'novel',
+        include: { entities: false, beats: false, maps: false, manuscript: false, layout: false, documents: [] }
+      })
+      const dir = path.join(userDir, summary.id)
+      const saved = projectManifestSchema.parse(JSON.parse(await fs.readFile(path.join(dir, MANIFEST_FILE), 'utf8')))
+      expect(saved.highlightCategories).toEqual(manifest.highlightCategories)
+      expect(saved.publication).toEqual(manifest.publication)
+      expect(saved.goals).toEqual(manifest.goals)
+      expect(saved.fonts).toEqual(manifest.fonts)
+      expect(await fs.readFile(path.join(dir, '.thepub', 'fonts', 'f1.ttf'), 'utf8')).toBe('font-bytes')
+    } finally {
+      await source.dispose()
+      await fs.rm(sourceDir, { recursive: true, force: true })
+    }
+  })
+
   it('carries the project’s record kinds, not just its styles', async () => {
     const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-source-'))
     const source = new LocalAdapter(sourceDir)

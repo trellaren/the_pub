@@ -1,7 +1,8 @@
 import dns from 'node:dns/promises'
 import type { ProjectSession } from '../services/projectSession.js'
 import { describeProject } from './projectContext.js'
-import { fetchPublic } from './webGate.js'
+import { Agent, fetch as undiciFetch } from 'undici'
+import { fetchPublic, pinnedLookup } from './webGate.js'
 
 /** Long enough for a local model on a slow machine, short enough not to hang the card. */
 export const PROMPT_TIMEOUT_MS = 30_000
@@ -33,6 +34,17 @@ const LOOPBACK_FIXTURE_HOSTS = new Set(
   (process.env.QUOTH_E2E_FIXTURE_HOSTS ?? '').split(',').map((host) => host.trim()).filter(Boolean)
 )
 
+/**
+ * The dispatcher every page read connects through: its `lookup` re-checks the
+ * addresses at connect time, so what `fetchPublic` checked is what is dialled.
+ */
+const pinnedAgent = new Agent({
+  connect: { lookup: pinnedLookup((hostname) => LOOPBACK_FIXTURE_HOSTS.has(hostname)) }
+})
+
+const pinnedFetch = ((input: string, init?: RequestInit) =>
+  undiciFetch(input, { ...(init as object), dispatcher: pinnedAgent })) as unknown as typeof fetch
+
 /** `fetch` for the assistant's page reads: bounded in time and size, following no credentials. */
 export async function fetchWithLimits(url: string): Promise<LimitedResponse> {
   const response = await fetchPublic(
@@ -45,7 +57,8 @@ export async function fetchWithLimits(url: string): Promise<LimitedResponse> {
     (hostname) =>
       LOOPBACK_FIXTURE_HOSTS.has(hostname)
         ? Promise.resolve([{ address: '93.184.216.34' }])
-        : dns.lookup(hostname, { all: true })
+        : dns.lookup(hostname, { all: true }),
+    pinnedFetch
   )
   return limitedResponse(response)
 }

@@ -1,5 +1,16 @@
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { describe, it, expect } from 'vitest'
-import { buildWebGate, extractUrls, fetchPublic, isPublicHttpUrl, resolvesPublic } from './webGate.js'
+import { Agent, fetch as undiciFetch } from 'undici'
+import {
+  buildWebGate,
+  extractUrls,
+  fetchPublic,
+  isPublicAddress,
+  isPublicHttpUrl,
+  pinnedLookup,
+  resolvesPublic
+} from './webGate.js'
 
 describe('isPublicHttpUrl', () => {
   it('accepts ordinary public pages', () => {
@@ -101,5 +112,73 @@ describe('fetchPublic', () => {
     const response = await fetchPublic('https://example.org/a', {}, lookup, fetchImpl)
     expect(await response.text()).toBe('ok')
     expect(seen).toEqual(['https://example.org/a', 'https://example.org/b'])
+  })
+})
+
+describe('the wider private ranges', () => {
+  it.each([
+    'fe80::1',
+    'febf:ffff::1',
+    'fe9a::1',
+    'fec0::1',
+    'feff::1',
+    '64:ff9b::7f00:1',
+    '64:ff9b::10.0.0.1',
+    '::ffff:127.0.0.1',
+    '198.18.0.1',
+    '198.19.255.254',
+    'fc00::1',
+    'ff02::1'
+  ])('refuses %s', (address) => {
+    expect(isPublicAddress(address)).toBe(false)
+    expect(isPublicHttpUrl(address.includes(':') ? `http://[${address}]/` : `http://${address}/`)).toBe(false)
+  })
+
+  it.each(['2606:4700::1111', '2001:db8::1', '198.20.0.1', '198.17.255.1', '64:ff9c::1'])('accepts %s', (address) => {
+    expect(isPublicAddress(address)).toBe(true)
+  })
+})
+
+type FakeResolve = Parameters<typeof pinnedLookup>[1]
+
+function resolvingTo(address: string, family = 4): FakeResolve {
+  return ((_hostname: string, _options: unknown, callback: (e: null, a: { address: string; family: number }[]) => void) =>
+    callback(null, [{ address, family }])) as unknown as FakeResolve
+}
+
+describe('pinnedLookup', () => {
+  it('refuses at connect time a name that resolves to a private address', async () => {
+    const lookup = pinnedLookup(() => false, resolvingTo('127.0.0.1'))
+    const error = await new Promise<NodeJS.ErrnoException | null>((resolve) =>
+      lookup('rebind.example', { all: false }, (failure) => resolve(failure))
+    )
+    expect(error?.code).toBe('ENOTPUBLIC')
+  })
+
+  it('hands back a public address in the shape the socket asked for', async () => {
+    const lookup = pinnedLookup(() => false, resolvingTo('93.184.216.34'))
+    const single = await new Promise<unknown[]>((resolve) =>
+      lookup('example.org', { all: false }, (_e, address, family) => resolve([address, family]))
+    )
+    expect(single).toEqual(['93.184.216.34', 4])
+    const all = await new Promise<unknown>((resolve) => lookup('example.org', { all: true }, (_e, address) => resolve(address)))
+    expect(all).toEqual([{ address: '93.184.216.34', family: 4 }])
+  })
+
+  it('stops a real connection whose name rebinds to loopback after the check', async () => {
+    const server = http.createServer((_request, response) => response.end('internal'))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      const pinned = new Agent({ connect: { lookup: pinnedLookup(() => false, resolvingTo('127.0.0.1')) } })
+      await expect(undiciFetch(`http://rebind.example:${port}/`, { dispatcher: pinned })).rejects.toThrow()
+
+      const trusted = new Agent({ connect: { lookup: pinnedLookup(() => true, resolvingTo('127.0.0.1')) } })
+      const response = await undiciFetch(`http://fixture.example:${port}/`, { dispatcher: trusted })
+      expect(await response.text()).toBe('internal')
+      await Promise.all([pinned.close(), trusted.close()])
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })

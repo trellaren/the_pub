@@ -136,6 +136,23 @@ describe('ReviewService', () => {
     expect(await hers.list('doc-1')).toHaveLength(1)
   })
 
+  it('refuses to write our own review file when it could not be read', async () => {
+    await hers.createThread('doc-1', 'a1', 'The harbour', 0)
+    const mine = path.join(root, REVIEWS_DIR, 'doc-1', `${MARTA.id}.json`)
+    await fs.writeFile(mine, '{ truncated')
+    hers.invalidate()
+    await expect(hers.createThread('doc-1', 'a2', 'The quay', 1)).rejects.toThrow(/could not be read/)
+    expect(await fs.readFile(mine, 'utf8')).toBe('{ truncated')
+  })
+
+  it('merges into the author registry rather than overwriting a collaborator who registered since', async () => {
+    await hers.registerAuthor(MARTA)
+    await his.registerAuthor(SAM)
+    await hers.registerAuthor({ ...MARTA, name: 'Marta V.' })
+    const saved = JSON.parse(await fs.readFile(path.join(root, AUTHORS_FILE), 'utf8'))
+    expect(saved.authors).toEqual([{ ...MARTA, name: 'Marta V.' }, SAM])
+  })
+
   it('never replaces an author registry it cannot safely rewrite', async () => {
     const newer = JSON.stringify({ formatVersion: FORMAT_VERSIONS.authors + 1, authors: [SAM, { id: 'x' }] })
     await fs.mkdir(path.dirname(path.join(root, AUTHORS_FILE)), { recursive: true })

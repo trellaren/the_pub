@@ -264,7 +264,17 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         })
         if (result.ok) {
           settle(result.mtime)
-          patch(docId, { saving: false, mtime: result.mtime, envelope, conflict: false, saveError: null })
+          // Only the content is ours to put back: a retitle or a provenance
+          // append that landed while the write was in flight lives on the
+          // current envelope, and the copy taken above predates it.
+          const current = get().docs[docId]?.envelope ?? envelope
+          patch(docId, {
+            saving: false,
+            mtime: result.mtime,
+            envelope: { ...current, content },
+            conflict: false,
+            saveError: null
+          })
           // Suggested-edit marks count as-if-accepted here too, since
           // `countWords` walks through `extractPlainText`, the one
           // text-walking implementation — same reasoning as the plan's

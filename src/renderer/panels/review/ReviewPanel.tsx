@@ -103,7 +103,11 @@ export function ReviewPanel() {
     if (!editor) return
     const shown = suggestions[index]
     const live = listSuggestions(editor.getJSON() as PmDoc)[index]
-    if (shown && live && shown.mark === live.mark && shown.text === live.text && shown.authorId === live.authorId) {
+    // Not the text: a suggestion still being typed is the same suggestion,
+    // only longer than the row last drawn.
+    const same =
+      shown && live && shown.mark === live.mark && shown.authorId === live.authorId && shown.blockIndex === live.blockIndex
+    if (same) {
       resolveSuggestion(editor, accept, index)
     }
     setSettledDoc(editor.state.doc)

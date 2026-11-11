@@ -9,7 +9,12 @@ import {
   WORD_STYLES,
   WORD_NUMBERING,
   TINY_PNG,
-  revision
+  revision,
+  move,
+  smartTag,
+  customXml,
+  fldSimple,
+  sdt
 } from './fixtures.js'
 import type { PmNode } from '../../shared/model/document.js'
 
@@ -471,3 +476,44 @@ describe('tracked changes', () => {
 function buildDocxWithout(): Uint8Array {
   return zipSync({ 'hello.txt': strToU8('not a document') })
 }
+
+describe('wrappers Word puts around ordinary content', () => {
+  it('reads runs inside smart tags, custom XML and simple fields', () => {
+    const body = paragraph(
+      run('Arrived at ') +
+        smartTag(run('Lisbon')) +
+        run(' with ') +
+        customXml(run('Marta')) +
+        run(', page ') +
+        fldSimple('PAGE', run('7')) +
+        run('.')
+    )
+    expect(textOf(blocks(body)[0])).toBe('Arrived at Lisbon with Marta, page 7.')
+  })
+
+  it('reads an inline content control', () => {
+    expect(textOf(blocks(paragraph(run('Title: ') + sdt(run('The Harbour'))))[0])).toBe('Title: The Harbour')
+  })
+
+  it('reads paragraphs inside a block-level content control and custom XML', () => {
+    const body =
+      sdt(paragraph(run('Front matter.')), 'Cover') +
+      customXml(paragraph(run('Bound paragraph.')), 'chapter') +
+      paragraph(run('Body.'))
+    expect(blocks(body).map(textOf)).toEqual(['Front matter.', 'Bound paragraph.', 'Body.'])
+  })
+})
+
+describe('moved text', () => {
+  it('imports the source of a move as a deletion and its destination as an insertion', () => {
+    const body =
+      paragraph(run('First. ') + move('from', 'Marta Vieira', '2026-01-02T10:00:00Z', 'Moved. ')) +
+      paragraph(move('to', 'Marta Vieira', '2026-01-02T10:00:00Z', 'Moved. ') + run('Last.'))
+    const [source, destination] = blocks(body)
+    const markOf = (node: PmNode | undefined, text: string) =>
+      node?.content?.find((inline) => inline.text === text)?.marks?.map((mark) => mark.type)
+    expect(markOf(source, 'Moved. ')).toEqual(['deletion'])
+    expect(markOf(destination, 'Moved. ')).toEqual(['insertion'])
+    expect(textOf(destination)).toBe('Moved. Last.')
+  })
+})

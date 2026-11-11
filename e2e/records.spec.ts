@@ -194,7 +194,8 @@ test('@-autocomplete is a listbox, and Escape closes it until typing resumes', a
   await editor.press('r')
   await expect(popup).toBeVisible()
   await editor.press('Enter')
-  await expect(editor).toContainText('Then Harlan')
+  await expect(popup).toHaveCount(0)
+  await expect(editor.locator('[data-entity-id]')).toContainText('Harlan')
 })
 
 test('@-autocomplete inserts a mention and leaves no @ in the text', async () => {

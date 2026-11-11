@@ -14,7 +14,7 @@ import { useBeatStore } from './stores/beatStore.js'
 import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
-import { flushPendingWrites, resetDocumentScopedStores } from './stores/pendingWrites.js'
+import { flushPendingWrites, resetProjectScopedStores } from './stores/pendingWrites.js'
 import { resetToNoProject } from './stores/resetToNoProject.js'
 import { isRegistered, registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
@@ -57,7 +57,7 @@ export function App() {
   /* Records belong to the open project, so they are (re)loaded with it. */
   useEffect(() => {
     if (!project) return
-    resetDocumentScopedStores()
+    resetProjectScopedStores()
     void useEntityStore.getState().load()
     void useBeatStore.getState().load()
     void useMapStore.getState().load()

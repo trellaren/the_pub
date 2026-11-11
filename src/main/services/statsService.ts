@@ -1,6 +1,6 @@
 import type { VfsAdapter } from '../vfs/types.js'
 import { statsFileSchema, EMPTY_STATS_FILE, type StatsFile, type DayStat } from '../../shared/model/stats.js'
-import { migrate } from '../../shared/model/migrate.js'
+import { readVersionedJson, SerialQueue, jsonBytes } from './versionedJson.js'
 import type { AuthorProfile } from '../../shared/model/author.js'
 import { STATS_DIR, STATS_SAVE_DEBOUNCE_MS } from '../../shared/constants.js'
 
@@ -28,6 +28,7 @@ export class StatsService {
   private tooNew = false
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private dirty = false
+  private readonly queue = new SerialQueue()
 
   constructor(
     private readonly adapter: VfsAdapter,
@@ -40,30 +41,11 @@ export class StatsService {
 
   private async load(): Promise<StatsFile> {
     if (this.file) return this.file
-    const path = this.pathFor(this.me().id)
-    const existing = await this.adapter.stat(path)
-    if (!existing) {
-      this.file = structuredClone(EMPTY_STATS_FILE)
-      return this.file
-    }
-    try {
-      const raw = await this.adapter.readFile(path)
-      const { value, tooNew } = migrate('stats', JSON.parse(raw.toString('utf8')))
-      this.tooNew = tooNew
-      const shown = statsFileSchema.safeParse(value)
-      if (tooNew) {
-        this.file = shown.success ? shown.data : structuredClone(EMPTY_STATS_FILE)
-        return this.file
-      }
-      this.file = statsFileSchema.parse(value)
-    } catch {
-      // An unreadable rollup is not worth a project's writing history — start
-      // fresh rather than block every future day on a corrupt one. Unlike
-      // notes, there is no per-day content a person would recognise and want
-      // back byte-for-byte; the file is regenerated from now on.
-      await this.adapter.rename(path, `${path}.corrupt-${Date.now()}`).catch(() => {})
-      this.file = structuredClone(EMPTY_STATS_FILE)
-    }
+    const read = await readVersionedJson(this.adapter, this.pathFor(this.me().id), 'stats', statsFileSchema, () =>
+      structuredClone(EMPTY_STATS_FILE)
+    )
+    this.tooNew = read.tooNew
+    this.file = read.value
     return this.file
   }
 
@@ -110,7 +92,7 @@ export class StatsService {
     if (this.flushTimer) return
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null
-      void this.flush()
+      this.flush().catch(() => {})
     }, STATS_SAVE_DEBOUNCE_MS)
     this.flushTimer.unref?.()
   }
@@ -124,10 +106,16 @@ export class StatsService {
     // Quietly: stats flush in the background, and a counter is not work to warn about.
     if (!this.dirty || !this.file || this.tooNew) return
     this.dirty = false
-    await this.adapter.mkdir(STATS_DIR).catch(() => {})
-    await this.adapter.writeFileAtomic(
-      this.pathFor(this.me().id),
-      Buffer.from(`${JSON.stringify(this.file, null, 2)}\n`, 'utf8')
-    )
+    const path = this.pathFor(this.me().id)
+    const bytes = jsonBytes(this.file)
+    try {
+      await this.queue.run(async () => {
+        await this.adapter.mkdir(STATS_DIR).catch(() => {})
+        await this.adapter.writeFileAtomic(path, bytes)
+      })
+    } catch (error) {
+      this.dirty = true
+      throw error
+    }
   }
 }

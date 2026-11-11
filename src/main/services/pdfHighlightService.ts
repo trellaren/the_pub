@@ -4,11 +4,12 @@ import {
   pdfHighlightFileSchema,
   pdfHighlightSchema,
   type PdfHighlight,
-  type PdfHighlightFile
+  type PdfHighlightFile,
+  EMPTY_PDF_HIGHLIGHT_FILE
 } from '../../shared/model/research.js'
-import { migrate } from '../../shared/model/migrate.js'
+import { readVersionedJson, KeyedSerialQueue, jsonBytes } from './versionedJson.js'
 import { TooNewError } from './jsonCollectionService.js'
-import { RESEARCH_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { RESEARCH_DIR } from '../../shared/constants.js'
 import { resolvePdfHighlight, type PdfAnchorCandidate } from '../research/pdfAnchor.js'
 import { resolveCaptureHighlight } from '../../shared/research/captureAnchor.js'
 
@@ -21,6 +22,7 @@ export class PdfHighlightService {
   private cache = new Map<string, PdfHighlightFile>()
   /** Files a newer build wrote: shown as far as they parse, never written back. */
   private tooNew = new Set<string>()
+  private readonly writes = new KeyedSerialQueue()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -36,47 +38,25 @@ export class PdfHighlightService {
     const key = this.key(sourceId, attachmentId)
     const cached = this.cache.get(key)
     if (cached) return cached
-
-    const path = this.pathFor(sourceId, attachmentId)
-    const existing = await this.adapter.stat(path)
-    if (!existing) {
-      const empty: PdfHighlightFile = { formatVersion: FORMAT_VERSIONS.pdfHighlights, highlights: [] }
-      this.cache.set(key, empty)
-      return empty
-    }
-    try {
-      const raw = await this.adapter.readFile(path)
-      const { value, tooNew } = migrate('pdfHighlights', JSON.parse(raw.toString('utf8')))
-      if (tooNew) {
-        this.tooNew.add(key)
-        const shown = pdfHighlightFileSchema.safeParse(value)
-        const file: PdfHighlightFile = shown.success ? shown.data : { formatVersion: FORMAT_VERSIONS.pdfHighlights, highlights: [] }
-        this.cache.set(key, file)
-        return file
-      }
-      const file = pdfHighlightFileSchema.parse(value)
-      this.cache.set(key, file)
-      return file
-    } catch {
-      await this.adapter.rename(path, `${path}.corrupt-${Date.now()}`).catch(() => {})
-      const empty: PdfHighlightFile = { formatVersion: FORMAT_VERSIONS.pdfHighlights, highlights: [] }
-      this.cache.set(key, empty)
-      return empty
-    }
+    const read = await readVersionedJson(this.adapter, this.pathFor(sourceId, attachmentId), 'pdfHighlights', pdfHighlightFileSchema, () => structuredClone(EMPTY_PDF_HIGHLIGHT_FILE))
+    if (read.tooNew) this.tooNew.add(key)
+    else this.tooNew.delete(key)
+    this.cache.set(key, read.value)
+    return read.value
   }
 
   private async flush(sourceId: string, attachmentId: string): Promise<void> {
     const key = this.key(sourceId, attachmentId)
-    if (this.tooNew.has(key)) throw new TooNewError(key)
+    if (this.tooNew.has(key)) throw new TooNewError(this.pathFor(sourceId, attachmentId))
     const file = this.cache.get(key)
     if (!file) return
-    const dir = `${RESEARCH_DIR}/${sourceId}`
-    await this.adapter.mkdir(dir).catch(() => {})
-    await this.adapter.writeFileAtomic(
-      this.pathFor(sourceId, attachmentId),
-      Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-    )
+    const bytes = jsonBytes(file)
+    await this.writes.run(key, async () => {
+      await this.adapter.mkdir(`${RESEARCH_DIR}/${sourceId}`).catch(() => {})
+      await this.adapter.writeFileAtomic(this.pathFor(sourceId, attachmentId), bytes)
+    })
   }
+
 
   async listForAttachment(sourceId: string, attachmentId: string): Promise<PdfHighlight[]> {
     const file = await this.loadFile(sourceId, attachmentId)

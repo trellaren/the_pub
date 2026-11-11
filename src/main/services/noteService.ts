@@ -1,11 +1,11 @@
 import { ulid } from 'ulid'
 import type { VfsAdapter } from '../vfs/types.js'
-import { noteFileSchema, noteSchema, type Note, type NoteFile } from '../../shared/model/note.js'
-import { migrate } from '../../shared/model/migrate.js'
+import { noteFileSchema, noteSchema, EMPTY_NOTE_FILE, type Note, type NoteFile } from '../../shared/model/note.js'
+import { readVersionedJson, KeyedSerialQueue, jsonBytes } from './versionedJson.js'
 import { TooNewError } from './jsonCollectionService.js'
 import { findAnchor } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
-import { NOTES_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { NOTES_DIR } from '../../shared/constants.js'
 
 /**
  * Notes, one file per document.
@@ -19,6 +19,7 @@ export class NoteService {
   private cache = new Map<string, NoteFile>()
   /** Files a newer build wrote: shown as far as they parse, never written back. */
   private tooNew = new Set<string>()
+  private readonly writes = new KeyedSerialQueue()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -27,49 +28,28 @@ export class NoteService {
   }
 
   private async loadFile(docId: string): Promise<NoteFile> {
-    const cached = this.cache.get(docId)
+    const key = docId
+    const cached = this.cache.get(key)
     if (cached) return cached
-
-    const path = this.pathFor(docId)
-    const existing = await this.adapter.stat(path)
-    if (!existing) {
-      const empty: NoteFile = { formatVersion: FORMAT_VERSIONS.notes, notes: [] }
-      this.cache.set(docId, empty)
-      return empty
-    }
-    try {
-      const raw = await this.adapter.readFile(path)
-      const { value, tooNew } = migrate('notes', JSON.parse(raw.toString('utf8')))
-      if (tooNew) {
-        this.tooNew.add(docId)
-        const shown = noteFileSchema.safeParse(value)
-        const file: NoteFile = shown.success ? shown.data : { formatVersion: FORMAT_VERSIONS.notes, notes: [] }
-        this.cache.set(docId, file)
-        return file
-      }
-      const file = noteFileSchema.parse(value)
-      this.cache.set(docId, file)
-      return file
-    } catch {
-      // Keep the unreadable file rather than deleting it — it may hold notes
-      // the author wants back — and continue with an empty one.
-      await this.adapter.rename(path, `${path}.corrupt-${Date.now()}`).catch(() => {})
-      const empty: NoteFile = { formatVersion: FORMAT_VERSIONS.notes, notes: [] }
-      this.cache.set(docId, empty)
-      return empty
-    }
+    const read = await readVersionedJson(this.adapter, this.pathFor(docId), 'notes', noteFileSchema, () => structuredClone(EMPTY_NOTE_FILE))
+    if (read.tooNew) this.tooNew.add(key)
+    else this.tooNew.delete(key)
+    this.cache.set(key, read.value)
+    return read.value
   }
 
   private async flush(docId: string): Promise<void> {
-    if (this.tooNew.has(docId)) throw new TooNewError(this.pathFor(docId))
-    const file = this.cache.get(docId)
+    const key = docId
+    if (this.tooNew.has(key)) throw new TooNewError(this.pathFor(docId))
+    const file = this.cache.get(key)
     if (!file) return
-    await this.adapter.mkdir(NOTES_DIR).catch(() => {})
-    await this.adapter.writeFileAtomic(
-      this.pathFor(docId),
-      Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-    )
+    const bytes = jsonBytes(file)
+    await this.writes.run(key, async () => {
+      await this.adapter.mkdir(NOTES_DIR).catch(() => {})
+      await this.adapter.writeFileAtomic(this.pathFor(docId), bytes)
+    })
   }
+
 
   async listForDoc(docId: string): Promise<Note[]> {
     const file = await this.loadFile(docId)

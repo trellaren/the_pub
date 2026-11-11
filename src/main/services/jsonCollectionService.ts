@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod'
 import type { VfsAdapter } from '../vfs/types.js'
 import { PUB_DIR, FORMAT_VERSIONS, type FileKind } from '../../shared/constants.js'
-import { migrate } from '../../shared/model/migrate.js'
+import { readVersionedJson, SerialQueue, jsonBytes } from './versionedJson.js'
 
 /** Thrown by a save to a file a newer build wrote, which this build would silently strip. */
 export class TooNewError extends Error {
@@ -47,7 +47,7 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
    * file with the older version, so the newer build would then trust the loss.
    */
   readOnly = false
-  private queue: Promise<void> = Promise.resolve()
+  private readonly queue = new SerialQueue()
 
   constructor(
     protected readonly adapter: VfsAdapter,
@@ -57,26 +57,9 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
   }
 
   async load(): Promise<TFile> {
-    const existing = await this.adapter.stat(this.opts.file)
-    if (!existing) {
-      this.cache = this.opts.empty()
-      return this.snapshot()
-    }
-    this.readOnly = false
-    try {
-      const raw = await this.adapter.readFile(this.opts.file)
-      const { value, tooNew } = migrate(this.opts.kind, JSON.parse(raw.toString('utf8')))
-      if (tooNew) {
-        this.readOnly = true
-        const parsed = this.opts.schema.safeParse(value)
-        this.cache = parsed.success ? parsed.data : this.opts.empty()
-        return this.snapshot()
-      }
-      this.cache = this.opts.schema.parse(value)
-    } catch {
-      await this.adapter.rename(this.opts.file, `${this.opts.file}.corrupt-${Date.now()}`).catch(() => {})
-      this.cache = this.opts.empty()
-    }
+    const read = await readVersionedJson(this.adapter, this.opts.file, this.opts.kind, this.opts.schema, this.opts.empty)
+    this.cache = read.value
+    this.readOnly = read.tooNew
     return this.snapshot()
   }
 
@@ -120,13 +103,9 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
   protected async flush(): Promise<void> {
     if (this.readOnly) throw new TooNewError(this.opts.file)
     const file = { ...this.cache, formatVersion: FORMAT_VERSIONS[this.opts.kind] } as TFile
-    this.queue = this.queue.then(async () => {
+    await this.queue.run(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(
-        this.opts.file,
-        Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-      )
+      await this.adapter.writeFileAtomic(this.opts.file, jsonBytes(file))
     })
-    await this.queue
   }
 }

@@ -111,6 +111,12 @@ describe('DocumentService', () => {
 
     const loaded = await documents.read(docPath)
     expect(loaded.doc.title).toBe('Readable')
+    expect(loaded.tooNew).toBe(true)
+  })
+
+  it('does not flag a current document as too new', async () => {
+    const created = await documents.create(`current${DOC_EXT}`)
+    expect((await documents.read(created.path)).tooNew).toBeUndefined()
   })
 })
 

@@ -163,6 +163,8 @@ export const EMPTY_DOC: PmDoc = { type: 'doc', content: [{ type: 'paragraph' }] 
 export const loadedDocumentSchema = z.object({
   doc: pubDocumentSchema,
   path: z.string(),
-  mtime: z.number()
+  mtime: z.number(),
+  /** Written by a newer build: open it read-only, since a save would strip what this build cannot see. */
+  tooNew: z.boolean().optional()
 })
 export type LoadedDocument = z.infer<typeof loadedDocumentSchema>

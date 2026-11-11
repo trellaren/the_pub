@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { z } from 'zod'
 import { LocalAdapter } from '../vfs/localAdapter.js'
-import { readVersionedJson, SerialQueue } from './versionedJson.js'
+import { readVersionedJson, mergeById, SerialQueue } from './versionedJson.js'
 import { ManuscriptService } from './manuscriptService.js'
 import { loadOrCreateManifest } from './manifestFile.js'
 import { FORMAT_VERSIONS, MANIFEST_FILE, MANUSCRIPT_FILE, NOTES_DIR } from '../../shared/constants.js'
@@ -58,6 +58,25 @@ describe('readVersionedJson', () => {
     expect(read.tooNew).toBe(true)
     expect(read.quarantinedTo).toBeUndefined()
     expect(await listing(NOTES_DIR)).toEqual(['a.json'])
+  })
+})
+
+describe('mergeById', () => {
+  const id = (item: { id: string }) => item.id
+  it('applies our edits and deletions onto the other writer’s version', () => {
+    const baseline = [{ id: 'a', v: 1 }, { id: 'b', v: 1 }, { id: 'c', v: 1 }]
+    const current = [{ id: 'a', v: 2 }, { id: 'c', v: 1 }, { id: 'd', v: 1 }]
+    const fresh = [{ id: 'a', v: 1 }, { id: 'b', v: 1 }, { id: 'c', v: 9 }, { id: 'e', v: 1 }]
+    expect(mergeById(baseline, current, fresh, id)).toEqual([
+      { id: 'a', v: 2 },
+      { id: 'c', v: 9 },
+      { id: 'e', v: 1 },
+      { id: 'd', v: 1 }
+    ])
+  })
+
+  it('keeps an item we edited that the other writer deleted', () => {
+    expect(mergeById([{ id: 'a', v: 1 }], [{ id: 'a', v: 2 }], [], id)).toEqual([{ id: 'a', v: 2 }])
   })
 })
 

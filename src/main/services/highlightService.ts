@@ -6,11 +6,24 @@ import {
   type HighlightFile,
   EMPTY_HIGHLIGHT_FILE
 } from '../../shared/model/highlight.js'
-import { readVersionedJson, KeyedSerialQueue, jsonBytes } from './versionedJson.js'
+import {
+  readVersionedJson,
+  mergeWithDisk,
+  KeyedSerialQueue,
+  jsonBytes,
+  type Baseline,
+  type MergeShape
+} from './versionedJson.js'
 import { TooNewError } from './jsonCollectionService.js'
 import { findAnchor, type AnchorMarkConfig } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
 import { HIGHLIGHTS_DIR } from '../../shared/constants.js'
+
+const SHAPE: MergeShape<HighlightFile, Highlight> = {
+  items: (file) => file.highlights,
+  withItems: (file, items) => ({ ...file, highlights: items }),
+  idOf: (item) => item.id
+}
 
 /** The `highlight` mark's own attribute, reusing `findAnchor`'s generic walker. See `anchors.ts`. */
 const HIGHLIGHT_MARK_CONFIG: AnchorMarkConfig = { markType: 'highlight', attrKey: 'highlightId' }
@@ -24,6 +37,7 @@ export class HighlightService {
   /** Files a newer build wrote: shown as far as they parse, never written back. */
   private tooNew = new Set<string>()
   private readonly writes = new KeyedSerialQueue()
+  private readonly baselines = new Map<string, Baseline<HighlightFile>>()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
@@ -35,10 +49,13 @@ export class HighlightService {
     const key = docId
     const cached = this.cache.get(key)
     if (cached) return cached
-    const read = await readVersionedJson(this.adapter, this.pathFor(docId), 'highlights', highlightFileSchema, () => structuredClone(EMPTY_HIGHLIGHT_FILE))
+    const read = await readVersionedJson(this.adapter, this.pathFor(docId), 'highlights', highlightFileSchema, () =>
+      structuredClone(EMPTY_HIGHLIGHT_FILE)
+    )
     if (read.tooNew) this.tooNew.add(key)
     else this.tooNew.delete(key)
     this.cache.set(key, read.value)
+    this.baselines.set(key, { value: structuredClone(read.value), mtime: read.mtime, missing: read.missing })
     return read.value
   }
 
@@ -47,13 +64,22 @@ export class HighlightService {
     if (this.tooNew.has(key)) throw new TooNewError(this.pathFor(docId))
     const file = this.cache.get(key)
     if (!file) return
-    const bytes = jsonBytes(file)
     await this.writes.run(key, async () => {
+      const path = this.pathFor(docId)
+      const empty = (): HighlightFile => structuredClone(EMPTY_HIGHLIGHT_FILE)
+      const baseline = this.baselines.get(key)
+      const merged = await mergeWithDisk(this.adapter, path, 'highlights', highlightFileSchema, empty, baseline, file, SHAPE)
+      Object.assign(file, merged.value)
+      if (merged.tooNew) {
+        this.tooNew.add(key)
+        throw new TooNewError(path)
+      }
       await this.adapter.mkdir(HIGHLIGHTS_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(this.pathFor(docId), bytes)
+      await this.adapter.writeFileAtomic(path, jsonBytes(file))
+      const after = await this.adapter.stat(path)
+      this.baselines.set(key, { value: structuredClone(file), mtime: after?.mtime })
     })
   }
-
 
   async listForDoc(docId: string): Promise<Highlight[]> {
     const file = await this.loadFile(docId)

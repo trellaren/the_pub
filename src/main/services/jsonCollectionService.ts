@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod'
 import type { VfsAdapter } from '../vfs/types.js'
 import { PUB_DIR, FORMAT_VERSIONS, type FileKind } from '../../shared/constants.js'
-import { readVersionedJson, SerialQueue, jsonBytes } from './versionedJson.js'
+import { readVersionedJson, mergeWithDisk, SerialQueue, jsonBytes, type Baseline } from './versionedJson.js'
 
 /** Thrown by a save to a file a newer build wrote, which this build would silently strip. */
 export class TooNewError extends Error {
@@ -25,7 +25,7 @@ export interface JsonCollectionOptions<TItem, TFile> {
  * The load/save shape `EntityService`, `BeatService` and `MapService` had
  * already converged on independently, before `SourceService` became a fourth
  * clone and made the duplication worth naming: an in-memory cache with this
- * process as its sole writer, writes serialised through a queue so two quick
+ * process as its main writer, writes serialised through a queue so two quick
  * saves cannot land out of order, and a file that fails to parse set aside as
  * `.corrupt-<timestamp>` rather than overwritten — it may hold work the
  * author cannot retype.
@@ -48,6 +48,7 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
    */
   readOnly = false
   private readonly queue = new SerialQueue()
+  private baseline: Baseline<TFile> | undefined
 
   constructor(
     protected readonly adapter: VfsAdapter,
@@ -60,6 +61,7 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
     const read = await readVersionedJson(this.adapter, this.opts.file, this.opts.kind, this.opts.schema, this.opts.empty)
     this.cache = read.value
     this.readOnly = read.tooNew
+    this.baseline = { value: structuredClone(read.value), mtime: read.mtime, missing: read.missing }
     return this.snapshot()
   }
 
@@ -102,10 +104,21 @@ export abstract class JsonCollectionService<TItem, TFile extends { formatVersion
 
   protected async flush(): Promise<void> {
     if (this.readOnly) throw new TooNewError(this.opts.file)
-    const file = { ...this.cache, formatVersion: FORMAT_VERSIONS[this.opts.kind] } as TFile
     await this.queue.run(async () => {
+      const { file, kind, schema, empty } = this.opts
+      const merged = await mergeWithDisk(this.adapter, file, kind, schema, empty, this.baseline, this.cache, this.opts)
+      if (merged.tooNew) {
+        this.readOnly = true
+        this.cache = merged.value
+        throw new TooNewError(file)
+      }
+      this.cache = merged.value
+      const written = { ...this.cache, formatVersion: FORMAT_VERSIONS[kind] } as TFile
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(this.opts.file, jsonBytes(file))
+      await this.adapter.writeFileAtomic(file, jsonBytes(written))
+      const after = await this.adapter.stat(file)
+      this.baseline = { value: structuredClone(written), mtime: after?.mtime }
     })
   }
+
 }

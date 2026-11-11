@@ -14,7 +14,7 @@ import { DELETION_MARK } from '../model/suggestion.js'
  * offsets and word counts all shift together by construction, because there is
  * only one place that turns nodes into characters.
  */
-function isDeleted(node: PmNode): boolean {
+export function isDeleted(node: PmNode): boolean {
   return Boolean(node.marks?.some((mark) => mark.type === DELETION_MARK))
 }
 

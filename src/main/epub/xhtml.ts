@@ -1,7 +1,7 @@
 import type { PmDoc, PmMark, PmNode } from '../../shared/model/document.js'
 import type { NamedStyle } from '../../shared/model/style.js'
 import { styleClassName } from './css.js'
-import { rawBlockText } from '../../shared/pm/extractText.js'
+import { rawBlockText, isDeleted } from '../../shared/pm/extractText.js'
 import { ANCHOR_MARK } from '../../shared/model/anchor.js'
 
 /**
@@ -104,7 +104,7 @@ function inlineToXhtml(nodes: PmNode[], state: WalkState, prefix: string): strin
 function inlineNodeToXhtml(node: PmNode, state: WalkState, prefix: string): string {
   switch (node.type) {
     case 'text':
-      return wrapMarks(escapeXml(node.text ?? ''), node.marks)
+      return isDeleted(node) ? '' : wrapMarks(escapeXml(node.text ?? ''), node.marks)
     case 'hardBreak':
       return '<br/>'
     case 'image': {
@@ -138,9 +138,9 @@ function inlineNodeToXhtml(node: PmNode, state: WalkState, prefix: string): stri
  * `mention` is deliberately absent, mirroring `toDocx.ts`'s `markProperties`:
  * it holds only a record id, and the name underneath is ordinary text, which
  * is what exports. `insertion`/`deletion` (Phase 9 suggested edits) have no
- * EPUB counterpart — a reflowable book has no reviewer — so they export as
- * plain text; the suggestion itself does not travel, same as a reader
- * opening a `.docx` with tracked changes turned off.
+ * EPUB counterpart — a reflowable book has no reviewer. An insertion exports
+ * as plain text and a deleted run is dropped before it gets here, the same
+ * prose word counts and search see; the suggestion itself does not travel.
  */
 function wrapMarks(text: string, marks: PmMark[] | undefined): string {
   let html = text

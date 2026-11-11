@@ -18,6 +18,20 @@ import { usePanelSelection } from '@renderer/stores/panelSelectionStore.js'
 const NO_CATEGORIES: HighlightCategoryDef[] = []
 const NO_HIGHLIGHTS: Highlight[] = []
 
+function DeleteHighlightButton({ onDelete }: { onDelete: () => unknown }) {
+  return (
+    <ToolbarButton
+      label="Delete highlight"
+      onClick={() => {
+        if (!window.confirm('Delete this highlight and its note?')) return
+        void onDelete()
+      }}
+    >
+      ✕
+    </ToolbarButton>
+  )
+}
+
 /**
  * Highlights collected across the writer's own documents (Manuscript tab)
  * and inside research attachments — currently PDFs (Sources tab). See
@@ -162,15 +176,7 @@ function HighlightCard({
         >
           “{highlight.quote}”
         </button>
-        <ToolbarButton
-          label="Delete highlight"
-          onClick={() => {
-            if (!window.confirm('Delete this highlight and its note?')) return
-            void remove(docId, highlight.id)
-          }}
-        >
-          ✕
-        </ToolbarButton>
+        <DeleteHighlightButton onDelete={() => remove(docId, highlight.id)} />
       </div>
 
       {highlight.orphaned ? (
@@ -411,15 +417,9 @@ function SourceHighlightCard({
         <ToolbarButton label="Cite this highlight" onClick={onCite}>
           Cite
         </ToolbarButton>
-        <ToolbarButton
-          label="Delete highlight"
-          onClick={() => {
-            if (!window.confirm('Delete this highlight and its note?')) return
-            void removeHighlight(row.source.id, row.attachment.id, row.highlight.id)
-          }}
-        >
-          ✕
-        </ToolbarButton>
+        <DeleteHighlightButton
+          onDelete={() => removeHighlight(row.source.id, row.attachment.id, row.highlight.id)}
+        />
       </div>
       <p className="mt-0.5 truncate text-[11px] text-faint">
         {describeSource(row.source as never)} · {row.attachment.label || row.attachment.title}

@@ -2,13 +2,35 @@ import { useState } from 'react'
 import type { AiProviderId } from '@shared/model/ai.js'
 import { PROVIDERS, providerInfo } from '@shared/model/ai.js'
 import { EMBEDDED_MODELS, isSideloadedModel } from '@shared/model/llm.js'
-import { SEARCH_PROVIDERS, searchProviderInfo, searchKeyId } from '@shared/model/webAccess.js'
+import { SEARCH_PROVIDERS, searchProviderInfo, searchKeyId, type KeyId } from '@shared/model/webAccess.js'
 import { ModelManager } from './ModelManager.js'
 import { RetrievalManager } from './RetrievalManager.js'
 import { basename } from './context.js'
 import { useChatStore } from '@renderer/stores/chatStore.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
 import { ToolbarButton, TextInput, TextArea, Select, Field, SectionTitle } from '@renderer/ui/primitives.js'
+
+function ForgetKeyButton({
+  label,
+  keyId,
+  onResult
+}: {
+  label: string
+  keyId: KeyId
+  onResult: (error: string | null) => void
+}) {
+  return (
+    <ToolbarButton
+      label={label}
+      onClick={async () => {
+        if (!window.confirm('Forget the stored key? It cannot be recovered.')) return
+        onResult(await useChatStore.getState().setKey(keyId, ''))
+      }}
+    >
+      forget
+    </ToolbarButton>
+  )
+}
 
 export function SettingsForm() {
   const settings = useChatStore((store) => store.settings)!
@@ -140,15 +162,7 @@ export function SettingsForm() {
               save key
             </ToolbarButton>
             {keyStatus.configured.includes(settings.provider) ? (
-              <ToolbarButton
-                label="Forget the stored key"
-                onClick={async () => {
-                  if (!window.confirm('Forget the stored key? It cannot be recovered.')) return
-                  setKeyError(await useChatStore.getState().setKey(settings.provider, ''))
-                }}
-              >
-                forget
-              </ToolbarButton>
+              <ForgetKeyButton label="Forget the stored key" keyId={settings.provider} onResult={setKeyError} />
             ) : null}
           </div>
           {/* Keys are encrypted into the app's own data directory, never the
@@ -280,15 +294,7 @@ function WebAccessFields() {
                   save key
                 </ToolbarButton>
                 {stored ? (
-                  <ToolbarButton
-                    label="Forget the stored search key"
-                    onClick={async () => {
-                  if (!window.confirm('Forget the stored key? It cannot be recovered.')) return
-                  setKeyError(await useChatStore.getState().setKey(keyId, ''))
-                }}
-                  >
-                    forget
-                  </ToolbarButton>
+                  <ForgetKeyButton label="Forget the stored search key" keyId={keyId} onResult={setKeyError} />
                 ) : null}
               </div>
               {keyError ? <p className="mb-2 text-[11px] text-danger">{keyError}</p> : null}

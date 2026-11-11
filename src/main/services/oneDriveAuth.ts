@@ -90,7 +90,7 @@ export class OneDriveAuth {
     // Pressing sign in again after a redirect that never arrived has to start a
     // fresh attempt rather than queue behind the one still holding a port.
     this.cancel(profileId)
-    const listener = await listen()
+    const listener = await listen(state)
     this.waiting.set(profileId, listener)
 
     try {
@@ -156,8 +156,9 @@ export class OneDriveAuth {
   }
 }
 
-function listen(): Promise<Loopback> {
+function listen(state: string): Promise<Loopback> {
   return listenOnLoopback({
+    state,
     page: CLOSE_PAGE,
     failurePage: REFUSED_PAGE,
     timeoutMs: SIGN_IN_TIMEOUT_MS

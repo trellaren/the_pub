@@ -29,6 +29,13 @@ export interface Loopback {
 }
 
 export interface LoopbackOptions {
+  /**
+   * This attempt's OAuth `state`. A request carrying any other is ignored
+   * rather than settling the sign-in: anything on this machine can reach the
+   * port, and a forged redirect — a planted code, or an error — that settled
+   * first would spend or end the real attempt.
+   */
+  state: string
   /** Body served to the browser once the redirect arrives. */
   page: string
   /** Served instead when the redirect carries an error rather than a code. */
@@ -45,8 +52,9 @@ export interface LoopbackOptions {
  * sign-in that worked into "the redirect did not match this attempt", because
  * the favicon carries no state.
  */
-function outcomeOf(url: string): 'success' | 'failure' | null {
+function outcomeOf(url: string, expectedState: string): 'success' | 'failure' | null {
   const params = new URL(url, 'http://localhost').searchParams
+  if (params.get('state') !== expectedState) return null
   if (params.has('error')) return 'failure'
   return params.has('code') ? 'success' : null
 }
@@ -60,7 +68,7 @@ export async function listenOnLoopback(options: LoopbackOptions): Promise<Loopba
   })
 
   const handler = (request: http.IncomingMessage, response: http.ServerResponse): void => {
-    const outcome = request.url ? outcomeOf(request.url) : null
+    const outcome = request.url ? outcomeOf(request.url, options.state) : null
     if (!outcome) {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
       response.end('Not found')

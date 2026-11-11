@@ -97,7 +97,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   deleteChat: async (id) => {
-    await attempt(invoke('ai:deleteChat', { id }), 'Could not delete the chat')
+    const deleted = await attempt(invoke('ai:deleteChat', { id }), 'Could not delete the chat')
+    if (!deleted) return
     const chats = get().chats.filter((chat) => chat.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? (chats.at(-1)?.id ?? null) : get().activeChatId })
   },

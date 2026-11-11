@@ -51,7 +51,8 @@ export const useBeatStore = create<BeatStore>((set, get) => ({
 
   remove: async (id) => {
     cancel(id)
-    await attempt(invoke('beats:delete', { id }), 'Could not delete the beat')
+    const deleted = await attempt(invoke('beats:delete', { id }), 'Could not delete the beat')
+    if (!deleted) return
     set({ beats: get().beats.filter((beat) => beat.id !== id) })
   },
 

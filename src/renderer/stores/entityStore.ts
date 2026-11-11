@@ -102,7 +102,8 @@ export const useEntityStore = create<EntityStore>((set, get) => ({
     const timer = pending.get(id)
     if (timer) clearTimeout(timer)
     pending.delete(id)
-    await attempt(invoke('entities:delete', { id }), 'Could not delete record')
+    const deleted = await attempt(invoke('entities:delete', { id }), 'Could not delete record')
+    if (!deleted) return
     set({ entities: get().entities.filter((entity) => entity.id !== id) })
     await get().refreshCounts()
   },

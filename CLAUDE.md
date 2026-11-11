@@ -40,18 +40,41 @@ updating a PR.
 
 ```
 src/
-├─ shared/     types, zod schemas and pure logic used by both processes
-│  ├─ ipc/     the typed channel contract both sides derive from
-│  ├─ model/   the on-disk formats: manifest, document, styles, layouts, records
-│  └─ pm/      ProseMirror JSON utilities (text extraction, word count, mention scanning)
-├─ main/       privileged process: files, search index, snapshots, windows
-│  ├─ vfs/     the filesystem abstraction every feature is written against
-│  ├─ docx/    Word conversion, both directions, with no knowledge of a project
+├─ shared/       types, zod schemas and pure logic used by both processes
+│  ├─ ipc/       the typed channel contract both sides derive from
+│  ├─ model/     the on-disk formats: manifest, document, styles, layouts, records, manuscript…
+│  ├─ pm/        ProseMirror JSON utilities (text extraction, word count, mention scanning)
+│  ├─ settings/  the settings registry (SETTING_DEFS, scope schemas, resolution)
+│  ├─ menu/      menu model, roles and keybindings shared by the native and in-window menus
+│  ├─ research/  capture anchoring for research attachments
+│  └─ pagination/  page-breaking logic, unconsumed until Phase 7
+├─ main/         privileged process: files, search index, snapshots, windows
+│  ├─ vfs/       the filesystem abstraction every feature is written against
+│  ├─ docx/      Word conversion, both directions, with no knowledge of a project
+│  ├─ epub/      EPUB export (XHTML, OPF, nav, CSS)
+│  ├─ fountain/  Fountain screenplay import/export
+│  ├─ print/     PDF/print rendering through an offscreen window
+│  ├─ sources/   BibTeX/RIS import and identifier lookup
+│  ├─ research/  web capture, PDF anchors, web search
+│  ├─ ai/        assistant, agent runner, embeddings and retrieval
+│  ├─ llm/       the embedded local model runtime and its downloads
 │  ├─ onedrive/  OAuth, tokens and Graph requests — no Electron, so all testable
-│  ├─ services/  project session, documents, search, records, snapshots, layouts
-│  └─ server/  loopback server for the packaged renderer
-├─ preload/    the single, allow-listed bridge between the two
-└─ renderer/   React UI: window chrome, dock shell, panels, editor, stores
+│  ├─ services/  project session, documents, search, records, snapshots, layouts…
+│  ├─ ipc/       handler registration, split by area under handlers/
+│  ├─ protocol/  the pub-asset: scheme that serves project images to the renderer
+│  ├─ windows/   window management
+│  └─ server/    loopback server for the packaged renderer
+├─ preload/      the single, allow-listed bridge between the two
+└─ renderer/     React UI
+   ├─ chrome/    title bar and menu bar
+   ├─ dock/      the dockview shell and panel registry
+   ├─ panels/    editor, explorer, manuscript, records, beats, maps, AI, research, …
+   ├─ stores/    Zustand stores
+   ├─ commands/  command registry, palette, quick open
+   ├─ citations/ the citeproc engine
+   ├─ stats/     writing-session tracking
+   ├─ lib/       renderer-side helpers (IPC, assets, fonts)
+   └─ ui/        shared primitives and dialogs
 ```
 
 `docs/ROADMAP.md` is the forward plan (phases, in dependency order, each meant to ship on its
@@ -111,8 +134,11 @@ These aren't aspirational — the existing code follows them, and tests exist to
   click-to-jump position resolved wrong) only at that layer.
 - New node/mark types added to the editor schema need updating in *all* of: the TipTap extension
   (`renderer/panels/editor/extensions/`), `shared/pm/extractText.ts`'s `INLINE_TYPES` if inline,
-  `main/docx/toDocx.ts`'s `EDITOR_NODE_TYPES`/`EDITOR_MARK_TYPES` (and export handling), and
-  `main/docx/fromDocx.ts` (import handling) — plus a `FORMAT_VERSIONS`/`MIGRATIONS` bump. Grep for
+  `main/docx/toDocx.ts`'s `EDITOR_NODE_TYPES`/`EDITOR_MARK_TYPES` (and export handling),
+  `main/docx/fromDocx.ts` (import handling), and `main/epub/xhtml.ts`'s
+  `XHTML_NODE_TYPES`/`XHTML_MARK_TYPES` (and its rendering) — plus a `FORMAT_VERSIONS`/`MIGRATIONS`
+  bump. Print (`main/print/`) renders through that same XHTML writer; Fountain
+  (`main/fountain/`) keeps no type list, but check its node handling too. Grep for
   an existing node like `field` or `footnote` as a template; the "closed world" test in
   `main/docx/toDocx.test.ts` (`emits no node or mark type this build cannot render`) will fail
   loudly if a type is missed.

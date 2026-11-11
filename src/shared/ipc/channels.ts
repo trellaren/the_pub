@@ -149,6 +149,7 @@ export const INVOKE_CHANNELS = [
   'llm:chooseFile',
   'connections:list',
   'connections:save',
+  'connections:chooseSqliteFile',
   'connections:delete',
   'connections:test',
   'connections:trustHostKey',

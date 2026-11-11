@@ -48,7 +48,9 @@ export async function launch(
       QUOTH_E2E_FIXTURE_HOSTS: 'localtest.me',
       // The native save dialog can't be driven, so the harness opts in to the
       // path-taking export channels that production never registers.
-      QUOTH_E2E_DIRECT_EXPORT: '1'
+      QUOTH_E2E_DIRECT_EXPORT: '1',
+      // Likewise for channels that take a local path only from a native picker.
+      QUOTH_E2E_TRUST_PATHS: '1'
     },
     ...(options.executablePath ? { executablePath: options.executablePath } : {})
   })

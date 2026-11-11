@@ -154,7 +154,8 @@ export const ipcContract = defineContract({
      * `targetUri` omitted means "ask", the same native folder dialog
      * `project:openDialog` uses — and null comes back if it is cancelled. A
      * caller that already knows where the project goes (a remote backend, which
-     * has no native dialog) passes the URI instead.
+     * has no native dialog) passes the URI instead. A local `targetUri` is
+     * refused unless main recorded it from a dialog.
      */
     'templates:instantiate': {
       req: z.object({
@@ -731,6 +732,12 @@ export const ipcContract = defineContract({
       }),
       res: connectionProfileSchema
     },
+    /**
+     * The native picker for a SQLite profile's file. `connections:save` takes a
+     * new or changed SQLite path only once it has come back from here, so a
+     * renderer cannot point a profile at an arbitrary file on the machine.
+     */
+    'connections:chooseSqliteFile': { req: empty, res: z.object({ path: z.string() }).nullable() },
     'connections:delete': { req: z.object({ id: z.string() }), res: ok },
     /**
      * Open a connection and list its root, so a mistake is caught before a

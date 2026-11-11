@@ -102,6 +102,9 @@ export class DocumentService {
     expectedMtime: number | null
   ): Promise<WriteResult> {
     const stat = await this.adapter.stat(docPath)
+    // Deleted or moved away since the renderer loaded it: recreating it here
+    // would resurrect a file someone meant to remove, or fork one they moved.
+    if (!stat && expectedMtime !== null) return { ok: false, reason: 'conflict', diskMtime: 0 }
     if (stat && expectedMtime !== null && stat.mtime !== undefined && stat.mtime !== expectedMtime) {
       return { ok: false, reason: 'conflict', diskMtime: stat.mtime }
     }

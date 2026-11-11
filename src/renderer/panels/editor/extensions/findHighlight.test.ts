@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { getSchema } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
-import { EditorState, type Transaction } from '@tiptap/pm/state'
-import { findMatches, remapMatches, type FindOptions } from './findHighlight.js'
+import { EditorState, TextSelection, type Transaction } from '@tiptap/pm/state'
+import {
+  FindHighlight,
+  findMatches,
+  findPluginKey,
+  getFindState,
+  remapMatches,
+  type FindOptions
+} from './findHighlight.js'
 import { Field } from './field.js'
 import { Footnote } from './footnote.js'
 import { Insertion, Deletion } from './suggestions.js'
@@ -24,6 +31,35 @@ function expectRemapMatchesFullScan(state: EditorState, edit: (state: EditorStat
   const transaction = edit(state)
   expect(remapMatches(before, transaction, options)).toEqual(findMatches(transaction.doc, options))
 }
+
+describe('find decorations', () => {
+  const plugins = FindHighlight.config.addProseMirrorPlugins!.call({} as never)
+  function withFind(...texts: string[]): EditorState {
+    const base = EditorState.create({ doc: stateOf(...texts).doc, plugins })
+    return base.apply(base.tr.setMeta(findPluginKey, { options }))
+  }
+  const ranges = (state: EditorState) =>
+    getFindState(state)
+      .decorations.find()
+      .map((decoration) => [decoration.from, decoration.to])
+  const matchRanges = (state: EditorState) => getFindState(state).matches.map((match) => [match.from, match.to])
+
+  it('keeps the same set across a selection-only transaction', () => {
+    const state = withFind('a cat', 'cat')
+    const moved = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 2)))
+    expect(getFindState(moved).decorations).toBe(getFindState(state).decorations)
+  })
+
+  it('agrees with the matches after edits inside and outside them', () => {
+    let state = withFind('a cat', 'the dog', 'cat')
+    expect(ranges(state)).toEqual(matchRanges(state))
+    state = state.apply(state.tr.insertText('big ', 9))
+    expect(ranges(state)).toEqual(matchRanges(state))
+    state = state.apply(state.tr.insertText('cat ', 8))
+    expect(ranges(state)).toEqual(matchRanges(state))
+    expect(getFindState(state).matches).toHaveLength(3)
+  })
+})
 
 describe('remapMatches', () => {
   it('maps matches in untouched blocks and rescans the edited one', () => {

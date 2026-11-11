@@ -313,12 +313,9 @@ export function useConnectionDraft(onClose: () => void) {
   }
 
   const chooseSqliteFile = async (): Promise<void> => {
-    // Not yet in this branch's contract: main's side lands with the
-    // security change that makes `connections:save` insist on it.
-    const pick = invoke as unknown as (channel: string, payload: object) => Promise<unknown>
-    const chosen = await attempt(pick('connections:chooseSqliteFile', {}), 'Could not choose a database file')
-    const path = typeof chosen === 'string' ? chosen : (chosen as { path?: unknown } | null)?.path
-    if (typeof path !== 'string' || !path) return
+    const chosen = await attempt(invoke('connections:chooseSqliteFile', {}), 'Could not choose a database file')
+    const path = chosen?.path
+    if (!path) return
     setDraft((current) => ({ ...current, host: path }))
     setStatus(null)
   }

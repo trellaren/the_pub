@@ -281,7 +281,10 @@ function ConflictBar({ docId }: { docId: string }) {
         <button
           type="button"
           className="rounded border border-border px-2 py-0.5 hover:bg-surface-3"
-          onClick={() => void reload(docId)}
+          onClick={() => {
+            if (!window.confirm('Discard your unsaved edits and load the version on disk? This cannot be undone.')) return
+            void reload(docId)
+          }}
         >
           Discard mine, reload
         </button>

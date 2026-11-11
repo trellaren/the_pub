@@ -171,6 +171,32 @@ test('a backlink opens the document at the right paragraph', async () => {
   await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
 })
 
+test('@-autocomplete is a listbox, and Escape closes it until typing resumes', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createRecord('Harlan')
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  const popup = harness.page.locator('[data-testid="mention-popup"]')
+  await editor.click()
+  await harness.page.keyboard.type('Then @Ha')
+  await expect(popup).toBeVisible()
+  await expect(popup).toHaveAttribute('role', 'listbox')
+  const option = popup.getByRole('option', { name: 'Harlan' })
+  await expect(option).toHaveAttribute('aria-selected', 'true')
+  await expect(editor).toHaveAttribute('aria-activedescendant', (await option.getAttribute('id'))!)
+
+  await editor.press('Escape')
+  await expect(popup).toHaveCount(0)
+  await expect(editor).not.toHaveAttribute('aria-activedescendant', /.+/)
+
+  await editor.press('r')
+  await expect(popup).toBeVisible()
+  await editor.press('Enter')
+  await expect(editor).toContainText('Then Harlan')
+})
+
 test('@-autocomplete inserts a mention and leaves no @ in the text', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)

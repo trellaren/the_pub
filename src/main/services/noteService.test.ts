@@ -35,6 +35,18 @@ function docWithAnchor(text: string, anchorId: string): PmDoc {
 }
 
 describe('NoteService', () => {
+  it('merges with notes a second writer saved to the same file since it was cached', async () => {
+    await notes.create('doc-1', 'a1', 'First', 0)
+    const other = new NoteService(adapter)
+    await other.create('doc-1', 'a2', 'Second', 1)
+    await fs.utimes(path.join(root, '.thepub', 'notes', 'doc-1.json'), new Date(), new Date(Date.now() + 5000))
+
+    await notes.create('doc-1', 'a3', 'Third', 2)
+    const fresh = new NoteService(adapter)
+    const texts = (await fresh.listForDoc('doc-1')).map((note) => note.anchorText)
+    expect(texts.sort()).toEqual(['First', 'Second', 'Third'])
+  })
+
   it('starts empty for a document with no notes file', async () => {
     expect(await notes.listForDoc('doc-1')).toEqual([])
   })

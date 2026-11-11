@@ -11,8 +11,9 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('FORMAT_VERSION alias', () => {
-  // The alias is the document counter. Another file kind importing it silently
-  // re-versions itself every time the document format moves.
+  // The removed alias was the document counter. Another file kind importing it
+  // silently re-versioned itself every time the document format moved — this
+  // keeps anyone from reintroducing it.
   it('is imported by no source file', () => {
     const root = path.resolve(__dirname, '..')
     const offenders = sourceFiles(root).filter((file) =>

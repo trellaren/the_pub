@@ -3,6 +3,7 @@ import { dialog } from 'electron'
 import type { IpcRes } from '../../../shared/ipc/contract.js'
 import type { ProjectSession } from '../../services/projectSession.js'
 import { assetUrl } from '../../protocol/assetProtocol.js'
+import { isImageAssetExtension } from '../assetTypes.js'
 import type { ExportItem } from '../../../shared/model/manuscript.js'
 import { exportWarnings, type PublishFormat } from '../../../shared/model/publish.js'
 import { requirePortableName, type HandlerContext } from '../context.js'
@@ -17,6 +18,14 @@ import { requirePortableName, type HandlerContext } from '../context.js'
 function resolveExportItems(paths: string[], items: ExportItem[]): ExportItem[] {
   return items.length > 0 ? items : paths.map((path) => ({ kind: 'document' as const, path }))
 }
+
+/**
+ * The non-dialog exports write to whatever absolute path the renderer names,
+ * so production registers only the `*Dialog` variants, whose path the user
+ * picked. The e2e harness cannot drive a native save dialog; it sets this
+ * flag under its own name so nothing else turns it on by accident.
+ */
+export const DIRECT_EXPORT_ENABLED = process.env.QUOTH_E2E_DIRECT_EXPORT === '1'
 
 /** What `docx:exportDialog` proposes when the caller has no name of its own. */
 function defaultExportName(paths: string[]): string {
@@ -129,6 +138,7 @@ export function register(ctx: HandlerContext): void {
   )
 
   handle('doc:writeAsset', async ({ dataBase64, ext }, event) => {
+    if (!isImageAssetExtension(ext)) throw new Error(`Not an image type Quoth can show: .${ext}`)
     const session = requireSession(event)
     const assetPath = await session.documents.writeAsset(dataBase64, ext)
     return { path: assetPath, url: assetUrl(session, assetPath) }
@@ -143,7 +153,7 @@ export function register(ctx: HandlerContext): void {
     return files && importDocxFiles(session, files, targetDir)
   })
 
-  handle('docx:export', async ({ paths, items, file }, event) => {
+  if (DIRECT_EXPORT_ENABLED) handle('docx:export', async ({ paths, items, file }, event) => {
     const session = requireSession(event)
     await session.docx.export(resolveExportItems(paths, items), file, session.manifest)
     return { ok: true as const, file }
@@ -162,7 +172,7 @@ export function register(ctx: HandlerContext): void {
     return { ok: true as const, file: picked.filePath }
   })
 
-  handle('epub:export', async ({ paths, items, file }, event) => {
+  if (DIRECT_EXPORT_ENABLED) handle('epub:export', async ({ paths, items, file }, event) => {
     const session = requireSession(event)
     await session.epub.export(resolveExportItems(paths, items), file, session.manifest)
     return { ok: true as const, file }
@@ -181,7 +191,7 @@ export function register(ctx: HandlerContext): void {
     return { ok: true as const, file: picked.filePath }
   })
 
-  handle('publish:export', async ({ format, path: sourcePath, paths, items, file }, event) => {
+  if (DIRECT_EXPORT_ENABLED) handle('publish:export', async ({ format, path: sourcePath, paths, items, file }, event) => {
     const session = requireSession(event)
     await runPublishExport(session, format, paths, items, sourcePath, file)
     return { ok: true as const, file }
@@ -218,7 +228,7 @@ export function register(ctx: HandlerContext): void {
     return files && importFountainFiles(session, files, targetDir)
   })
 
-  handle('fountain:export', async ({ path: sourcePath, file }, event) => {
+  if (DIRECT_EXPORT_ENABLED) handle('fountain:export', async ({ path: sourcePath, file }, event) => {
     await requireSession(event).fountain.export(sourcePath, file)
     return { ok: true as const, file }
   })

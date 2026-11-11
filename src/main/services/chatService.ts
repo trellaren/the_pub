@@ -10,7 +10,7 @@ import {
   type AiSettings
 } from '../../shared/model/ai.js'
 import { CHATS_FILE, PUB_DIR, FORMAT_VERSIONS } from '../../shared/constants.js'
-import { migrate } from '../../shared/model/migrate.js'
+import { readVersionedJson, SerialQueue, jsonBytes } from './versionedJson.js'
 import { TooNewError } from './jsonCollectionService.js'
 
 function emptyFile(): ChatFile {
@@ -29,31 +29,14 @@ export class ChatService {
   private cache: ChatFile = emptyFile()
   /** A newer build wrote the file; see `JsonCollectionService.readOnly`. */
   readOnly = false
-  private queue: Promise<void> = Promise.resolve()
+  private readonly queue = new SerialQueue()
 
   constructor(private readonly adapter: VfsAdapter) {}
 
   async load(): Promise<ChatFile> {
-    const existing = await this.adapter.stat(CHATS_FILE)
-    if (!existing) {
-      this.cache = emptyFile()
-      return this.snapshot()
-    }
-    this.readOnly = false
-    try {
-      const raw = await this.adapter.readFile(CHATS_FILE)
-      const { value, tooNew } = migrate('chats', JSON.parse(raw.toString('utf8')))
-      if (tooNew) {
-        this.readOnly = true
-        const parsed = chatFileSchema.safeParse(value)
-        this.cache = parsed.success ? parsed.data : emptyFile()
-        return this.snapshot()
-      }
-      this.cache = chatFileSchema.parse(value)
-    } catch {
-      await this.adapter.rename(CHATS_FILE, `${CHATS_FILE}.corrupt-${Date.now()}`).catch(() => {})
-      this.cache = emptyFile()
-    }
+    const read = await readVersionedJson(this.adapter, CHATS_FILE, 'chats', chatFileSchema, emptyFile)
+    this.cache = read.value
+    this.readOnly = read.tooNew
     return this.snapshot()
   }
 
@@ -119,14 +102,10 @@ export class ChatService {
   private async flush(): Promise<void> {
     if (this.readOnly) throw new TooNewError(CHATS_FILE)
     const file: ChatFile = { ...this.cache, formatVersion: FORMAT_VERSIONS.chats }
-    this.queue = this.queue.then(async () => {
+    await this.queue.run(async () => {
       await this.adapter.mkdir(PUB_DIR).catch(() => {})
-      await this.adapter.writeFileAtomic(
-        CHATS_FILE,
-        Buffer.from(`${JSON.stringify(file, null, 2)}\n`, 'utf8')
-      )
+      await this.adapter.writeFileAtomic(CHATS_FILE, jsonBytes(file))
     })
-    await this.queue
   }
 }
 

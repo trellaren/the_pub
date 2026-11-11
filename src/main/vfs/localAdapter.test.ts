@@ -139,3 +139,77 @@ describe('retryWhileLocked', () => {
     expect(attempts).toBe(1)
   })
 })
+
+describe('LocalAdapter symlink containment', () => {
+  let outside: string
+
+  beforeEach(async () => {
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pub-outside-'))
+    await fs.writeFile(path.join(outside, 'secret.txt'), 'private')
+    await fs.symlink(outside, path.join(root, 'linked'), 'dir')
+  })
+
+  afterEach(async () => {
+    await fs.rm(outside, { recursive: true, force: true })
+  })
+
+  it('refuses to read, list or stat through a link out of the root', async () => {
+    await expect(adapter.readFile('linked/secret.txt')).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.list('linked')).rejects.toBeInstanceOf(VfsPathError)
+    expect(await adapter.stat('linked/secret.txt')).toBeNull()
+  })
+
+  it('refuses to write, create, rename or delete through a link out of the root', async () => {
+    await expect(adapter.writeFile('linked/new.txt', Buffer.from('x'))).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.writeFileAtomic('linked/secret.txt', Buffer.from('x'))).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.writeFile('linked/deeper/new.txt', Buffer.from('x'))).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.mkdir('linked/sub')).rejects.toBeInstanceOf(VfsPathError)
+    await adapter.writeFile('mine.txt', Buffer.from('m'))
+    await expect(adapter.rename('mine.txt', 'linked/moved.txt')).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.rename('linked/secret.txt', 'stolen.txt')).rejects.toBeInstanceOf(VfsPathError)
+    await expect(adapter.delete('linked/secret.txt')).rejects.toBeInstanceOf(VfsPathError)
+    expect(await fs.readFile(path.join(outside, 'secret.txt'), 'utf8')).toBe('private')
+    expect(await fs.readdir(outside)).toEqual(['secret.txt'])
+  })
+
+  it('refuses to write through a file link, even a dangling one', async () => {
+    await fs.symlink(path.join(outside, 'planted.txt'), path.join(root, 'dangling.txt'))
+    await expect(adapter.writeFile('dangling.txt', Buffer.from('x'))).rejects.toBeInstanceOf(VfsPathError)
+    expect(await fs.readdir(outside)).toEqual(['secret.txt'])
+  })
+
+  it('still allows links that stay inside the root', async () => {
+    await adapter.writeFile('real/chapter.txt', Buffer.from('hi'))
+    await fs.symlink(path.join(root, 'real'), path.join(root, 'alias'), 'dir')
+    expect((await adapter.readFile('alias/chapter.txt')).toString()).toBe('hi')
+    await adapter.writeFile('alias/other.txt', Buffer.from('ok'))
+    expect((await adapter.readFile('real/other.txt')).toString()).toBe('ok')
+  })
+
+  it('deletes the link itself, not what it points to', async () => {
+    await adapter.delete('linked', { recursive: true })
+    expect(await fs.readFile(path.join(outside, 'secret.txt'), 'utf8')).toBe('private')
+  })
+})
+
+describe('LocalAdapter.watch', () => {
+  it('does not throw when a watched folder becomes a file just after unwatching', async () => {
+    const uncaught: unknown[] = []
+    const record = (error: unknown): void => void uncaught.push(error)
+    process.on('uncaughtException', record)
+    try {
+      await fs.mkdir(path.join(root, 'project'))
+      const unwatch = await adapter.watch('', () => {})
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await fs.writeFile(path.join(root, 'project', 'untitled.pubdoc'), '{}')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      await unwatch()
+      await fs.rm(path.join(root, 'project'), { recursive: true })
+      await fs.writeFile(path.join(root, 'project'), 'no longer a folder')
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    } finally {
+      process.off('uncaughtException', record)
+    }
+    expect(uncaught).toEqual([])
+  })
+})

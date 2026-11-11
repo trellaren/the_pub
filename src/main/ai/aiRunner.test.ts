@@ -1,3 +1,5 @@
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { streamCompletion } from './aiRunner.js'
 import { partsFrom } from './providers.js'
@@ -16,6 +18,38 @@ function sseBody(events: unknown[]): ReadableStream<Uint8Array> {
 function serve(events: unknown[]): void {
   vi.stubGlobal('fetch', async () => new Response(sseBody(events), { status: 200 }))
 }
+
+describe('provider redirects', () => {
+  it('refuses to follow one, so the key never reaches another host', async () => {
+    const seenByTarget: string[] = []
+    const target = http.createServer((incoming, response) => {
+      seenByTarget.push(incoming.url ?? '')
+      response.end()
+    })
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+    const targetPort = (target.address() as AddressInfo).port
+    const provider = http.createServer((_incoming, response) => {
+      response.writeHead(307, { location: `http://127.0.0.1:${targetPort}/steal` })
+      response.end()
+    })
+    await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve))
+    const providerPort = (provider.address() as AddressInfo).port
+    try {
+      const outcome = await streamCompletion(
+        {
+          ...request('anthropic'),
+          settings: aiSettingsSchema.parse({ provider: 'anthropic', model: 'stub', baseUrl: `http://127.0.0.1:${providerPort}` })
+        },
+        new AbortController().signal,
+        () => {}
+      )
+      expect(outcome.error).toBeTruthy()
+      expect(seenByTarget).toEqual([])
+    } finally {
+      await Promise.all([target, provider].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+    }
+  })
+})
 
 function request(provider: AiProviderId) {
   return {

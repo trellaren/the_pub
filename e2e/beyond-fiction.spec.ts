@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked, editor, setStyle } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { EntityFile } from '../src/shared/model/entity.js'
 import type { ManuscriptFile } from '../src/shared/model/manuscript.js'
@@ -11,16 +11,6 @@ let harness: Harness
 test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
-
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-async function setStyle(styleId: string): Promise<void> {
-  await harness.page.locator('select[title="Paragraph style"]:visible').selectOption(styleId)
-}
 
 async function currentStyle(): Promise<string> {
   return harness.page.locator('select[title="Paragraph style"]:visible').inputValue()
@@ -41,10 +31,10 @@ test('a numbered heading style shows its number on screen and again after reopen
   )
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('Introduction')
-  await setStyle('heading-1')
+  await setStyle(harness.page, 'heading-1')
 
   const numbers = harness.page.locator('.pub-heading-number')
   await expect(numbers).toHaveCount(1)
@@ -53,7 +43,7 @@ test('a numbered heading style shows its number on screen and again after reopen
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
   await harness.page.keyboard.type('Method')
-  await setStyle('heading-1')
+  await setStyle(harness.page, 'heading-1')
   await expect(numbers).toHaveCount(2)
   await expect(numbers.nth(1)).toHaveText('2. ')
 
@@ -160,10 +150,10 @@ test('Tab cycles a screenplay element, and Enter still applies the next-element 
   )
   await createDocument(harness.page, 'script.pubdoc')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('INT. KITCHEN - NIGHT')
-  await setStyle('scene-heading')
+  await setStyle(harness.page, 'scene-heading')
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
   // Enter's "what comes next" chain: Scene Heading -> Action.
@@ -173,7 +163,7 @@ test('Tab cycles a screenplay element, and Enter still applies the next-element 
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
   await harness.page.keyboard.type('MARA')
-  await setStyle('action')
+  await setStyle(harness.page, 'action')
   // Tab's ring: Action -> Character, independent of Enter's chain.
   await harness.page.keyboard.press('Tab')
   await expect.poll(currentStyle).toBe('character-cue')
@@ -205,14 +195,14 @@ test('a script exports to .fountain and reads back into a new document with the 
     }))
   )
   await createDocument(harness.page, 'script.pubdoc')
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('INT. KITCHEN - NIGHT')
-  await setStyle('scene-heading')
+  await setStyle(harness.page, 'scene-heading')
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
   await harness.page.keyboard.type('Rain against the window.')
-  await setStyle('action')
+  await setStyle(harness.page, 'action')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
 
   const fountainFile = path.join(harness.projectDir, 'script.fountain')

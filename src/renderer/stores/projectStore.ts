@@ -29,6 +29,20 @@ export function onBeforeProjectSwitch(flush: () => Promise<void>): void {
   beforeSwitch = flush
 }
 
+let manifestRequest = 0
+
+let projectLost:() => Promise<void> = async () => {}
+
+/**
+ * Registered by the app shell for the same reason as `onBeforeProjectSwitch`:
+ * when a failed open leaves nothing open in main, every panel, editor and
+ * record of the old project has to go, or each autosave fails against a
+ * session that no longer exists.
+ */
+export function onProjectLost(reset: () => Promise<void>): void {
+  projectLost = reset
+}
+
 /**
  * What is still open in main after a failed open of `uri`. Main keeps the
  * current session unless the open was a reopen of that same project, which it
@@ -48,8 +62,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ opening: true, openingName: name ?? null })
     await beforeSwitch()
     const project = await attempt(invoke('project:open', { uri }), 'Could not open project')
-    set({ project: project ?? survivorOf(get().project, uri), opening: false, openingName: null })
+    const previous = get().project
+    const survivor = project ?? survivorOf(previous, uri)
+    set({ project: survivor, opening: false, openingName: null })
     if (project) void useAppStore.getState().load().catch(() => {})
+    else if (previous && !survivor) await projectLost()
     return project
   },
 
@@ -88,14 +105,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // Show the change immediately — style edits should feel instant — and let
     // the write happen behind it.
     set({ project: { ...current, manifest: next } })
+    const request = ++manifestRequest
     const saved = await attempt(
       invoke('project:updateManifest', { manifest: next }),
       'Could not save project settings'
     )
-    if (saved) {
-      const latest = get().project
-      if (latest) set({ project: { ...latest, manifest: saved } })
-    }
+    // A newer edit has already been shown and will settle itself; and a reply
+    // for a project that is no longer open has nothing to land on.
+    const latest = get().project
+    if (request !== manifestRequest || !latest || latest.uri !== current.uri) return
+    set({ project: { ...latest, manifest: saved ?? current.manifest } })
   }
 }))
 

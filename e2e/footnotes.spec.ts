@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { launch, openProject, createDocument, cleanup, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, type Harness, editor, setText } from './helpers.js'
 
 let harness: Harness
 
@@ -7,25 +7,11 @@ test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
 
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-async function setText(text: string): Promise<void> {
-  const el = await editor()
-  await el.click()
-  await harness.page.keyboard.press('ControlOrMeta+a')
-  await harness.page.keyboard.type(text)
-  await expect(el).toContainText(text)
-}
-
 test('inserting a footnote opens it for editing, numbered, and closes on outside click', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.press('ControlOrMeta+a')
   // A second, textually distinct paragraph gives "click elsewhere" an
@@ -63,9 +49,9 @@ test('a second footnote is numbered after the first, and Escape then a marker cl
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('First claim. Second claim.')
+  await setText(harness.page, 'First claim. Second claim.')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.press('ControlOrMeta+Home')
   for (let i = 0; i < 'First claim.'.length; i++) await harness.page.keyboard.press('ArrowRight')
@@ -93,7 +79,7 @@ test('the endnotes region lists every footnote and jumps to it on click', async 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('A claim.')
+  await setText(harness.page, 'A claim.')
   await harness.page.keyboard.press('End')
   await harness.page.getByRole('button', { name: 'Insert footnote' }).click()
   await harness.page.keyboard.type('Cited evidence.')
@@ -111,7 +97,7 @@ test('a footnote survives closing and reopening the project', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('A claim.')
+  await setText(harness.page, 'A claim.')
   await harness.page.keyboard.press('End')
   await harness.page.getByRole('button', { name: 'Insert footnote' }).click()
   await harness.page.keyboard.type('Persisted note.')

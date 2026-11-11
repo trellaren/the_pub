@@ -2,8 +2,7 @@ import { test, expect, type Page, type Locator } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { unzipSync, strFromU8 } from 'fflate'
-import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness, write, documentXml } from './helpers.js'
 import type { ManuscriptFile, ManuscriptNode } from '../src/shared/model/manuscript.js'
 
 let harness: Harness
@@ -26,21 +25,8 @@ async function storedNodes(): Promise<ManuscriptNode[]> {
   return (await readJson<ManuscriptFile>(manuscriptFile())).nodes
 }
 
-/** Type into whichever editor is currently on screen, and get it to disk. */
-async function write(text: string): Promise<void> {
-  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
-  await expect(editor).toBeVisible()
-  await editor.click()
-  await harness.page.keyboard.type(text)
-  await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
-}
-
 async function openManuscript(): Promise<void> {
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('manuscript', 'Manuscript'))
-}
-
-function documentXml(bytes: Uint8Array): string {
-  return strFromU8(unzipSync(bytes)['word/document.xml']!)
 }
 
 /**
@@ -63,9 +49,10 @@ async function dragTo(page: Page, sourceId: string, target: Locator, fraction: n
   await page.mouse.down()
   await page.mouse.move(sourceBox.x + GRAB_X + 4, sourceBox.y + sourceBox.height / 2 + 4, { steps: 5 })
   await page.mouse.move(targetBox.x + GRAB_X, targetBox.y + targetBox.height * fraction, { steps: 10 })
-  await page.waitForTimeout(100)
+  const tree = page.getByTestId('manuscript-tree')
+  await expect(tree).not.toHaveAttribute('data-drop-target', '')
   await page.mouse.up()
-  await page.waitForTimeout(100)
+  await expect(tree).toHaveAttribute('data-drop-target', '')
 }
 
 async function nodeId(kind: 'part' | 'document', title: string): Promise<string> {
@@ -106,7 +93,7 @@ test.describe('building the book by clicking', () => {
     harness = await launch()
     await openProject(harness.page, harness.projectDir)
     await createDocument(harness.page, 'notes.pubdoc')
-    await write('Just some notes.')
+    await write(harness.page, 'Just some notes.')
     await openManuscript()
 
     await expect(harness.page.getByTestId('manuscript-document')).toHaveCount(0)
@@ -148,18 +135,23 @@ test.describe('reordering', () => {
     await harness.page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
       steps: 10
     })
-    await harness.page.waitForTimeout(100)
+    const tree = harness.page.getByTestId('manuscript-tree')
+    await expect(tree).not.toHaveAttribute('data-drop-target', '')
 
     // Assert what the drag is aimed at *before* releasing — the diagnosable
     // half of a native-drag test: this tells a drag that never started apart
     // from one that started but resolved to the wrong place.
-    const raw = await harness.page.locator('[data-testid="manuscript-tree"]').getAttribute('data-drop-target')
+    const raw = await tree.getAttribute('data-drop-target')
     const aimed = JSON.parse(raw!)
     expect(aimed.parentId).toBe(partId)
     expect(aimed.indicator.kind).toBe('inside')
 
     await harness.page.mouse.up()
-    await harness.page.waitForTimeout(150)
+    await expect(tree).toHaveAttribute('data-drop-target', '')
+    await waitFor(async () => {
+      const node = (await storedNodes()).find((candidate) => candidate.id === aId)
+      return node?.parentId === partId
+    }, 'the drop to be saved')
 
     const after = await storedNodes()
     const changed = after.filter((node) => {
@@ -299,7 +291,8 @@ test.describe('resolving against a live index', () => {
 
     // See the delete test below for why: the watcher's write-stability window
     // needs room to settle before an external mutation, or the event can go
-    // unreported.
+    // unreported. A fixed wait, because nothing observable marks the window
+    // closing — chokidar exposes no "settled" event for a file it is tracking.
     await harness.page.waitForTimeout(1500)
     await fs.rename(
       path.join(harness.projectDir, 'chapter-one.pubdoc'),
@@ -328,7 +321,10 @@ test.describe('resolving against a live index', () => {
     // external delete — chokidar's `awaitWriteFinish` tracks a just-created
     // file for a moment, and deleting it inside that window can leave the
     // unlink unreported. A real author deleting a chapter they just made is
-    // not operating on a sub-second timer either.
+    // not operating on a sub-second timer either. This stays a fixed wait:
+    // chokidar raises no event when a tracked file's stability window closes,
+    // so there is no condition to wait on short of adding a test-only hook to
+    // the watcher.
     await harness.page.waitForTimeout(1500)
     await fs.unlink(path.join(harness.projectDir, 'chapter-one.pubdoc'))
     await waitFor(async () => {
@@ -363,9 +359,9 @@ test.describe('compiling', () => {
     await openProject(harness.page, harness.projectDir)
 
     await createDocument(harness.page, 'dedication.pubdoc')
-    await write('For my cat.')
+    await write(harness.page, 'For my cat.')
     await createDocument(harness.page, 'chapter-one.pubdoc')
-    await write('It was a dark and stormy night.')
+    await write(harness.page, 'It was a dark and stormy night.')
 
     await openManuscript()
     await harness.page.evaluate(() => window.__pub.manuscript.getState().createPart('Front Matter'))

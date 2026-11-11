@@ -1,17 +1,15 @@
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { app } from 'electron'
-import { ulid } from 'ulid'
 import type { VfsAdapter, Unwatch } from '../vfs/types.js'
 import { createAdapter, parseUri } from '../vfs/vfsRegistry.js'
-import { projectManifestSchema, type ProjectManifest, type OpenProject } from '../../shared/model/manifest.js'
-import { migrate } from '../../shared/model/migrate.js'
-import { BUILTIN_STYLES } from '../../shared/model/style.js'
+import { type ProjectManifest, type OpenProject } from '../../shared/model/manifest.js'
 import type { FileChangeEvent } from '../../shared/model/vfs.js'
 import type { IndexProgress } from '../../shared/model/search.js'
 import type { RetrievalStatus } from '../../shared/model/retrieval.js'
 import type { AuthorProfile } from '../../shared/model/author.js'
 import { DocumentService } from './documentService.js'
+import { loadOrCreateManifest, writeManifest } from './manifestFile.js'
 import { SnapshotService } from './snapshotService.js'
 import { HistoryService } from './historyService.js'
 import { SearchIndexService } from './searchIndexService.js'
@@ -36,7 +34,7 @@ import { DocxService } from './docxService.js'
 import { EpubService } from './epubService.js'
 import { FountainService } from './fountainService.js'
 import { PrintService, type RendererServerLike } from '../print/printService.js'
-import { MANIFEST_FILE, PUB_DIR, ASSETS_DIR, DOC_EXT, FORMAT_VERSIONS } from '../../shared/constants.js'
+import { PUB_DIR, ASSETS_DIR, DOC_EXT } from '../../shared/constants.js'
 
 export interface SessionHooks {
   onFileChange: (events: FileChangeEvent[]) => void
@@ -269,47 +267,4 @@ function indexDbPath(uri: string, root: string): string {
   return path.join(app.getPath('userData'), 'indexes', `${digest}.db`)
 }
 
-async function loadOrCreateManifest(
-  adapter: VfsAdapter
-): Promise<{ manifest: ProjectManifest; readOnly: boolean }> {
-  const existing = await adapter.stat(MANIFEST_FILE)
-  if (existing) {
-    try {
-      const raw = await adapter.readFile(MANIFEST_FILE)
-      const { value, tooNew } = migrate('manifest', JSON.parse(raw.toString('utf8')))
-      // A manifest ahead of what this build knows still parses today: the
-      // schema drops fields it doesn't recognise rather than rejecting them.
-      // That is exactly why it must not be saved back — see the constructor.
-      return { manifest: projectManifestSchema.parse(value), readOnly: tooNew }
-    } catch {
-      // Keep the unreadable manifest rather than deleting it — it may hold
-      // styles the author wants back — and continue with a fresh one. This is
-      // reached only when the file doesn't parse at all, not merely when it's
-      // newer than this build.
-      await adapter
-        .rename(MANIFEST_FILE, `${MANIFEST_FILE}.corrupt-${Date.now()}`)
-        .catch(() => {})
-    }
-  }
-  const manifest = createManifest(path.basename(adapter.root))
-  await writeManifest(adapter, manifest)
-  return { manifest, readOnly: false }
-}
-
-export function createManifest(name: string): ProjectManifest {
-  const now = new Date().toISOString()
-  return projectManifestSchema.parse({
-    formatVersion: FORMAT_VERSIONS.manifest,
-    id: ulid(),
-    name,
-    created: now,
-    modified: now,
-    settings: {},
-    styles: BUILTIN_STYLES
-  })
-}
-
-async function writeManifest(adapter: VfsAdapter, manifest: ProjectManifest): Promise<void> {
-  await adapter.mkdir(PUB_DIR)
-  await adapter.writeFileAtomic(MANIFEST_FILE, Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8'))
-}
+export { createManifest } from './manifestFile.js'

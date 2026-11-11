@@ -27,6 +27,19 @@ async function readFile(): Promise<string> {
 }
 
 describe('EntityService', () => {
+  it('keeps an entity another writer added since this process last read the file', async () => {
+    await entities.create('character', 'Harlan')
+    const other = new EntityService(adapter)
+    await other.load()
+    await other.create('character', 'Wren')
+    const absolute = path.join(root, ENTITIES_FILE)
+    await fs.utimes(absolute, new Date(), new Date(Date.now() + 5000))
+
+    await entities.create('place', 'Gull Rock')
+    const names = JSON.parse(await readFile()).entities.map((entity: { name: string }) => entity.name)
+    expect(names.sort()).toEqual(['Gull Rock', 'Harlan', 'Wren'])
+  })
+
   it('reads a file from a newer build but refuses to save over it', async () => {
     const newer = { formatVersion: FORMAT_VERSIONS.entities + 1, entities: [], dismissed: [], futureField: 'keep me' }
     await fs.mkdir(path.dirname(path.join(root, ENTITIES_FILE)), { recursive: true })

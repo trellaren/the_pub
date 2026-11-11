@@ -540,14 +540,14 @@ export class SearchIndexService {
 
     // Streamed, keeping only the winners' text: materialising every block of
     // the manuscript into JS for a handful of hits was the cost here, not the scan.
-    const wanted = new Set(top.map((item) => `${item.docId} ${item.blockIndex}`))
+    const wanted = new Set(top.map((item) => `${item.docId}\u0000${item.blockIndex}`))
     const texts = new Map<string, string>()
     for (const row of this.db.prepare('SELECT doc_id, block_index, text FROM blocks').iterate() as Iterable<{
       doc_id: string
       block_index: number
       text: string
     }>) {
-      const key = `${row.doc_id} ${row.block_index}`
+      const key = `${row.doc_id}\u0000${row.block_index}`
       if (wanted.has(key)) texts.set(key, row.text)
     }
 
@@ -556,7 +556,7 @@ export class SearchIndexService {
     for (const item of top) {
       const file = fileById.get(item.docId) as { path: string; title: string } | undefined
       if (!file) continue
-      const text = texts.get(`${item.docId} ${item.blockIndex}`)
+      const text = texts.get(`${item.docId}\u0000${item.blockIndex}`)
       if (text === undefined) continue
       hits.push({
         docId: item.docId,

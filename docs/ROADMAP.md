@@ -65,7 +65,7 @@ before any of them.
 Pulled forward, because every phase after it wants to add settings and none of them should have
 to add an IPC channel to do it.
 
-- A flat, VS Code-style registry in `src/shared/model/settings.ts` — `SETTING_DEFS`,
+- A flat, VS Code-style registry in `src/shared/settings/registry.ts` — `SETTING_DEFS`,
   `buildScopeSchema`, `resolveSetting` — replacing the hand-written `projectSettingsSchema`.
   Every existing key name is kept, so v1 projects need no migration.
 - The menu tree lifts out of `src/main/menu.ts` into data (`menuModel.ts`, `keybindings.ts`);

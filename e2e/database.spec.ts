@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { launch, createDocument, cleanup, waitFor, type Harness } from './helpers.js'
+import { launch, createDocument, cleanup, waitFor, type Harness, saveProfile as saveProfileWith } from './helpers.js'
 
 let harness: Harness
 let dbDir = ''
@@ -27,22 +27,10 @@ test.afterEach(async () => {
 })
 
 async function saveProfile(schema = 'thepub'): Promise<string> {
-  return harness.page.evaluate(
-    async ({ file, schema: name }) => {
-      const profile = await window.pub.invoke('connections:save', {
-        profile: {
-          name: 'Test database',
-          protocol: 'db',
-          engine: 'sqlite',
-          host: file,
-          user: '',
-          schema: name
-        },
-        secret: ''
-      })
-      return (profile as { id: string }).id
-    },
-    { file: dbFile, schema }
+  return saveProfileWith(
+    harness.page,
+    { name: 'Test database', protocol: 'db', engine: 'sqlite', host: dbFile, user: '', schema },
+    ''
   )
 }
 

@@ -7,9 +7,9 @@ import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { PageSetup, PmNode, Section } from '../../shared/model/document.js'
 import { marginsFromSettings } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
-import { ASSETS_DIR, ASSET_PROTOCOL } from '../../shared/constants.js'
-import { parseAssetUrl } from '../../shared/model/asset.js'
-import { relativeToRoot, basename } from '../vfs/paths.js'
+import { basename } from '../vfs/paths.js'
+import { assetPathFor } from './assetPath.js'
+import { escapeXml } from '../epub/xhtml.js'
 import { buildPrintHtml, type PrintDocument, type PrintImage } from './printDocument.js'
 import { buildPdfOptions, buildPrintOptions } from './printOptions.js'
 
@@ -133,7 +133,7 @@ export class PrintService {
 
     const found = new Map<string, PrintImage>()
     for (const src of sources) {
-      const relative = this.assetPathFor(src)
+      const relative = assetPathFor(this.adapter.root, src)
       if (!relative) continue
       try {
         const data = await this.adapter.readFile(relative)
@@ -144,30 +144,6 @@ export class PrintService {
       }
     }
     return found
-  }
-
-  /** Mirrors `EpubService.assetPathFor`. */
-  private assetPathFor(src: string): string | null {
-    if (!src.startsWith(`${ASSET_PROTOCOL}://`)) {
-      return src.startsWith(`${ASSETS_DIR}/`) ? src : null
-    }
-    const parsed = parseAssetUrl(src)
-    if (!parsed) return null
-    if (parsed.kind === 'project') return parsed.path
-    let absolute: string
-    try {
-      absolute = Buffer.from(parsed.encoded, 'base64url').toString('utf8')
-    } catch {
-      return null
-    }
-    try {
-      const relative = relativeToRoot(this.adapter.root, absolute)
-      if (relative && !relative.startsWith('..')) return relative
-    } catch {
-      // Fall through to the assets-segment search.
-    }
-    const marker = absolute.replace(/\\/g, '/').lastIndexOf(`${ASSETS_DIR}/`)
-    return marker === -1 ? null : absolute.replace(/\\/g, '/').slice(marker)
   }
 }
 
@@ -180,7 +156,7 @@ export function runningHeader(manifest: ProjectManifest): RunningHeader | undefi
 
 /** The PDF header template: the running header plus `printToPDF`'s own page-number token. */
 export function headerTemplate(header: RunningHeader): string {
-  return `<div style="font-size: 9px; width: 100%; text-align: right;">${escapeHtml(header.text)} / <span class="pageNumber"></span></div>`
+  return `<div style="font-size: 9px; width: 100%; text-align: right;">${escapeXml(header.text)} / <span class="pageNumber"></span></div>`
 }
 
 function headingDocument(title: string) {
@@ -195,8 +171,4 @@ function collectImageSources(nodes: PmNode[], found: Set<string>): void {
     if (node.type === 'image' && typeof node.attrs?.src === 'string') found.add(node.attrs.src)
     if (node.content) collectImageSources(node.content, found)
   }
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

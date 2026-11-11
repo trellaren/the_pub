@@ -162,6 +162,7 @@ export class SourceService extends JsonCollectionService<CslItem, SourceFile> {
    * SFTP, FTP and OneDrive projects — then records it in the source's index.
    */
   async addPdfAttachment(sourceId: string, bytes: Buffer, label: string): Promise<ResearchAttachment> {
+    assertPdf(bytes)
     const item = this.get(sourceId)
     if (!item) throw new Error(`No such source: ${sourceId}`)
 
@@ -235,4 +236,18 @@ export class SourceService extends JsonCollectionService<CslItem, SourceFile> {
     this.upsert(withAttachments(item, attachmentsOf(item).filter((candidate) => candidate.id !== attachmentId)))
     await this.flush()
   }
+}
+
+/**
+ * Larger than the image cap, since a scanned book chapter is a real PDF;
+ * small enough that one attach cannot fill the project or the IPC pipe.
+ */
+export const MAX_PDF_BYTES = 50 * 1024 * 1024
+
+/** Rejects anything that is not a PDF of a sane size, before it lands in the project. */
+export function assertPdf(bytes: Buffer): void {
+  if (bytes.length > MAX_PDF_BYTES) {
+    throw new Error(`That PDF is too large — the limit is ${MAX_PDF_BYTES / (1024 * 1024)} MB.`)
+  }
+  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') throw new Error('That file is not a PDF.')
 }

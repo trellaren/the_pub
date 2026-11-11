@@ -5,11 +5,9 @@ import type { DocumentService } from './documentService.js'
 import type { ProjectManifest } from '../../shared/model/manifest.js'
 import type { PmNode } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
-import { ASSETS_DIR } from '../../shared/constants.js'
+import { assetPathFor } from '../print/assetPath.js'
 import { exportEpub, type ExportDocument } from '../epub/toEpub.js'
-import { ASSET_PROTOCOL } from '../../shared/constants.js'
-import { parseAssetUrl } from '../../shared/model/asset.js'
-import { relativeToRoot, basename } from '../vfs/paths.js'
+import { basename } from '../vfs/paths.js'
 
 /**
  * `ExportItem[]` + manifest in, EPUB bytes out.
@@ -65,7 +63,7 @@ export class EpubService {
 
     const found = new Map<string, { data: Uint8Array; extension: string }>()
     for (const src of sources) {
-      const relative = this.assetPathFor(src)
+      const relative = assetPathFor(this.adapter.root, src)
       if (!relative) continue
       const image = await this.readAsset(relative)
       if (image) found.set(src, image)
@@ -83,30 +81,6 @@ export class EpubService {
       // the same tolerance `DocxService.export` extends to images.
       return null
     }
-  }
-
-  /** Mirrors `DocxService.assetPathFor` — see its comment for why two URL shapes exist. */
-  private assetPathFor(src: string): string | null {
-    if (!src.startsWith(`${ASSET_PROTOCOL}://`)) {
-      return src.startsWith(`${ASSETS_DIR}/`) ? src : null
-    }
-    const parsed = parseAssetUrl(src)
-    if (!parsed) return null
-    if (parsed.kind === 'project') return parsed.path
-    let absolute: string
-    try {
-      absolute = Buffer.from(parsed.encoded, 'base64url').toString('utf8')
-    } catch {
-      return null
-    }
-    try {
-      const relative = relativeToRoot(this.adapter.root, absolute)
-      if (relative && !relative.startsWith('..')) return relative
-    } catch {
-      // Fall through to the assets-segment search.
-    }
-    const marker = absolute.replace(/\\/g, '/').lastIndexOf(`${ASSETS_DIR}/`)
-    return marker === -1 ? null : absolute.replace(/\\/g, '/').slice(marker)
   }
 }
 

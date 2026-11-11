@@ -17,18 +17,15 @@ export interface Command {
 }
 
 const commands = new Map<string, Command[]>()
-const listeners = new Set<() => void>()
 
 /** Register a command; returns the unregister function for effect cleanup. */
 export function registerCommand(command: Command): () => void {
   const existing = commands.get(command.id) ?? []
   commands.set(command.id, [...existing, command])
-  notify()
   return () => {
     const remaining = (commands.get(command.id) ?? []).filter((entry) => entry !== command)
     if (remaining.length === 0) commands.delete(command.id)
     else commands.set(command.id, remaining)
-    notify()
   }
 }
 
@@ -66,13 +63,4 @@ export function listCommands(): Command[] {
     if (target) unique.set(id, target)
   }
   return [...unique.values()].sort((a, b) => a.title.localeCompare(b.title))
-}
-
-export function onCommandsChanged(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-function notify(): void {
-  for (const listener of listeners) listener()
 }

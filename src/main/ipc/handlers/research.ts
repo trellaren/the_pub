@@ -1,5 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { capturePage } from '../../research/capture.js'
+import { fetchWithLimits } from '../../ai/assistantSupport.js'
+import { MAX_PDF_BYTES } from '../../services/sourceService.js'
 import type { HandlerContext } from '../context.js'
 
 export function register(ctx: HandlerContext): void {
@@ -13,9 +15,13 @@ export function register(ctx: HandlerContext): void {
   handle('research:attachments:list', ({ sourceId }, event) =>
     requireSession(event).sources.listAttachments(sourceId)
   )
-  handle('research:attachments:addPdf', ({ sourceId, bytesBase64, label }, event) =>
-    requireSession(event).sources.addPdfAttachment(sourceId, Buffer.from(bytesBase64, 'base64'), label)
-  )
+  handle('research:attachments:addPdf', ({ sourceId, bytesBase64, label }, event) => {
+    // Checked before decoding, so an oversized payload is never doubled in memory.
+    if (bytesBase64.length > Math.ceil(MAX_PDF_BYTES / 3) * 4) {
+      throw new Error(`That PDF is too large — the limit is ${MAX_PDF_BYTES / (1024 * 1024)} MB.`)
+    }
+    return requireSession(event).sources.addPdfAttachment(sourceId, Buffer.from(bytesBase64, 'base64'), label)
+  })
   handle('research:attachments:addCapture', ({ sourceId, capture, label }, event) =>
     requireSession(event).sources.addCaptureAttachment(sourceId, capture, label)
   )
@@ -32,7 +38,7 @@ export function register(ctx: HandlerContext): void {
   )
   handle('research:capture', async ({ url }, event) => {
     requireSession(event) // a project must be open, even though capture itself is project-agnostic
-    return capturePage(url, (target) => fetch(target))
+    return capturePage(url, fetchWithLimits)
   })
 
   handle('research:highlights:list', ({ sourceId, attachmentId }, event) =>

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { SourceService, attachmentDir, attachmentPdfPath, attachmentCapturePath } from './sourceService.js'
+import { SourceService, assertPdf, MAX_PDF_BYTES, attachmentDir, attachmentPdfPath, attachmentCapturePath } from './sourceService.js'
 import { LocalAdapter } from '../vfs/localAdapter.js'
 import { SOURCES_FILE, FORMAT_VERSIONS, IGNORED_DIRS, RESEARCH_DIR } from '../../shared/constants.js'
 import {
@@ -137,7 +137,7 @@ describe('SourceService attachments', () => {
   it('rides the attachment index in the catchall key so ordinary CSL fields are untouched', async () => {
     const source = await sources.create('book')
     await sources.save({ ...source, title: 'A Book' })
-    await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'scan.pdf')
+    await sources.addPdfAttachment(source.id, Buffer.from('%PDF-1.4 bytes'), 'scan.pdf')
 
     const stored = (await onDisk()).find((item) => item.id === source.id)!
     expect(stored.title).toBe('A Book')
@@ -163,7 +163,7 @@ describe('SourceService attachments', () => {
 
   it('removes an attachment file and its index entry', async () => {
     const source = await sources.create('book')
-    const attachment = await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'x.pdf')
+    const attachment = await sources.addPdfAttachment(source.id, Buffer.from('%PDF-1.4 bytes'), 'x.pdf')
 
     await sources.removeAttachment(source.id, attachment.id)
 
@@ -180,7 +180,7 @@ describe('SourceService attachments', () => {
    */
   it('is excluded from adapter.walk the same way notes and highlights are', async () => {
     const source = await sources.create('book')
-    await sources.addPdfAttachment(source.id, Buffer.from('bytes'), 'x.pdf')
+    await sources.addPdfAttachment(source.id, Buffer.from('%PDF-1.4 bytes'), 'x.pdf')
     await fs.mkdir(path.join(root, 'chapters'), { recursive: true })
     await fs.writeFile(path.join(root, 'chapters/one.pubdoc'), '{}')
 
@@ -222,5 +222,22 @@ describe('SourceService attachments', () => {
       URL: 'https://example.org/wages'
     })
     expect(withUrl.id).toBeTruthy()
+  })
+})
+
+describe('assertPdf', () => {
+  it('accepts bytes that open with the PDF signature', () => {
+    expect(() => assertPdf(Buffer.from('%PDF-1.7\n...'))).not.toThrow()
+  })
+
+  it('refuses anything else, however it is labelled', () => {
+    expect(() => assertPdf(Buffer.from('<html><script></script>'))).toThrow('not a PDF')
+    expect(() => assertPdf(Buffer.alloc(0))).toThrow('not a PDF')
+  })
+
+  it('refuses a PDF over the cap', () => {
+    const huge = Buffer.alloc(MAX_PDF_BYTES + 1)
+    huge.write('%PDF-')
+    expect(() => assertPdf(huge)).toThrow('too large')
   })
 })

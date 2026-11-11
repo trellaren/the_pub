@@ -36,10 +36,10 @@ function hasIpv6(): Promise<boolean> {
 
 describe('listenOnLoopback', () => {
   it('answers on 127.0.0.1', async () => {
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
-    const response = await request('127.0.0.1', listener.port, '/callback?code=abc')
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    const response = await request('127.0.0.1', listener.port, '/callback?code=abc&state=st')
     expect(response).toContain('done')
-    expect(await listener.redirect).toBe('/callback?code=abc')
+    expect(await listener.redirect).toBe('/callback?code=abc&state=st')
   })
 
   it('answers on ::1 at the same port', async (context) => {
@@ -51,19 +51,30 @@ describe('listenOnLoopback', () => {
      */
     if (!(await hasIpv6())) context.skip('this machine has no IPv6 loopback')
 
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
     expect(listener.families).toContain('ipv6')
-    const response = await request('::1', listener.port, '/callback?code=xyz')
+    const response = await request('::1', listener.port, '/callback?code=xyz&state=st')
     expect(response).toContain('done')
-    expect(await listener.redirect).toBe('/callback?code=xyz')
+    expect(await listener.redirect).toBe('/callback?code=xyz&state=st')
   })
 
   it('works on a host with no IPv6 rather than refusing to start', async () => {
     // The IPv6 bind is best effort: an unavailable stack must not stop a
     // sign-in that would work perfectly well over IPv4.
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
     expect(listener.port).toBeGreaterThan(0)
     expect(listener.families).toContain('ipv4')
+  })
+
+  it('ignores a redirect carrying another attempt\'s state, and waits for the real one', async () => {
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    const forged = await request('127.0.0.1', listener.port, '/?code=planted&state=other')
+    expect(forged).not.toContain('done')
+    const noState = await request('127.0.0.1', listener.port, '/?error=access_denied')
+    expect(noState).not.toContain('refused')
+
+    await request('127.0.0.1', listener.port, '/?code=real&state=st')
+    expect(await listener.redirect).toBe('/?code=real&state=st')
   })
 
   it('ignores a request that is not the redirect', async () => {
@@ -73,7 +84,7 @@ describe('listenOnLoopback', () => {
      * into "the redirect did not match this attempt", because the favicon
      * carries no state — and the code is spent by then.
      */
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
     const ignored = await request('127.0.0.1', listener.port, '/favicon.ico')
     expect(ignored).not.toContain('done')
 
@@ -82,7 +93,7 @@ describe('listenOnLoopback', () => {
   })
 
   it('does not tell someone Microsoft refused that they are signed in', async () => {
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
     const response = await request('127.0.0.1', listener.port, '/?error=access_denied&state=st')
     expect(response).toContain('refused')
     expect(response).not.toContain('done')
@@ -93,18 +104,18 @@ describe('listenOnLoopback', () => {
   it('can be given up on before the timeout', async () => {
     // The dialog's cancel: a sign-in the browser has visibly refused should not
     // hold the app for the remaining five minutes.
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 300_000 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 300_000 })
     listener.abort('The sign-in was cancelled.')
     await expect(listener.redirect).rejects.toThrow(/cancelled/)
   })
 
   it('gives up rather than holding the port for the life of the app', async () => {
-    listener = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 30 })
+    listener = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 30 })
     await expect(listener.redirect).rejects.toThrow(/not completed/)
   })
 
   it('closes every socket it opened', async () => {
-    const opened = await listenOnLoopback({ page: 'done', failurePage: 'refused', timeoutMs: 5000 })
+    const opened = await listenOnLoopback({ state: 'st', page: 'done', failurePage: 'refused', timeoutMs: 5000 })
     const { port } = opened
     await opened.close()
     // A port still held would make the next sign-in in the same session fail.

@@ -65,6 +65,15 @@ describe('DocumentService', () => {
     expect(result).toMatchObject({ ok: false, reason: 'conflict' })
   })
 
+  it('refuses to recreate a file that disappeared since it was loaded', async () => {
+    const created = await documents.create(`chapter-one${DOC_EXT}`, 'Chapter One')
+    await fs.rm(path.join(root, created.path))
+
+    const result = await documents.write(created.path, created.doc, created.mtime)
+    expect(result).toMatchObject({ ok: false, reason: 'conflict', diskMtime: 0 })
+    await expect(fs.stat(path.join(root, created.path))).rejects.toThrow()
+  })
+
   it('refuses to overwrite a file written by a newer version of Quoth, and leaves it untouched', async () => {
     const docPath = `newer${DOC_EXT}`
     const tooNew = envelope({ docId: 'doc-1', formatVersion: FORMAT_VERSIONS.document + 1, title: 'From the future' })
@@ -102,6 +111,12 @@ describe('DocumentService', () => {
 
     const loaded = await documents.read(docPath)
     expect(loaded.doc.title).toBe('Readable')
+    expect(loaded.tooNew).toBe(true)
+  })
+
+  it('does not flag a current document as too new', async () => {
+    const created = await documents.create(`current${DOC_EXT}`)
+    expect((await documents.read(created.path)).tooNew).toBeUndefined()
   })
 })
 

@@ -1,3 +1,4 @@
+import { dialog } from 'electron'
 import { ConnectionStore } from '../../services/connectionStore.js'
 import { KnownHostsStore } from '../../services/knownHostsStore.js'
 import { createAdapter, inspectDatabase, createDatabaseProject } from '../../vfs/vfsRegistry.js'
@@ -5,6 +6,7 @@ import { KnownHostsPolicy, hostKeyId, type HostKeyPolicy, type PresentedHostKey 
 import type { VfsAdapter } from '../../vfs/types.js'
 import { projectUri, defaultPort } from '../../../shared/model/connection.js'
 import type { HandlerContext } from '../context.js'
+import { chosenPaths } from '../chosenPaths.js'
 
 /** A host key offered during a connection test, held until the author rules on it. */
 interface PendingHostKey {
@@ -14,7 +16,7 @@ interface PendingHostKey {
   previous: string
 }
 
-export function register({ handle, oneDrive }: HandlerContext): void {
+export function register({ handle, oneDrive, ownerWindow }: HandlerContext): void {
   const connections = new ConnectionStore()
   // A second instance of the same file-backed store the VFS registry uses, as
   // with `ConnectionStore` above: both read on every call, so the file is the
@@ -29,12 +31,30 @@ export function register({ handle, oneDrive }: HandlerContext): void {
     secureStorage: connections.secureStorageAvailable()
   }))
 
-  handle('connections:save', ({ profile, secret }) =>
-    connections.save(
-      { ...profile, port: profile.port || defaultPort(profile.protocol) },
-      secret
-    )
-  )
+  handle('connections:save', ({ profile, secret }) => {
+    // A SQLite profile's host is a file on this machine that the app will open
+    // and write. A new or changed one must come from the picker below; one
+    // already saved is left alone.
+    if (profile.protocol === 'db' && profile.engine === 'sqlite') {
+      const existing = profile.id ? connections.get(profile.id) : null
+      const unchanged = existing?.engine === 'sqlite' && existing.host === profile.host
+      if (!unchanged && !chosenPaths.has(profile.host)) {
+        throw new Error('Choose the database file with the file dialog.')
+      }
+    }
+    return connections.save({ ...profile, port: profile.port || defaultPort(profile.protocol) }, secret)
+  })
+
+  handle('connections:chooseSqliteFile', async (_payload, event) => {
+    const picked = await dialog.showSaveDialog(ownerWindow(event), {
+      title: 'Choose a database file',
+      buttonLabel: 'Use this file',
+      filters: [{ name: 'Quoth database', extensions: ['pubdb', 'sqlite', 'db'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+    if (picked.canceled || !picked.filePath) return null
+    return { path: chosenPaths.record(picked.filePath) }
+  })
 
   handle('connections:delete', ({ id }) => {
     connections.remove(id)

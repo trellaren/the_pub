@@ -32,6 +32,7 @@ interface EntityStore {
  * would be a file write *and* a project-wide rescan.
  */
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
+const writing = new Set<string>()
 
 export const useEntityStore = create<EntityStore>((set, get) => ({
   entities: [],
@@ -42,7 +43,15 @@ export const useEntityStore = create<EntityStore>((set, get) => ({
   load: async () => {
     const file = await attempt(invoke('entities:list', {}), 'Could not load records')
     if (!file) return
-    set({ entities: file.entities, dismissed: file.dismissed, loaded: true })
+    // A reload triggered by the assistant must not overwrite typing that is
+    // still waiting on its debounced write, or is being written right now.
+    const unsaved = new Map(
+      get()
+        .entities.filter((entity) => pending.has(entity.id) || writing.has(entity.id))
+        .map((entity) => [entity.id, entity])
+    )
+    const entities = file.entities.map((entity) => unsaved.get(entity.id) ?? entity)
+    set({ entities, dismissed: file.dismissed, loaded: true })
     await get().refreshCounts()
   },
 
@@ -102,7 +111,8 @@ export const useEntityStore = create<EntityStore>((set, get) => ({
     const timer = pending.get(id)
     if (timer) clearTimeout(timer)
     pending.delete(id)
-    await attempt(invoke('entities:delete', { id }), 'Could not delete record')
+    const deleted = await attempt(invoke('entities:delete', { id }), 'Could not delete record')
+    if (!deleted) return
     set({ entities: get().entities.filter((entity) => entity.id !== id) })
     await get().refreshCounts()
   },
@@ -133,7 +143,10 @@ on('entities:changed', () => {
 async function saveNow(id: string): Promise<void> {
   const entity = useEntityStore.getState().entities.find((candidate) => candidate.id === id)
   if (!entity) return
-  const saved = await attempt(invoke('entities:save', { entity }), 'Could not save record')
+  writing.add(id)
+  const saved = await attempt(invoke('entities:save', { entity }), 'Could not save record').finally(() =>
+    writing.delete(id)
+  )
   if (!saved) return
   // Keep the server's `modified` stamp, but do not clobber edits the user made
   // while the write was in flight.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { Selection } from '@tiptap/pm/state'
 import type { IDockviewPanelProps } from 'dockview-react'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -20,6 +21,8 @@ import type { PmDoc } from '@shared/model/document.js'
 import { validateFileName } from '@shared/model/filename.js'
 import { DOC_EXT } from '@shared/constants.js'
 import { promptForName } from '@renderer/ui/PromptDialog.js'
+
+const WORD_COUNT_DEBOUNCE_MS = 300
 
 export interface EditorPanelParams {
   docId: string
@@ -203,7 +206,12 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
           onClick={(event) => {
             // The blank expanse below the prose is still the page: clicking it
             // puts the cursor at the end, instead of doing visibly nothing.
-            if (event.target === event.currentTarget) editor.chain().focus('end').run()
+            // Focused here rather than through TipTap's focus(), which waits a
+            // frame — a key typed straight after the click would be lost.
+            if (event.target !== event.currentTarget) return
+            const { state, view } = editor
+            view.dispatch(state.tr.setSelection(Selection.atEnd(state.doc)).scrollIntoView())
+            view.focus()
           }}
         >
           <EditorContent editor={editor} />
@@ -279,7 +287,10 @@ function ConflictBar({ docId }: { docId: string }) {
         <button
           type="button"
           className="rounded border border-border px-2 py-0.5 hover:bg-surface-3"
-          onClick={() => void reload(docId)}
+          onClick={() => {
+            if (!window.confirm('Discard your unsaved edits and load the version on disk? This cannot be undone.')) return
+            void reload(docId)
+          }}
         >
           Discard mine, reload
         </button>
@@ -319,10 +330,20 @@ function StatusBar({ docId }: { docId: string }) {
 
   useEffect(() => {
     if (!editor) return
-    const update = (): void => setWords(wordCount(editor))
-    update()
+    // Walking the whole document is too much per keystroke on a long chapter;
+    // a count that settles a moment after typing pauses is plenty.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const update = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        if (!editor.isDestroyed) setWords(wordCount(editor))
+      }, WORD_COUNT_DEBOUNCE_MS)
+    }
+    setWords(wordCount(editor))
     editor.on('update', update)
     return () => {
+      if (timer) clearTimeout(timer)
       editor.off('update', update)
     }
   }, [editor])

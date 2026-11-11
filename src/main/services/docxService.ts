@@ -7,18 +7,17 @@ import type { NamedStyle } from '../../shared/model/style.js'
 import type { PmDoc, PmNode, Section } from '../../shared/model/document.js'
 import { marginsFromSettings } from '../../shared/model/document.js'
 import type { ExportItem } from '../../shared/model/manuscript.js'
-import { DOC_EXT, ASSETS_DIR } from '../../shared/constants.js'
-import { joinRelative, basename, relativeToRoot } from '../vfs/paths.js'
+import { DOC_EXT } from '../../shared/constants.js'
+import { joinRelative, basename } from '../vfs/paths.js'
 import { sanitizeFileName } from '../../shared/model/filename.js'
 import { importDocx, IMAGE_PLACEHOLDER_PREFIX, type ImportedImage } from '../docx/fromDocx.js'
 
 /** Read whole into memory before parsing, so capped before reading. */
 const MAX_DOCX_FILE_BYTES = 200 * 1024 * 1024
 import { exportDocx } from '../docx/toDocx.js'
+import { assetPathFor } from '../print/assetPath.js'
 import { colorForAuthor, type AuthorProfile } from '../../shared/model/author.js'
 import { reconcileStyles } from '../docx/styleMap.js'
-import { ASSET_PROTOCOL } from '../../shared/constants.js'
-import { parseAssetUrl } from '../../shared/model/asset.js'
 
 export interface ImportedDocument {
   path: string
@@ -216,7 +215,7 @@ export class DocxService {
     for (const document of documents) collectImageSources(document.content ?? [], sources)
 
     for (const src of sources) {
-      const relative = this.assetPathFor(src)
+      const relative = assetPathFor(this.adapter.root, src)
       if (!relative) continue
       try {
         const data = await this.adapter.readFile(relative)
@@ -226,41 +225,6 @@ export class DocxService {
       }
     }
     return found
-  }
-
-  /**
-   * Turn an image `src` back into a project-relative path.
-   *
-   * The renderer sees images as `pub-asset://` URLs, because it has no
-   * `file://` access. Undoing that is the only way to find the bytes again at
-   * export time. Two URL shapes exist — the current token-plus-relative-path
-   * form carries the path outright, and the legacy form encodes an absolute
-   * local path that has to be unwound against the project root.
-   */
-  private assetPathFor(src: string): string | null {
-    if (!src.startsWith(`${ASSET_PROTOCOL}://`)) {
-      return src.startsWith(`${ASSETS_DIR}/`) ? src : null
-    }
-    const parsed = parseAssetUrl(src)
-    if (!parsed) return null
-    if (parsed.kind === 'project') return parsed.path
-    let absolute: string
-    try {
-      absolute = Buffer.from(parsed.encoded, 'base64url').toString('utf8')
-    } catch {
-      return null
-    }
-    // A remote project's root is a URI rather than a path, so the tidy
-    // relative-to-root answer only works locally; falling back to the assets
-    // segment covers the rest.
-    try {
-      const relative = relativeToRoot(this.adapter.root, absolute)
-      if (relative && !relative.startsWith('..')) return relative
-    } catch {
-      // Fall through to the assets-segment search.
-    }
-    const marker = absolute.replace(/\\/g, '/').lastIndexOf(`${ASSETS_DIR}/`)
-    return marker === -1 ? null : absolute.replace(/\\/g, '/').slice(marker)
   }
 
   /** A path in `targetDir` for this title that no file already occupies. */

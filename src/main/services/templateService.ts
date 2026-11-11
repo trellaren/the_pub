@@ -21,8 +21,35 @@ import {
   BEATS_FILE,
   MAPS_FILE,
   MANUSCRIPT_FILE,
-  FORMAT_VERSIONS
+  FORMAT_VERSIONS,
+  CHATS_FILE,
+  INDEX_FILE,
+  SNAPSHOTS_DIR,
+  PRESENCE_DIR,
+  STATS_DIR,
+  NOTES_DIR,
+  HIGHLIGHTS_DIR,
+  REVIEWS_DIR,
+  AUTHORS_FILE,
+  FONTS_DIR
 } from '../../shared/constants.js'
+
+/**
+ * What a project accumulates by being worked in, as opposed to what it is
+ * made of. A user template is saved from a real project folder and a
+ * hand-built one may have been opened as a project, so either can carry
+ * these — and a new project must not start with someone else's chats,
+ * search index, history, presence beats or review identity.
+ */
+const SESSION_FILES = [CHATS_FILE, AUTHORS_FILE]
+const SESSION_DIRS = [SNAPSHOTS_DIR, PRESENCE_DIR, STATS_DIR, NOTES_DIR, HIGHLIGHTS_DIR, REVIEWS_DIR]
+
+function isSessionData(file: string): boolean {
+  if (file.startsWith(INDEX_FILE)) return true
+  if (/\.corrupt-\d+$/.test(file)) return true
+  if (SESSION_FILES.includes(file)) return true
+  return SESSION_DIRS.some((dir) => file.startsWith(`${dir}/`))
+}
 
 export interface TemplateDirs {
   /** Ships with the app; read-only. */
@@ -74,6 +101,7 @@ export class TemplateService {
 
     for (const entry of await source.walk('', [])) {
       if (entry.path === TEMPLATE_MANIFEST_FILE || entry.path === MANIFEST_FILE) continue
+      if (entry.kind !== 'file' || isSessionData(entry.path)) continue
       const parent = path.posix.dirname(entry.path)
       if (parent && parent !== '.') await target.mkdir(parent)
       await target.writeFileAtomic(entry.path, await source.readFile(entry.path))
@@ -147,7 +175,14 @@ export class TemplateService {
           // *are* the project's vocabulary, and every built-in template ships
           // its own. Leaving them behind turned a thesis saved as a template
           // back into Characters and Locations.
-          entityKinds: manifest.entityKinds
+          entityKinds: manifest.entityKinds,
+          // The same reasoning for the rest of what a project *is* rather than
+          // what it contains: its highlight vocabulary, its publication
+          // details and targets, and the faces its styles name.
+          highlightCategories: manifest.highlightCategories,
+          publication: manifest.publication,
+          goals: manifest.goals,
+          fonts: manifest.fonts
         })
       )
     )
@@ -162,6 +197,9 @@ export class TemplateService {
     for (const [wanted, file] of optional) {
       if (!wanted) continue
       await copyIfPresent(source, target, file)
+    }
+    for (const font of manifest.fonts) {
+      if (font.file.startsWith(`${FONTS_DIR}/`)) await copyIfPresent(source, target, font.file)
     }
     for (const document of options.include.documents) {
       if (!document.endsWith(DOC_EXT)) continue

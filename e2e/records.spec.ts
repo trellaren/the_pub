@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'node:os'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, savedDocument } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { EntityFile } from '../src/shared/model/entity.js'
 import type { MentionHit } from '../src/shared/model/mention.js'
@@ -50,10 +50,6 @@ async function typeInto(text: string): Promise<void> {
   await harness.page.keyboard.type(text)
 }
 
-async function savedDocument(file: string): Promise<PubDocument> {
-  return readJson<PubDocument>(path.join(harness.projectDir, file))
-}
-
 test('a record is written to disk and survives reopening the project', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
@@ -95,7 +91,7 @@ test('typing a name suggests a mention and writes nothing to the document', asyn
 
   // The invariant the whole design rests on: a suggestion is an index entry,
   // never an edit. Nothing about the document changed.
-  const saved = await savedDocument('chapter-01.pubdoc')
+  const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   expect(JSON.stringify(saved.content)).not.toContain('mention')
 })
 
@@ -107,16 +103,16 @@ test('confirming a suggestion writes the mark and leaves the prose unchanged', a
   await typeInto('Harlan went north at dusk.')
   await waitFor(async () => (await mentionsFor(record!.id)).length > 0, 'a suggestion to be indexed')
 
-  const before = await savedDocument('chapter-01.pubdoc')
+  const before = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   const hit = (await mentionsFor(record!.id))[0]!
   expect(await confirmMention(hit)).toBe(true)
 
   await waitFor(async () => {
-    const saved = await savedDocument('chapter-01.pubdoc')
+    const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
     return JSON.stringify(saved.content).includes('"mention"')
   }, 'the mark to be saved')
 
-  const after = await savedDocument('chapter-01.pubdoc')
+  const after = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   expect(plainText(after)).toBe(plainText(before))
   expect(JSON.stringify(after.content)).toContain(record!.id)
 
@@ -175,6 +171,33 @@ test('a backlink opens the document at the right paragraph', async () => {
   await expect(harness.page.locator('.pub-sheet:visible .ProseMirror')).toBeVisible()
 })
 
+test('@-autocomplete is a listbox, and Escape closes it until typing resumes', async () => {
+  harness = await launch()
+  await openProject(harness.page, harness.projectDir)
+  await createRecord('Harlan')
+  await createDocument(harness.page, 'chapter-01.pubdoc')
+
+  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
+  const popup = harness.page.locator('[data-testid="mention-popup"]')
+  await editor.click()
+  await harness.page.keyboard.type('Then @Ha')
+  await expect(popup).toBeVisible()
+  await expect(popup).toHaveAttribute('role', 'listbox')
+  const option = popup.getByRole('option', { name: 'Harlan' })
+  await expect(option).toHaveAttribute('aria-selected', 'true')
+  await expect(editor).toHaveAttribute('aria-activedescendant', (await option.getAttribute('id'))!)
+
+  await editor.press('Escape')
+  await expect(popup).toHaveCount(0)
+  await expect(editor).not.toHaveAttribute('aria-activedescendant', /.+/)
+
+  await editor.press('r')
+  await expect(popup).toBeVisible()
+  await editor.press('Enter')
+  await expect(popup).toHaveCount(0)
+  await expect(editor.locator('[data-entity-id]')).toContainText('Harlan')
+})
+
 test('@-autocomplete inserts a mention and leaves no @ in the text', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
@@ -189,11 +212,11 @@ test('@-autocomplete inserts a mention and leaves no @ in the text', async () =>
   await harness.page.keyboard.type('left.')
 
   await waitFor(async () => {
-    const saved = await savedDocument('chapter-01.pubdoc')
+    const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
     return JSON.stringify(saved.content).includes('"mention"')
   }, 'the mention to be saved')
 
-  const saved = await savedDocument('chapter-01.pubdoc')
+  const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   const text = plainText(saved)
   expect(text).toContain('Then Harlan left.')
   // The @ is a trigger, not prose.
@@ -224,7 +247,7 @@ test('@-autocomplete works in an editor torn out into its own window', async () 
 
   await popout.keyboard.press('Enter')
   await waitFor(async () => {
-    const saved = await savedDocument('chapter-01.pubdoc')
+    const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
     return JSON.stringify(saved.content).includes('"mention"')
   }, 'the mention typed in the popout to be saved')
 })

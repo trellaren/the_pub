@@ -1,3 +1,4 @@
+import { ulid } from 'ulid'
 import { useEffect } from 'react'
 import { beatsInColumn } from '@shared/model/beat.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -45,7 +46,7 @@ export function StoryboardPanel() {
     if (!name) return
     void saveColumns([
       ...columns,
-      { id: `col-${Date.now().toString(36)}`, name, order: columns.length }
+      { id: `col-${ulid()}`, name, order: columns.length }
     ])
   }
 

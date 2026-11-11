@@ -13,4 +13,24 @@ describe('documentToXhtml', () => {
     expect(body).toContain('<p dir="rtl">Quoth שלום</p>')
     expect(body).toContain('<p>Plain.</p>')
   })
+
+  it('leaves out text that is a suggested deletion and keeps a suggested insertion', () => {
+    const doc: PmDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'The ' },
+            { type: 'text', text: 'old ', marks: [{ type: 'deletion', attrs: {} }] },
+            { type: 'text', text: 'new ', marks: [{ type: 'insertion', attrs: {} }] },
+            { type: 'text', text: 'harbour.' }
+          ]
+        }
+      ]
+    }
+    const { body } = documentToXhtml(doc, [], 'fn')
+    expect(body).toContain('<p>The new harbour.</p>')
+    expect(body).not.toContain('old')
+  })
 })

@@ -351,10 +351,17 @@ function collectImages(zip: Record<string, Uint8Array>): ImportedImage[] {
 function readBlocks(container: XmlNode, context: Context): PmNode[] {
   const nodes: PmNode[] = []
   for (const node of childrenOf(container)) {
-    if (nameOf(node) === 'w:p') pushParagraph(nodes, node, context)
-    else if (nameOf(node) === 'w:tbl') {
+    const name = nameOf(node)
+    if (name === 'w:p') pushParagraph(nodes, node, context)
+    else if (name === 'w:tbl') {
       const table = readTable(node, context)
       if (table) nodes.push(table)
+    } else if (name === 'w:sdt' || name === 'w:customXml') {
+      // Content controls and custom XML are wrappers Word puts around
+      // ordinary paragraphs (a template's title block, a bound property);
+      // skipping the wrapper would skip the prose inside it.
+      const inner = name === 'w:sdt' ? child(node, 'w:sdtContent') : node
+      if (inner) nodes.push(...readBlocks(inner, context))
     }
   }
   return nodes
@@ -537,13 +544,22 @@ function readInline(container: XmlNode, context: Context, inherited: PmMark[] = 
     if (name === 'w:r') nodes.push(...readRun(node, context, inherited))
     else if (name === 'w:hyperlink') {
       nodes.push(...readInline(node, context, [...inherited, ...linkMark(node, context)]))
-    } else if (name === 'w:ins' || name === 'w:del') {
+    } else if (name === 'w:ins' || name === 'w:del' || name === 'w:moveTo' || name === 'w:moveFrom') {
       // The whole point of the phase in the other direction: Word's own
       // revisions become this app's suggestion marks, so a manuscript marked up
       // in Word arrives with its changes still pending rather than already
-      // applied.
-      const mark = name === 'w:ins' ? INSERTION_MARK : DELETION_MARK
+      // applied. A move is a deletion at its source and an insertion at its
+      // destination; reading neither would import the passage twice, or not
+      // at all, depending on which half a reader skipped.
+      const mark = name === 'w:ins' || name === 'w:moveTo' ? INSERTION_MARK : DELETION_MARK
       nodes.push(...readInline(node, context, [...inherited, suggestionMark(node, mark, context)]))
+    } else if (name === 'w:smartTag' || name === 'w:customXml' || name === 'w:fldSimple') {
+      // Wrappers around ordinary runs; a simple field's runs are its cached
+      // result, which is the text Word shows.
+      nodes.push(...readInline(node, context, inherited))
+    } else if (name === 'w:sdt') {
+      const content = child(node, 'w:sdtContent')
+      if (content) nodes.push(...readInline(content, context, inherited))
     }
   }
   return mergeAdjacentText(nodes)

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor, setText, selectRange } from './helpers.js'
 import type { ReviewFile } from '../src/shared/model/review.js'
 
 let harness: Harness
@@ -22,27 +22,6 @@ async function reviewFile(docId: string): Promise<ReviewFile> {
   return readJson<ReviewFile>(path.join(reviewsDir(docId), first))
 }
 
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-async function setText(text: string): Promise<void> {
-  const el = await editor()
-  await el.click()
-  await harness.page.keyboard.press('ControlOrMeta+a')
-  await harness.page.keyboard.type(text)
-  await expect(el).toContainText(text)
-}
-
-async function selectRange(start: number, end: number): Promise<void> {
-  const el = await editor()
-  await el.press('Home')
-  for (let i = 0; i < start; i++) await el.press('ArrowRight')
-  for (let i = 0; i < end - start; i++) await el.press('Shift+ArrowRight')
-}
-
 async function addComment(): Promise<void> {
   await harness.page.getByRole('button', { name: 'Add comment' }).click()
 }
@@ -51,10 +30,10 @@ test('the Add comment button is disabled until text is selected', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The harbour was quiet that evening.')
+  await setText(harness.page, 'The harbour was quiet that evening.')
 
   await expect(harness.page.getByRole('button', { name: 'Add comment' })).toBeDisabled()
-  await selectRange(4, 11)
+  await selectRange(harness.page, 4, 11)
   await expect(harness.page.getByRole('button', { name: 'Add comment' })).toBeEnabled()
 })
 
@@ -62,8 +41,8 @@ test('a comment survives closing and reopening the project', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The harbour was quiet that evening.')
-  await selectRange(4, 11)
+  await setText(harness.page, 'The harbour was quiet that evening.')
+  await selectRange(harness.page, 4, 11)
   await addComment()
 
   await waitFor(async () => {
@@ -82,8 +61,8 @@ test('a reply and a resolution are written to the same author’s file', async (
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The harbour was quiet that evening.')
-  await selectRange(4, 11)
+  await setText(harness.page, 'The harbour was quiet that evening.')
+  await selectRange(harness.page, 4, 11)
   await addComment()
   await waitFor(async () => (await reviewFile(docId).catch(() => null))?.threads.length === 1, 'the comment')
 
@@ -102,7 +81,7 @@ test('suggesting mode proposes a deletion instead of performing one', async () =
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The harbour was quiet that evening.')
+  await setText(harness.page, 'The harbour was quiet that evening.')
 
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   await harness.page.getByLabel('Suggest changes instead of making them').check()
@@ -110,7 +89,7 @@ test('suggesting mode proposes a deletion instead of performing one', async () =
   // Selected through the editor rather than by arrow keys: a re-render that
   // briefly takes focus mid-sequence collapses a keyboard selection, and what
   // is under test here is the Backspace, not the selecting.
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.evaluate((id) => {
     window.__pub.getEditor(id)!.chain().focus().setTextSelection({ from: 5, to: 13 }).run()
@@ -130,7 +109,7 @@ test('rejecting one suggestion leaves the same author’s others pending', async
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('Alpha beta.')
+  await setText(harness.page, 'Alpha beta.')
   // The editor's own text, not the DOM's: each suggestion also renders a
   // screen-reader label that would interleave with the words.
   const plain = () => harness.page.evaluate((id) => window.__pub.getEditor(id)!.getText(), docId)
@@ -138,7 +117,7 @@ test('rejecting one suggestion leaves the same author’s others pending', async
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   await harness.page.getByLabel('Suggest changes instead of making them').check()
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await el.press('End')
   for (const key of [' ', 'o', 'n', 'e']) await el.press(key)
@@ -166,13 +145,13 @@ test('suggesting mode follows into editors opened after it was turned on', async
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('First chapter.')
+  await setText(harness.page, 'First chapter.')
 
   await harness.page.evaluate(() => window.__pub.runCommand('panel.review'))
   await harness.page.getByLabel('Suggest changes instead of making them').check()
 
   await createDocument(harness.page, 'chapter-02.pubdoc')
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   for (const key of ['N', 'e', 'w']) await el.press(key)
 

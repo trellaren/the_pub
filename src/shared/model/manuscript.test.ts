@@ -8,7 +8,6 @@ import {
   reconcile,
   rollUpWords,
   toExportItems,
-  totalWords,
   wordsForScope,
   type ManuscriptNode,
   type ResolvedNode
@@ -140,16 +139,6 @@ describe('rollUpWords', () => {
 
   it('reports zero for a part with nothing in it, rather than nothing at all', () => {
     expect(rollUpWords([part('empty', 0)], new Map()).get('empty')).toBe(0)
-  })
-
-  /* An unindexed or missing document contributes nothing, so the total is an
-   * understatement rather than a fiction. */
-  it('treats an uncounted document as zero', () => {
-    expect(totalWords(nodes, new Map([['a', 1000]]))).toBe(1000)
-  })
-
-  it('totals the whole book', () => {
-    expect(totalWords(nodes, words)).toBe(1525)
   })
 })
 

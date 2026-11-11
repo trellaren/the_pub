@@ -186,11 +186,6 @@ export function rollUpWords(
   return totals
 }
 
-/** The whole book's word count. */
-export function totalWords(nodes: readonly ManuscriptNode[], words: ReadonlyMap<string, number>): number {
-  return nodes.reduce((sum, node) => (isDocument(node) ? sum + (words.get(node.id) ?? 0) : sum), 0)
-}
-
 /**
  * Word count for a goal's `countScope` (see `shared/model/manifest.ts`'s
  * `goalsSchema`). `'project'` is every document; `'manuscript'` excludes back

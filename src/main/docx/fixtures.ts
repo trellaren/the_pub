@@ -133,6 +133,56 @@ export function revision(
   return `<w:${kind} w:id="1" w:author="${author}" w:date="${date}">${inner}</w:${kind}>`
 }
 
+/**
+ * A moved passage, both halves, the way Word writes them: each half is
+ * bracketed by named range markers, and — unlike `w:del` — the moved-from
+ * text stays in `w:t`.
+ */
+export function move(
+  kind: 'from' | 'to',
+  author: string,
+  date: string,
+  text: string,
+  name = 'move123456789'
+): string {
+  const tag = kind === 'from' ? 'moveFrom' : 'moveTo'
+  const id = kind === 'from' ? '10' : '20'
+  return (
+    `<w:${tag}RangeStart w:id="${id}" w:author="${author}" w:date="${date}" w:name="${name}"/>` +
+    `<w:${tag} w:id="${Number(id) + 1}" w:author="${author}" w:date="${date}">` +
+    `<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:${tag}>` +
+    `<w:${tag}RangeEnd w:id="${id}"/>`
+  )
+}
+
+/** Word's smart-tag wrapper, as older Word versions still write around names and places. */
+export function smartTag(runs: string, element = 'place'): string {
+  return `<w:smartTag w:uri="urn:schemas-microsoft-com:office:smarttags" w:element="${element}">${runs}</w:smartTag>`
+}
+
+/** A custom XML element bound around runs or paragraphs. */
+export function customXml(content: string, element = 'author'): string {
+  return `<w:customXml w:uri="http://example.com/manuscript" w:element="${element}">${content}</w:customXml>`
+}
+
+/** A simple field: the instruction on the element, the cached result in its runs. */
+export function fldSimple(instruction: string, runs: string): string {
+  return `<w:fldSimple w:instr=" ${instruction} \\* MERGEFORMAT ">${runs}</w:fldSimple>`
+}
+
+/**
+ * A content control, inline (around runs) or block-level (around
+ * paragraphs) — the same element either way, which is why a reader has to
+ * handle it in both places.
+ */
+export function sdt(content: string, alias = 'Title'): string {
+  return (
+    `<w:sdt><w:sdtPr><w:alias w:val="${alias}"/><w:tag w:val="${alias.toLowerCase()}"/>` +
+    `<w:id w:val="-1730609457"/></w:sdtPr>` +
+    `<w:sdtEndPr/><w:sdtContent>${content}</w:sdtContent></w:sdt>`
+  )
+}
+
 /** A one-pixel PNG, so image handling can be tested without a binary fixture. */
 export const TINY_PNG = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,

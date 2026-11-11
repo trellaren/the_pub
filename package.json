@@ -10,7 +10,8 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "npm run typecheck && npm run build:only",
+    "build:only": "electron-vite build",
     "start": "electron-vite preview",
     "pin-models": "node scripts/pin-models.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.e2e.json",
@@ -18,7 +19,8 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:packaged": "playwright test -c playwright.packaged.config.ts",
-    "package": "npm run build && electron-builder --dir",
+    "package": "npm run build && npm run package:only",
+    "package:only": "electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:mac": "npm run build && electron-builder --mac",
@@ -34,7 +36,8 @@
     "mysql2": "^3.23.3",
     "pdfjs-dist": "^4.10.38",
     "pg": "^8.23.0",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "undici": "^6.28.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

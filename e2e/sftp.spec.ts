@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { launch, cleanup, waitFor, type Harness } from './helpers.js'
+import { launch, cleanup, waitFor, type Harness, saveProfile as saveProfileWith } from './helpers.js'
 import { startSftpServer, type TestServer } from '../src/main/vfs/sftpTestServer.js'
 import { TINY_PNG_BASE64, tinyPngBytes, loadImage, TINY_PNG_WIDTH, TINY_PNG_HEIGHT } from './images.js'
 import type { PubDocument } from '../src/shared/model/document.js'
@@ -62,26 +62,22 @@ test.afterEach(async () => {
  */
 async function saveProfile(remotePath = '/', privateKeyPath = keyPath): Promise<string> {
   if (remotePath !== '/') await fs.mkdir(path.join(serverRoot, remotePath), { recursive: true })
-  return harness.page.evaluate(
-    async ({ port, remotePath: root, privateKeyPath: key }) => {
-      const profile = await window.pub.invoke('connections:save', {
-        profile: {
-          name: 'Test server',
-          protocol: 'sftp',
-          host: '127.0.0.1',
-          port,
-          user: 'author',
-          auth: 'key',
-          privateKeyPath: key,
-          remotePath: root,
-          secure: false
-        },
-        secret: ''
-      })
-      return `sftp://${(profile as { id: string }).id}`
+  const id = await saveProfileWith(
+    harness.page,
+    {
+      name: 'Test server',
+      protocol: 'sftp',
+      host: '127.0.0.1',
+      port: server!.port,
+      user: 'author',
+      auth: 'key',
+      privateKeyPath,
+      remotePath,
+      secure: false
     },
-    { port: server!.port, remotePath, privateKeyPath }
+    ''
   )
+  return `sftp://${id}`
 }
 
 /**

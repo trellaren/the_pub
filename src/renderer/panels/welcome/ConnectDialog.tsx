@@ -42,7 +42,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     signOut,
     createDatabase,
     openThere,
-    forget
+    forget,
+    chooseSqliteFile
   } = useConnectionDraft(onClose)
 
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -153,11 +154,34 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
 
             {isOneDrive ? <OneDriveSignIn draft={draft} setDraft={setDraft} /> : null}
 
-            {!isOneDrive ? (
-              <Field label={isSqlite ? 'Database file' : 'Host'}>
+            {isSqlite ? (
+              <Field label="Database file">
+                {/* Main only accepts a file the writer picked in its own dialog,
+                    so a page script can't aim a profile at an arbitrary path. */}
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    value={draft.host}
+                    readOnly
+                    placeholder="No file chosen"
+                    className="flex-1"
+                    data-testid="connect-host"
+                  />
+                  <ToolbarButton
+                    label="Choose database file"
+                    onClick={() => void chooseSqliteFile()}
+                    data-testid="connect-choose-sqlite"
+                  >
+                    Choose file…
+                  </ToolbarButton>
+                </div>
+              </Field>
+            ) : null}
+
+            {!isOneDrive && !isSqlite ? (
+              <Field label="Host">
                 <TextInput
                   value={draft.host}
-                  placeholder={isSqlite ? '/home/you/novel.pubdb' : 'files.example.com'}
+                  placeholder="files.example.com"
                   onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))}
                   data-testid="connect-host"
                 />

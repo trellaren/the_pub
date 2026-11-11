@@ -21,11 +21,20 @@ export interface FindState extends FindOptions {
   matches: FindMatch[]
   /** Index into `matches`, or -1 when there is no active match. */
   current: number
+  /** Built when matches change and mapped through edits, never rebuilt per view update. */
+  decorations: DecorationSet
 }
 
 export const findPluginKey = new PluginKey<FindState>('pubFind')
 
-const EMPTY: FindState = { term: '', matchCase: false, wholeWord: false, matches: [], current: -1 }
+const EMPTY: FindState = {
+  term: '',
+  matchCase: false,
+  wholeWord: false,
+  matches: [],
+  current: -1,
+  decorations: DecorationSet.empty
+}
 
 interface FindMeta {
   options?: FindOptions
@@ -53,45 +62,65 @@ export const FindHighlight = Extension.create({
             const meta = transaction.getMeta(findPluginKey) as FindMeta | undefined
             if (meta?.options) {
               const matches = findMatches(next.doc, meta.options)
-              return { ...meta.options, matches, current: matches.length > 0 ? 0 : -1 }
+              const current = matches.length > 0 ? 0 : -1
+              return { ...meta.options, matches, current, decorations: buildDecorations(next.doc, matches, current) }
             }
             if (meta?.step && previous.matches.length > 0) {
               const count = previous.matches.length
               const current = (previous.current + meta.step + count) % count
-              return { ...previous, current }
+              return { ...previous, current, decorations: buildDecorations(next.doc, previous.matches, current) }
             }
             if (meta?.current !== undefined) {
-              return { ...previous, current: meta.current }
+              return {
+                ...previous,
+                current: meta.current,
+                decorations: buildDecorations(next.doc, previous.matches, meta.current)
+              }
             }
             if (transaction.docChanged && previous.term) {
               const matches = remapMatches(previous.matches, transaction, previous)
-              return {
-                ...previous,
-                matches,
-                current: matches.length === 0 ? -1 : Math.min(previous.current, matches.length - 1)
-              }
+              const current = matches.length === 0 ? -1 : Math.min(previous.current, matches.length - 1)
+              const mapped = previous.decorations.map(transaction.mapping, transaction.doc)
+              // Typing outside every match leaves the set as it was, only
+              // shifted; rebuild only when a match itself appeared, went or moved
+              // the current marker.
+              const decorations =
+                current === previous.current && sameRanges(mapped, matches)
+                  ? mapped
+                  : buildDecorations(transaction.doc, matches, current)
+              return { ...previous, matches, current, decorations }
             }
             return previous
           }
         },
         props: {
           decorations(state: EditorState) {
-            const found = findPluginKey.getState(state)
-            if (!found || found.matches.length === 0) return DecorationSet.empty
-            return DecorationSet.create(
-              state.doc,
-              found.matches.map((match, index) =>
-                Decoration.inline(match.from, match.to, {
-                  class: index === found.current ? 'pub-find-match-current' : 'pub-find-match'
-                })
-              )
-            )
+            return findPluginKey.getState(state)?.decorations ?? DecorationSet.empty
           }
         }
       })
     ]
   }
 })
+
+function buildDecorations(doc: PmNode, matches: FindMatch[], current: number): DecorationSet {
+  if (matches.length === 0) return DecorationSet.empty
+  return DecorationSet.create(
+    doc,
+    matches.map((match, index) =>
+      Decoration.inline(match.from, match.to, {
+        class: index === current ? 'pub-find-match-current' : 'pub-find-match'
+      })
+    )
+  )
+}
+
+function sameRanges(set: DecorationSet, matches: FindMatch[]): boolean {
+  const found = set.find()
+  if (found.length !== matches.length) return false
+  found.sort((a, b) => a.from - b.from)
+  return found.every((decoration, index) => decoration.from === matches[index]!.from && decoration.to === matches[index]!.to)
+}
 
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

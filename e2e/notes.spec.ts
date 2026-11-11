@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor, setText, selectRange } from './helpers.js'
 import type { NoteFile } from '../src/shared/model/note.js'
 
 let harness: Harness
@@ -15,44 +15,6 @@ function notesFile(docId: string): string {
 
 async function readNotes(docId: string): Promise<NoteFile> {
   return readJson<NoteFile>(notesFile(docId))
-}
-
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-/**
- * Replace the document's whole text, leaving the caret at the end.
- *
- * Waits for the typed text to actually land in the DOM before returning —
- * under load, `selectRange`'s first keystroke can otherwise race a still-in-
- * flight keystroke from typing, landing the selection a character or two off
- * from where the test expects it.
- */
-async function setText(text: string): Promise<void> {
-  const el = await editor()
-  await el.click()
-  await harness.page.keyboard.press('ControlOrMeta+a')
-  await harness.page.keyboard.type(text)
-  await expect(el).toContainText(text)
-}
-
-/**
- * Select `[start, end)` of the (single-paragraph) document by keyboard.
- *
- * Presses through the locator, not the page-level keyboard: under load, ambient
- * OS focus can slip away between keystrokes (an autosave-triggered re-render is
- * enough), and a `page.keyboard.press` that lands on the wrong element fails
- * silently rather than failing loudly. Re-focusing the editor on every press
- * costs a little time and buys determinism.
- */
-async function selectRange(start: number, end: number): Promise<void> {
-  const el = await editor()
-  await el.press('Home')
-  for (let i = 0; i < start; i++) await el.press('ArrowRight')
-  for (let i = 0; i < end - start; i++) await el.press('Shift+ArrowRight')
 }
 
 async function addNoteButton() {
@@ -78,18 +40,18 @@ test('the panel opens on a document with no notes without taking the window down
   await expect(harness.page.getByText('No notes yet')).toBeVisible()
   expect(crashes).toEqual([])
   // Still a live window: the crash left a surface nothing could be clicked through.
-  await (await editor()).click()
+  await (await editor(harness.page)).click()
 })
 
 test('the Add note button is disabled until text is selected', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
+  await setText(harness.page, 'The quick brown fox jumps.')
 
   await expect(await addNoteButton()).toBeDisabled()
 
-  await selectRange(4, 15)
+  await selectRange(harness.page, 4, 15)
   await expect(await addNoteButton()).toBeEnabled()
 })
 
@@ -97,8 +59,8 @@ test('adding a note from the toolbar attaches it to the selection and persists i
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
 
   await (await addNoteButton()).click()
 
@@ -117,8 +79,8 @@ test('editing a note body persists it, and resolving it persists too', async () 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
   await (await addNoteButton()).click()
   await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
 
@@ -140,8 +102,8 @@ test('deleting a note removes it from the panel and its file', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
   await (await addNoteButton()).click()
   await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
 
@@ -156,14 +118,14 @@ test('rewriting the anchored text orphans the note, and a matching candidate re-
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
   await (await addNoteButton()).click()
   await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
 
   // Replace the whole document, dropping the anchored phrase entirely, then
   // save — the same `doc:write` path production autosave uses.
-  await setText('Nothing here resembles the old sentence.')
+  await setText(harness.page, 'Nothing here resembles the old sentence.')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
 
   await waitFor(async () => (await readNotes(docId)).notes[0]!.orphaned === true, 'the note to be orphaned')
@@ -172,7 +134,7 @@ test('rewriting the anchored text orphans the note, and a matching candidate re-
   await expect(harness.page.locator("text=This note's text is no longer in the document.")).toBeVisible()
 
   // Bring the phrase back, elsewhere in the document, and offer it as a candidate.
-  await setText('First, an unrelated line. Then: quick brown returns here.')
+  await setText(harness.page, 'First, an unrelated line. Then: quick brown returns here.')
   await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
 
   const candidate = harness.page.getByRole('button', { name: /Attach to occurrence/ })
@@ -189,8 +151,8 @@ test('a note edited moments before the window closes is still saved', async () =
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
   await (await addNoteButton()).click()
   await waitFor(async () => (await readNotes(docId).catch(() => null))?.notes.length === 1, 'the note to be created')
   const noteId = (await readNotes(docId)).notes[0]!.id

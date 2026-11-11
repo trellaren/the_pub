@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
-import { launch, openProject, cleanup, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, cleanup, waitFor, type Harness, createSource as createSourceWith } from './helpers.js'
 import type { CslItem } from '../src/shared/model/source.js'
 
 let harness: Harness
@@ -18,7 +18,8 @@ async function startServer(): Promise<string> {
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (typeof address === 'string' || !address) throw new Error('No address')
-  return `http://127.0.0.1:${address.port}/article`
+  // Under QUOTH_E2E_FIXTURE_HOSTS: the capture goes through the public-address gate.
+  return `http://localtest.me:${address.port}/article`
 }
 
 test.afterEach(async () => {
@@ -28,18 +29,7 @@ test.afterEach(async () => {
 })
 
 async function createSource(title: string): Promise<CslItem> {
-  const result = await harness.page.evaluate(async (sourceTitle) => {
-    const source = await window.__pub.sources.getState().create('webpage')
-    if (!source) return { error: 'create returned null' }
-    window.__pub.sources.getState().patch(source.id, { title: sourceTitle })
-    await window.__pub.sources.getState().flush()
-    const found = window.__pub.sources.getState().sources.find((candidate) => candidate.id === source.id)
-    return found ?? { error: 'not found after patch', createdId: source.id }
-  }, title)
-  if ((result as { error?: string }).error) {
-    throw new Error(`createSource failed: ${JSON.stringify(result)}`)
-  }
-  return result as CslItem
+  return createSourceWith(harness.page, 'webpage', { title })
 }
 
 test('a web page can be captured from the Sources panel and read back as a text attachment', async () => {

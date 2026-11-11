@@ -5,6 +5,7 @@ import { FONTS_DIR, MANIFEST_FILE } from '../../../shared/constants.js'
 import { FONT_EXTENSIONS } from '../../../shared/model/asset.js'
 import { requirePortableName, type HandlerContext } from '../context.js'
 import { importFontFile } from './fontImport.js'
+import { chosenPaths } from '../chosenPaths.js'
 
 export function register(ctx: HandlerContext): void {
   const { handle, windows, sessions, appState, templates, requireSession, ownerWindow, pickFiles, openInto } = ctx
@@ -49,6 +50,7 @@ export function register(ctx: HandlerContext): void {
     const ownerId = windows.ownerWindowId(event.sender)
     if (ownerId === null) throw new Error('Unknown window')
 
+    if (targetUri) chosenPaths.requireLocalChosen(targetUri, 'A folder for a new project')
     let uri = targetUri
     if (!uri) {
       const result = await dialog.showOpenDialog(ownerWindow(event), {

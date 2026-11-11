@@ -150,8 +150,11 @@ stage "Unit tests"       npm test
 
 # Playwright launches the built app (`args: ['.']` resolves package.json's
 # `main: ./out/main/index.js`), so the build has to come first. Nothing in the
-# npm scripts enforces that ordering.
-stage "Build"            npm run build
+# npm scripts enforces that ordering. The `:only` scripts skip the typecheck
+# (and, for packaging, the rebuild) that `build`/`package` chain in front of
+# themselves — the Typecheck stage has already run it, and the Build stage has
+# already produced out/.
+stage "Build"            npm run build:only
 
 # Windows and macOS always have a display; only Linux can be genuinely headless.
 case "$(uname -s 2>/dev/null || echo unknown)" in
@@ -207,7 +210,7 @@ elif [ "$SKIP_E2E" -eq 1 ]; then
   record_skip "Packaged smoke"
   warn "Packaging skipped: its only check is a Playwright stage (--skip-e2e)."
 else
-  stage     "Package"        npm run package
+  stage     "Package"        npm run package:only
   gui_stage "Packaged smoke" npm run e2e:packaged
 fi
 

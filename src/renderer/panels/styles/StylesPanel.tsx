@@ -1,3 +1,4 @@
+import { ulid } from 'ulid'
 import { useState } from 'react'
 import type { NamedStyle } from '@shared/model/style.js'
 import type { ProjectFont } from '@shared/model/manifest.js'
@@ -72,7 +73,7 @@ export function StylesPanel() {
   }
 
   const addStyle = (): void => {
-    const id = `style-${Date.now().toString(36)}`
+    const id = `style-${ulid()}`
     void updateManifest((manifest) => ({
       ...manifest,
       styles: [

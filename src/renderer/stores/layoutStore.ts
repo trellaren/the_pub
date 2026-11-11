@@ -194,7 +194,8 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
   },
 
   deletePreset: async (id) => {
-    await attempt(invoke('layout:deletePreset', { id }), 'Could not delete layout preset')
+    const deleted = await attempt(invoke('layout:deletePreset', { id }), 'Could not delete layout preset')
+    if (!deleted) return
     set({ presets: get().presets.filter((preset) => preset.id !== id) })
   },
 

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import { z } from 'zod'
 import { FORMAT_VERSIONS } from '../../shared/constants.js'
+import { migrate } from '../../shared/model/migrate.js'
 import { writeFileAtomicSync } from './atomicFile.js'
 import type { KnownHost, KnownHostsReader, PresentedHostKey } from '../vfs/hostKeys.js'
 
@@ -37,18 +38,51 @@ type KnownHostsFile = z.infer<typeof knownHostsFileSchema>
  * read side by side with one.
  */
 export class KnownHostsStore implements KnownHostsReader {
+  /** `file` is for tests; the app always uses userData. */
+  constructor(private readonly filePath?: string) {}
+
   private file(): string {
-    return path.join(app.getPath('userData'), 'known_hosts.json')
+    return this.filePath ?? path.join(app.getPath('userData'), 'known_hosts.json')
   }
 
-  private read(): KnownHostsFile {
+  /**
+   * Missing means nothing trusted yet. Unparseable content is set aside as
+   * `.corrupt-*` rather than read as empty and then overwritten by the next
+   * `trust` — that would silently forget every other server. A read *error*
+   * propagates: it says nothing about the file's contents.
+   */
+  private read(): { stored: KnownHostsFile; tooNew: boolean } {
+    const empty = (): KnownHostsFile => ({ formatVersion: FORMAT_VERSIONS.knownHosts, hosts: {} })
+    let text: string
     try {
-      return knownHostsFileSchema.parse(JSON.parse(fs.readFileSync(this.file(), 'utf8')))
-    } catch {
-      // An unreadable store means nothing is trusted, which fails closed: every
-      // connection is refused until the author accepts a fingerprint again.
-      return { formatVersion: FORMAT_VERSIONS.knownHosts, hosts: {} }
+      text = fs.readFileSync(this.file(), 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { stored: empty(), tooNew: false }
+      throw error
     }
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      return { stored: this.quarantine(empty()), tooNew: false }
+    }
+    const { value, tooNew } = migrate('knownHosts', json)
+    const parsed = knownHostsFileSchema.safeParse(value)
+    if (tooNew) return { stored: parsed.success ? parsed.data : empty(), tooNew: true }
+    return { stored: parsed.success ? parsed.data : this.quarantine(empty()), tooNew: false }
+  }
+
+  private quarantine(empty: KnownHostsFile): KnownHostsFile {
+    fs.renameSync(this.file(), `${this.file()}.corrupt-${Date.now()}`)
+    return empty
+  }
+
+  private readForWrite(): KnownHostsFile {
+    const { stored, tooNew } = this.read()
+    if (tooNew) {
+      throw new Error('Trusted server keys were saved by a newer version of Quoth, so they cannot be changed here.')
+    }
+    return stored
   }
 
   private write(stored: KnownHostsFile): void {
@@ -60,7 +94,13 @@ export class KnownHostsStore implements KnownHostsReader {
   }
 
   get(hostId: string): KnownHost[] {
-    return this.read().hosts[hostId] ?? []
+    try {
+      return this.read().stored.hosts[hostId] ?? []
+    } catch {
+      // Unreadable fails closed: every connection is refused until the author
+      // accepts a fingerprint again.
+      return []
+    }
   }
 
   /**
@@ -71,7 +111,7 @@ export class KnownHostsStore implements KnownHostsReader {
    * path that quietly adds one.
    */
   trust(hostId: string, presented: PresentedHostKey): void {
-    const stored = this.read()
+    const stored = this.readForWrite()
     const existing = stored.hosts[hostId] ?? []
     stored.hosts[hostId] = [
       ...existing.filter((entry) => entry.algorithm !== presented.algorithm),
@@ -82,7 +122,7 @@ export class KnownHostsStore implements KnownHostsReader {
 
   /** Drop every key for a host, so the next connection asks again. */
   forget(hostId: string): void {
-    const stored = this.read()
+    const stored = this.readForWrite()
     delete stored.hosts[hostId]
     this.write(stored)
   }

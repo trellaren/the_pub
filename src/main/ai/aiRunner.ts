@@ -90,7 +90,9 @@ export async function streamCompletion(
 
   try {
     const { url, init } = buildRequest(request)
-    const response = await fetch(url, { ...init, signal })
+    // A provider answering with a redirect could otherwise forward the request,
+    // API key header included, to a host the writer never configured.
+    const response = await fetch(url, { ...init, signal, redirect: 'error' })
 
     if (!response.ok) {
       return finish(errorMessage(response.status, await response.text().catch(() => '')))
@@ -184,7 +186,8 @@ export class AiRunner {
     const url = modelsUrl(settings)
     if (!url) return []
     const response = await fetch(url, {
-      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {}
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      redirect: 'error'
     })
     if (!response.ok) return []
     return parseModelList(await response.json().catch(() => null))

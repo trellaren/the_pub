@@ -97,6 +97,9 @@ export const Mention = Mark.create<MentionOptions>({
         allowSpaces: true,
         items: ({ query }) => matchEntities(getEntities(), query),
         command: ({ editor, range, props }) => insertMention(editor, range, props as StoryEntity),
+        // Escape dismisses the popup for this `@`; typing more of the name is
+        // the writer asking for it back, so any edit clears the dismissal.
+        shouldResetDismissed: ({ transaction }) => transaction.docChanged,
         render: renderPopup
       })
     ]
@@ -157,33 +160,60 @@ function insertMention(editor: Editor, range: Range, entity: StoryEntity): void 
  * whichever window that caret is in. Tailwind classes still apply because
  * dockview copies the stylesheets into popouts.
  */
+let popupCount = 0
+
 function renderPopup() {
   let element: HTMLDivElement | null = null
+  let editorDom: HTMLElement | null = null
   let items: StoryEntity[] = []
   let selected = 0
   let pick: ((entity: StoryEntity) => void) | null = null
+  const listId = `pub-mention-list-${++popupCount}`
+  const optionId = (index: number): string => `${listId}-${index}`
 
+  // Focus stays in the editor while the list is open, so the highlighted
+  // option is announced through aria-activedescendant on the editor itself.
   const draw = (): void => {
     if (!element) return
     element.replaceChildren()
     items.forEach((entity, index) => {
-      const button = element!.ownerDocument.createElement('button')
-      button.type = 'button'
-      button.className = [
-        'flex w-full items-center gap-2 px-2 py-1 text-left text-[12px]',
+      const option = element!.ownerDocument.createElement('div')
+      option.id = optionId(index)
+      option.setAttribute('role', 'option')
+      option.setAttribute('aria-selected', String(index === selected))
+      option.className = [
+        'flex w-full cursor-pointer items-center gap-2 px-2 py-1 text-left text-[12px]',
         index === selected ? 'bg-surface-3 text-text' : 'text-muted'
       ].join(' ')
       const dot = element!.ownerDocument.createElement('span')
       dot.className = 'h-2 w-2 shrink-0 rounded-full'
+      dot.setAttribute('aria-hidden', 'true')
       dot.style.background = entity.color ?? 'transparent'
-      button.append(dot, element!.ownerDocument.createTextNode(entity.name))
+      option.append(dot, element!.ownerDocument.createTextNode(entity.name))
       // mousedown, not click: the editor loses focus before click fires.
-      button.addEventListener('mousedown', (event) => {
+      option.addEventListener('mousedown', (event) => {
         event.preventDefault()
         pick?.(entity)
       })
-      element!.append(button)
+      element!.append(option)
     })
+    if (!editorDom) return
+    editorDom.setAttribute('aria-controls', listId)
+    editorDom.setAttribute('aria-expanded', String(items.length > 0))
+    if (items.length > 0) editorDom.setAttribute('aria-activedescendant', optionId(selected))
+    else editorDom.removeAttribute('aria-activedescendant')
+  }
+
+  const teardown = (): void => {
+    element?.remove()
+    element = null
+    items = []
+    if (editorDom) {
+      editorDom.removeAttribute('aria-activedescendant')
+      editorDom.removeAttribute('aria-controls')
+      editorDom.removeAttribute('aria-expanded')
+    }
+    editorDom = null
   }
 
   const place = (props: SuggestionProps<StoryEntity>): void => {
@@ -201,6 +231,10 @@ function renderPopup() {
       element.className =
         'pub-mention-popup fixed z-50 min-w-40 overflow-hidden rounded border border-border bg-surface-2 py-1 shadow-lg'
       element.dataset.testid = 'mention-popup'
+      element.id = listId
+      element.setAttribute('role', 'listbox')
+      element.setAttribute('aria-label', 'Records')
+      editorDom = props.editor.view.dom
       ownerDocument.body.append(element)
       items = props.items
       selected = 0
@@ -234,18 +268,14 @@ function renderPopup() {
         return true
       }
       if (event.key === 'Escape') {
-        element.remove()
-        element = null
+        // The suggestion plugin exits after this, and onExit tears down.
+        teardown()
         return true
       }
       return false
     },
 
-    onExit: () => {
-      element?.remove()
-      element = null
-      items = []
-    }
+    onExit: teardown
   }
 }
 

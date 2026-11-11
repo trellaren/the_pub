@@ -201,8 +201,17 @@ test('a read-only project refuses to change settings and says why', async () => 
 
   await expect(harness.page.locator('text=read-only').first()).toBeVisible()
 
-  await harness.page.getByLabel('Autosave delay (ms)').fill('999')
-  await harness.page.waitForTimeout(500)
+  const field = harness.page.getByLabel('Autosave delay (ms)')
+  const original = await field.inputValue()
+  await field.fill('999')
+
+  // The refusal is synchronous — `updateManifest` returns before any save is
+  // attempted — so the controlled field snapping back and the store still
+  // holding the old value are the positive proof, not the absence of a write.
+  await expect(field).toHaveValue(original)
+  expect(
+    await harness.page.evaluate(() => window.__pub.project.getState().project?.manifest.settings.autosaveDebounceMs)
+  ).not.toBe(999)
 
   const after = await readJson<ProjectManifest>(manifestFile())
   expect(after.settings.autosaveDebounceMs).not.toBe(999)

@@ -45,11 +45,11 @@ export class DocumentService {
       const after = await this.adapter.stat(docPath)
       const stable = before?.mtime === after?.mtime && before?.size === after?.size
       if (!stable && attempt < READ_ATTEMPTS) continue
-      const { value } = migrate('document', JSON.parse(raw.toString('utf8')))
+      const { value, tooNew } = migrate('document', JSON.parse(raw.toString('utf8')))
       const doc = pubDocumentSchema.parse(value)
       // Still moving after every attempt: a baseline of 0 never matches, so the
       // next save surfaces a conflict instead of trusting a mismatched pair.
-      return { doc, path: docPath, mtime: stable ? (after?.mtime ?? 0) : 0 }
+      return { doc, path: docPath, mtime: stable ? (after?.mtime ?? 0) : 0, ...(tooNew ? { tooNew } : {}) }
     }
   }
 
@@ -102,6 +102,9 @@ export class DocumentService {
     expectedMtime: number | null
   ): Promise<WriteResult> {
     const stat = await this.adapter.stat(docPath)
+    // Deleted or moved away since the renderer loaded it: recreating it here
+    // would resurrect a file someone meant to remove, or fork one they moved.
+    if (!stat && expectedMtime !== null) return { ok: false, reason: 'conflict', diskMtime: 0 }
     if (stat && expectedMtime !== null && stat.mtime !== undefined && stat.mtime !== expectedMtime) {
       return { ok: false, reason: 'conflict', diskMtime: stat.mtime }
     }

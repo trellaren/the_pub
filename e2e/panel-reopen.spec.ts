@@ -1,18 +1,12 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor } from './helpers.js'
 
 let harness: Harness
 
 test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
-
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
 
 /**
  * Resolves an earlier open question left by two prior passes: does opening a
@@ -30,9 +24,9 @@ test('the Research and Notes panels open without crashing after a project reopen
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await (await editor()).click()
+  await (await editor(harness.page)).click()
   await harness.page.keyboard.type('The quick brown fox jumps.')
-  await expect(await editor()).toContainText('The quick brown fox jumps.')
+  await expect(await editor(harness.page)).toContainText('The quick brown fox jumps.')
 
   const layoutFile = path.join(harness.projectDir, '.thepub', 'layouts.json')
   await waitFor(async () => {
@@ -56,16 +50,16 @@ test('the Research and Notes panels open without crashing after a project reopen
   // checking the panel rendered once.
   await harness.page.evaluate(() => window.__pub.runCommand('panel.research'))
   await expect(harness.page.getByText('No highlights yet')).toBeVisible()
-  await (await editor()).click()
+  await (await editor(harness.page)).click()
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.type(' Still alive.')
-  await expect(await editor()).toContainText('Still alive.')
+  await expect(await editor(harness.page)).toContainText('Still alive.')
 
   // Now the Notes panel, on the same reopened session.
   await harness.page.evaluate(() => window.__pub.runCommand('panel.notes'))
   await expect(harness.page.getByText(/no notes/i)).toBeVisible()
-  await (await editor()).click()
+  await (await editor(harness.page)).click()
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.type(' And still.')
-  await expect(await editor()).toContainText('And still.')
+  await expect(await editor(harness.page)).toContainText('And still.')
 })

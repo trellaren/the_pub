@@ -65,7 +65,8 @@ export const useSourceStore = create<SourceStore>((set, get) => ({
     const timer = pending.get(id)
     if (timer) clearTimeout(timer)
     pending.delete(id)
-    await attempt(invoke('sources:delete', { id }), 'Could not delete the source')
+    const deleted = await attempt(invoke('sources:delete', { id }), 'Could not delete the source')
+    if (!deleted) return
     set({ sources: get().sources.filter((source) => source.id !== id) })
   },
 

@@ -312,6 +312,14 @@ export function useConnectionDraft(onClose: () => void) {
     setHostKey(null)
   }
 
+  const chooseSqliteFile = async (): Promise<void> => {
+    const chosen = await attempt(invoke('connections:chooseSqliteFile', {}), 'Could not choose a database file')
+    const path = chosen?.path
+    if (!path) return
+    setDraft((current) => ({ ...current, host: path }))
+    setStatus(null)
+  }
+
   const forget = async (): Promise<void> => {
     const label = draft.name.trim() || defaultName(draft)
     const what = isOneDrive ? 'its sign-in' : 'its saved password or key passphrase'
@@ -339,6 +347,7 @@ export function useConnectionDraft(onClose: () => void) {
     isOneDrive,
     isDb,
     isSqlite,
+    chooseSqliteFile,
     edit,
     startNew,
     save,

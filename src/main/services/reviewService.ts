@@ -14,6 +14,7 @@ import {
 import { authorsFileSchema, EMPTY_AUTHORS_FILE, type AuthorProfile } from '../../shared/model/author.js'
 import { migrate } from '../../shared/model/migrate.js'
 import { TooNewError } from './jsonCollectionService.js'
+import { SerialQueue, jsonBytes } from './versionedJson.js'
 import { findAnchor } from '../../shared/pm/anchors.js'
 import type { PmDoc } from '../../shared/model/document.js'
 import { REVIEWS_DIR, AUTHORS_FILE, FORMAT_VERSIONS } from '../../shared/constants.js'
@@ -37,11 +38,11 @@ export class ReviewService {
   /** Review files (`docId/authorId`) a newer build wrote: read, never rewritten. */
   private tooNew = new Set<string>()
   /**
-   * False when `authors.json` exists but this build cannot safely rewrite it —
-   * too new, or unreadable. Registering ourselves would otherwise replace the
-   * whole shared registry with a list of one.
+   * Review files (`docId/authorId`) that exist but could not be read. Writing
+   * ours would otherwise start from empty and replace every comment in it.
    */
-  private authorsWritable = true
+  private unreadable = new Set<string>()
+  private readonly authorWrites = new SerialQueue()
 
   constructor(
     private readonly adapter: VfsAdapter,
@@ -72,6 +73,8 @@ export class ReviewService {
     for (const entry of entries) {
       if (entry.kind !== 'file' || !entry.path.endsWith('.json')) continue
       const authorId = entry.name.replace(/\.json$/, '')
+      const key = `${docId}/${authorId}`
+      this.unreadable.delete(key)
       try {
         const raw = await this.adapter.readFile(entry.path)
         const { value, tooNew } = migrate('reviews', JSON.parse(raw.toString('utf8')))
@@ -83,7 +86,9 @@ export class ReviewService {
       } catch {
         // One unreadable reviewer's file must not empty the whole discussion.
         // Skipped rather than renamed: it is not ours to move, and the person
-        // who wrote it still has it.
+        // who wrote it still has it. If it is ours, it stays unwritable until
+        // it reads cleanly.
+        this.unreadable.add(key)
       }
     }
     this.cache.set(docId, byAuthor)
@@ -108,6 +113,9 @@ export class ReviewService {
   }
 
   private async flush(docId: string, as: AuthorProfile = this.me()): Promise<void> {
+    if (this.unreadable.has(`${docId}/${as.id}`)) {
+      throw new Error(`${this.pathFor(docId, as.id)} could not be read, so it cannot be changed here.`)
+    }
     if (this.tooNew.has(`${docId}/${as.id}`)) throw new TooNewError(`${this.dirFor(docId)}/${as.id}.json`)
     const file = (await this.loadDoc(docId)).get(as.id)
     if (!file) return
@@ -276,49 +284,53 @@ export class ReviewService {
   /** The project's author registry, read once per session unless invalidated. */
   async listAuthors(): Promise<AuthorProfile[]> {
     if (this.authors) return this.authors
-    this.authorsWritable = true
-    if (!(await this.adapter.stat(AUTHORS_FILE).catch(() => null))) {
-      this.authors = []
-      return this.authors
-    }
+    this.authors = (await this.readAuthors()).authors
+    return this.authors
+  }
+
+  /**
+   * `writable` is false when the file exists but this build cannot safely
+   * rewrite it — too new, or unreadable — since registering ourselves would
+   * otherwise replace the whole shared registry with a list of one.
+   */
+  private async readAuthors(): Promise<{ authors: AuthorProfile[]; writable: boolean }> {
+    if (!(await this.adapter.stat(AUTHORS_FILE).catch(() => null))) return { authors: [], writable: true }
     try {
       const raw = await this.adapter.readFile(AUTHORS_FILE)
       const { value, tooNew } = migrate('authors', JSON.parse(raw.toString('utf8')))
-      if (tooNew) this.authorsWritable = false
       const parsed = authorsFileSchema.safeParse(value)
-      if (!parsed.success && !tooNew) throw parsed.error
-      this.authors = parsed.success ? parsed.data.authors : []
+      return { authors: parsed.success ? parsed.data.authors : [], writable: parsed.success && !tooNew }
     } catch {
-      this.authorsWritable = false
-      this.authors = []
+      return { authors: [], writable: false }
     }
-    return this.authors
   }
 
   /**
    * Record who we are in the project, on open.
    *
-   * Last-writer-wins per entry, which is fine: the value is display metadata,
-   * and the worst case is a stale display name.
+   * Merged per entry against a fresh read of the file, not the session's
+   * cached copy: a collaborator who registered since we last read it would
+   * otherwise be dropped by our write.
    */
   async registerAuthor(profile: AuthorProfile): Promise<void> {
-    const authors = await this.listAuthors()
-    const existing = authors.find((author) => author.id === profile.id)
-    if (existing && existing.name === profile.name && existing.color === profile.color) return
+    const known = (await this.listAuthors()).find((author) => author.id === profile.id)
+    if (known && known.name === profile.name && known.color === profile.color) return
 
-    const next = existing
-      ? authors.map((author) => (author.id === profile.id ? profile : author))
-      : [...authors, profile]
-    this.authors = next
-    if (!this.authorsWritable) return
-    await this.adapter
-      .writeFileAtomic(
-        AUTHORS_FILE,
-        Buffer.from(
-          `${JSON.stringify({ ...EMPTY_AUTHORS_FILE, formatVersion: FORMAT_VERSIONS.authors, authors: next }, null, 2)}\n`,
-          'utf8'
+    await this.authorWrites
+      .run(async () => {
+        const fresh = await this.readAuthors()
+        const index = fresh.authors.findIndex((author) => author.id === profile.id)
+        const next =
+          index === -1
+            ? [...fresh.authors, profile]
+            : fresh.authors.map((author) => (author.id === profile.id ? profile : author))
+        this.authors = next
+        if (!fresh.writable) return
+        await this.adapter.writeFileAtomic(
+          AUTHORS_FILE,
+          jsonBytes({ ...EMPTY_AUTHORS_FILE, formatVersion: FORMAT_VERSIONS.authors, authors: next })
         )
-      )
+      })
       .catch(() => {})
   }
 

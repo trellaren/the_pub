@@ -1,17 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { launch, openProject, createDocument, cleanup, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, type Harness, editor } from './helpers.js'
 
 let harness: Harness
 
 test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
-
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
 
 /**
  * The title of the dock tab whose `[role="tabpanel"]` currently contains
@@ -37,7 +31,7 @@ test('Escape moves focus out of the editor so a following Tab can leave it', asy
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('Some prose.')
   await expect(el).toBeFocused()
@@ -125,7 +119,7 @@ test('search result counts land in a polite live region', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('The lighthouse keeper walked the shore.')
 
@@ -143,7 +137,7 @@ test('a completed save is announced in a polite live region', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('Something worth saving.')
 
@@ -166,11 +160,13 @@ test('the dock stays usable at 200% zoom', async () => {
   await harness.page.evaluate(() => window.__pub.runCommand('panel.search'))
   await harness.page.evaluate(() => window.__pub.runCommand('panel.explorer'))
 
+  const baseRatio = await harness.page.evaluate(() => window.devicePixelRatio)
   await harness.app.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.setZoomFactor(2)
   })
-  // `setZoomFactor` takes effect asynchronously in the renderer.
-  await harness.page.waitForTimeout(300)
+  // `setZoomFactor` takes effect asynchronously in the renderer; page zoom
+  // shows up there as a scaled devicePixelRatio.
+  await harness.page.waitForFunction((base) => window.devicePixelRatio >= base * 2 - 0.01, baseRatio)
 
   // Still on screen and not clipped to nothing: a broken-at-scale layout
   // typically collapses a panel to zero width/height rather than merely
@@ -181,7 +177,7 @@ test('the dock stays usable at 200% zoom', async () => {
   expect(treeBox?.width ?? 0).toBeGreaterThan(20)
   expect(treeBox?.height ?? 0).toBeGreaterThan(20)
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await expect(el).toBeVisible()
   const editorBox = await el.boundingBox()
   expect(editorBox?.width ?? 0).toBeGreaterThan(20)

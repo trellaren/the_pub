@@ -7,7 +7,7 @@ import {
 /** The subset of `fetch` this module uses, so a test can supply one by hand — see `capture.ts`. */
 export type SearchFetch = (
   url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string }
+  init?: { method?: string; headers?: Record<string, string>; body?: string; redirect?: 'error' }
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
 
 export interface SearchOptions {
@@ -45,7 +45,9 @@ export async function webSearch(
   const request = buildSearchRequest(provider, baseUrl, query, limit, options.apiKey)
   let response: Awaited<ReturnType<SearchFetch>>
   try {
-    response = await options.fetchImpl(request.url, request.init)
+    // The key rides in a custom header, which a followed redirect would carry
+    // to whatever host the provider (or anyone in between) points at.
+    response = await options.fetchImpl(request.url, { ...request.init, redirect: 'error' })
   } catch {
     return { ok: false, reason: 'offline' }
   }

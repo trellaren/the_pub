@@ -53,6 +53,8 @@ const timers = new Map<string, SaveTimer>()
 const saving = new Set<string>()
 /** Each in-flight save, resolving to the mtime it wrote, or null if it did not write. */
 const inflight = new Map<string, Promise<number | null>>()
+/** Opens still reading, keyed by `path:` or `id:`, so a double open shares one editor. */
+const opening = new Map<string, Promise<string | null>>()
 
 async function saveClosed(docId: string, state: OpenDocument, content: PmDoc): Promise<void> {
   const project = useProjectStore.getState().project
@@ -128,8 +130,19 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     timers.set(docId, { timeout, firstDirtyAt })
   }
 
-  function attach(loaded: { doc: PubDocument; path: string; mtime: number }): string {
+  function dedupe(key: string, open: () => Promise<string | null>): Promise<string | null> {
+    const existing = opening.get(key)
+    if (existing) return existing
+    const started = open().finally(() => opening.delete(key))
+    opening.set(key, started)
+    return started
+  }
+
+  function attach(loaded: { doc: PubDocument; path: string; mtime: number; tooNew?: boolean }): string {
     const { doc, path, mtime } = loaded
+    // The same document can arrive by path and by id at once; a second editor
+    // over it would be orphaned, still holding its own copy of the content.
+    if (get().docs[doc.docId] && editors.has(doc.docId)) return doc.docId
     // Document -> project -> OS default, in that order — the same fallback
     // `createEditor`'s `lang` attribute uses, so the spellchecker never
     // disagrees with what the document itself claims to be written in.
@@ -163,7 +176,9 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           dirty: false,
           saving: false,
           conflict: false,
-          tooNew: false,
+          // A file a newer build wrote opens read-only from the start, rather
+          // than only after the first save is refused.
+          tooNew: loaded.tooNew === true,
           missing: false,
           saveError: null,
           mtime,
@@ -180,24 +195,26 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
 
     setActive: (docId) => set({ activeDocId: docId }),
 
-    openPath: async (path) => {
+    openPath: (path) => {
       const already = Object.values(get().docs).find((candidate) => candidate.path === path)
-      if (already) return already.docId
-      const loaded = await attempt(invoke('doc:read', { path }), `Could not open ${path}`)
-      if (!loaded) return null
-      return attach(loaded)
+      if (already) return Promise.resolve(already.docId)
+      return dedupe(`path:${path}`, async () => {
+        const loaded = await attempt(invoke('doc:read', { path }), `Could not open ${path}`)
+        return loaded ? attach(loaded) : null
+      })
     },
 
-    openDocId: async (docId, fallbackPath) => {
-      if (get().docs[docId]) return docId
-      // Prefer the id: the file may have been renamed or moved since the layout
-      // that referenced it was saved.
-      const resolved = await invoke('doc:resolve', { docId }).catch(() => null)
-      const path = resolved?.path ?? fallbackPath
-      if (!path) return null
-      const loaded = await invoke('doc:read', { path }).catch(() => null)
-      if (!loaded) return null
-      return attach(loaded)
+    openDocId: (docId, fallbackPath) => {
+      if (get().docs[docId]) return Promise.resolve(docId)
+      return dedupe(`id:${docId}`, async () => {
+        // Prefer the id: the file may have been renamed or moved since the
+        // layout that referenced it was saved.
+        const resolved = await invoke('doc:resolve', { docId }).catch(() => null)
+        const path = resolved?.path ?? fallbackPath
+        if (!path) return null
+        const loaded = await invoke('doc:read', { path }).catch(() => null)
+        return loaded ? attach(loaded) : null
+      })
     },
 
     create: async (path, title) => {
@@ -298,6 +315,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           // Someone else wrote the file. Keep the buffer dirty so nothing is lost
           // and let the writer choose.
           patch(docId, { saving: false, dirty: true, conflict: true })
+        } else if ((result.reason as string) === 'missing') {
+          // The file was deleted underneath us: the same state the watcher
+          // reports, whose bar offers Save As for the buffer still open.
+          patch(docId, { saving: false, dirty: true, missing: true })
         } else {
           // The file on disk is newer than this build understands. Keep the
           // buffer dirty — nothing here is lost — but there is no choice to
@@ -342,7 +363,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       patch(docId, {
         dirty: false,
         conflict: false,
-        tooNew: false,
+        tooNew: (loaded as { tooNew?: boolean }).tooNew === true,
         missing: false,
         saveError: null,
         mtime: loaded.mtime,

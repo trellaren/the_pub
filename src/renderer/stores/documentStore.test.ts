@@ -104,6 +104,49 @@ describe('documentStore.renamePath', () => {
   })
 })
 
+describe('documentStore open', () => {
+  it('shares one editor between two concurrent opens of the same path', async () => {
+    const read = deferred<unknown>()
+    invoke.mockImplementation(() => read.promise)
+    const first = useDocumentStore.getState().openPath('a.pub')
+    const second = useDocumentStore.getState().openPath('a.pub')
+    read.resolve({ doc: envelope('d1'), path: 'a.pub', mtime: 1 })
+    expect(await first).toBe('d1')
+    expect(await second).toBe('d1')
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not replace the editor when the same document arrives by path and by id', async () => {
+    const read = deferred<unknown>()
+    invoke.mockImplementation((channel: string) =>
+      channel === 'doc:resolve' ? Promise.resolve({ path: 'a.pub' }) : read.promise
+    )
+    const byPath = useDocumentStore.getState().openPath('a.pub')
+    const byId = useDocumentStore.getState().openDocId('d1')
+    read.resolve({ doc: envelope('d1'), path: 'a.pub', mtime: 1 })
+    await byPath
+    const editor = getEditor('d1')
+    await byId
+    expect(getEditor('d1')).toBe(editor)
+  })
+
+  it('opens read-only when the read says a newer build wrote the file', async () => {
+    invoke.mockImplementationOnce(async () => ({ doc: envelope('d1'), path: 'a.pub', mtime: 1, tooNew: true }))
+    await useDocumentStore.getState().openPath('a.pub')
+    expect(useDocumentStore.getState().docs.d1!.tooNew).toBe(true)
+  })
+
+  it('treats a write to a deleted file as the missing-file state', async () => {
+    await openDoc('d1', 'a.pub')
+    invoke.mockImplementation(async () => ({ ok: false, reason: 'missing' }))
+    await useDocumentStore.getState().save('d1')
+    const state = useDocumentStore.getState().docs.d1!
+    expect(state.missing).toBe(true)
+    expect(state.dirty).toBe(true)
+    expect(state.tooNew).toBe(false)
+  })
+})
+
 describe('documentStore.discardAll', () => {
   it('destroys every editor and forgets every document', async () => {
     await openDoc('d1', 'a.pub')

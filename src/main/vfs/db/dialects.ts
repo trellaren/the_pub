@@ -18,6 +18,20 @@ export interface DbTarget {
   database: string
 }
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+/**
+ * Verified TLS for any server not on this machine. Neither driver encrypts by
+ * default, so without this the password and the manuscript cross the network
+ * in the clear. Loopback is exempt: a local development server rarely has a
+ * certificate, and the traffic never leaves the machine.
+ */
+export function tlsFor(host: string): { rejectUnauthorized: true } | undefined {
+  const normalized = host.trim().toLowerCase()
+  if (!normalized || LOCAL_HOSTS.has(normalized) || normalized.endsWith('.localhost')) return undefined
+  return { rejectUnauthorized: true }
+}
+
 export function sqliteDialect(file: string): DbDialect {
   return {
     engine: 'sqlite',
@@ -76,7 +90,8 @@ export function postgresDialect(target: DbTarget): DbDialect {
         port: target.port,
         user: target.user,
         password: target.password,
-        database: target.database
+        database: target.database,
+        ssl: tlsFor(target.host)
       })
       await client.connect()
 
@@ -136,7 +151,8 @@ export function mysqlDialect(target: DbTarget): DbDialect {
         port: target.port,
         user: target.user,
         password: target.password,
-        database: target.database
+        database: target.database,
+        ssl: tlsFor(target.host)
       })
 
       return serialiseConnection({

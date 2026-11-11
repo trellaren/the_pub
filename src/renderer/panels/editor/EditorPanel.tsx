@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { Selection } from '@tiptap/pm/state'
 import type { IDockviewPanelProps } from 'dockview-react'
 import { useDocumentStore, getEditor } from '@renderer/stores/documentStore.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
@@ -205,7 +206,12 @@ export function EditorPanel(props: IDockviewPanelProps<EditorPanelParams>) {
           onClick={(event) => {
             // The blank expanse below the prose is still the page: clicking it
             // puts the cursor at the end, instead of doing visibly nothing.
-            if (event.target === event.currentTarget) editor.chain().focus('end').run()
+            // Focused here rather than through TipTap's focus(), which waits a
+            // frame — a key typed straight after the click would be lost.
+            if (event.target !== event.currentTarget) return
+            const { state, view } = editor
+            view.dispatch(state.tr.setSelection(Selection.atEnd(state.doc)).scrollIntoView())
+            view.focus()
           }}
         >
           <EditorContent editor={editor} />

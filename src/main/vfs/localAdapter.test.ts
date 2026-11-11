@@ -191,3 +191,25 @@ describe('LocalAdapter symlink containment', () => {
     expect(await fs.readFile(path.join(outside, 'secret.txt'), 'utf8')).toBe('private')
   })
 })
+
+describe('LocalAdapter.watch', () => {
+  it('does not throw when a watched folder becomes a file just after unwatching', async () => {
+    const uncaught: unknown[] = []
+    const record = (error: unknown): void => void uncaught.push(error)
+    process.on('uncaughtException', record)
+    try {
+      await fs.mkdir(path.join(root, 'project'))
+      const unwatch = await adapter.watch('', () => {})
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await fs.writeFile(path.join(root, 'project', 'untitled.pubdoc'), '{}')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      await unwatch()
+      await fs.rm(path.join(root, 'project'), { recursive: true })
+      await fs.writeFile(path.join(root, 'project'), 'no longer a folder')
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    } finally {
+      process.off('uncaughtException', record)
+    }
+    expect(uncaught).toEqual([])
+  })
+})

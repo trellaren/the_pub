@@ -311,17 +311,31 @@ export class LocalAdapter implements VfsAdapter {
       .on('unlink', push('unlink'))
       .on('addDir', push('addDir'))
       .on('unlinkDir', push('unlinkDir'))
+      .on('error', (error: unknown) => console.warn('File watcher:', error))
 
     this.watchers.add(watcher)
     return async () => {
       this.watchers.delete(watcher)
       if (timer) clearTimeout(timer)
-      await watcher.close()
+      await closeWatcher(watcher)
     }
   }
 
   async dispose(): Promise<void> {
-    await Promise.all([...this.watchers].map((watcher) => watcher.close()))
+    await Promise.all([...this.watchers].map(closeWatcher))
     this.watchers.clear()
   }
+}
+
+/**
+ * chokidar's close() drops every listener, but an awaitWriteFinish poll
+ * already scheduled still fires and can emit 'error' (ENOTDIR once a watched
+ * folder is replaced by a file). An 'error' nobody hears is thrown as an
+ * uncaught exception, which Electron answers with a modal dialog that freezes
+ * the app — so something has to keep listening after the close.
+ */
+async function closeWatcher(watcher: FSWatcher): Promise<void> {
+  const closing = watcher.close()
+  watcher.on('error', () => {})
+  await closing
 }

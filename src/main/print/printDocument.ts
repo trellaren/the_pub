@@ -2,7 +2,7 @@ import type { PmDoc } from '../../shared/model/document.js'
 import { pageMargins } from '../../shared/model/document.js'
 import type { PageSetup } from '../../shared/model/document.js'
 import type { NamedStyle } from '../../shared/model/style.js'
-import { documentToXhtml } from '../epub/xhtml.js'
+import { documentToXhtml, escapeXml } from '../epub/xhtml.js'
 import { buildStylesheet } from '../epub/css.js'
 
 export interface PrintDocument {
@@ -20,7 +20,7 @@ export function directionFor(lang: string | undefined): 'rtl' | 'ltr' {
 }
 
 function langAttrs(lang: string | undefined): string {
-  return lang ? ` lang="${escapeHtml(lang)}" dir="${directionFor(lang)}"` : ''
+  return lang ? ` lang="${escapeXml(lang)}" dir="${directionFor(lang)}"` : ''
 }
 
 export interface PrintImage {
@@ -73,7 +73,7 @@ p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th { unicode-bidi: plaintext; }`
 <html${langAttrs(projectLang ?? documents[0]?.lang)}>
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(documents[0]?.title ?? 'Print')}</title>
+<title>${escapeXml(documents[0]?.title ?? 'Print')}</title>
 <style>${css}</style>
 </head>
 <body>
@@ -110,8 +110,4 @@ function mimeFor(extension: string): string {
     default:
       return 'image/png'
   }
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

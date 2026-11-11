@@ -55,7 +55,8 @@ const saving = new Set<string>()
 const inflight = new Map<string, Promise<number | null>>()
 
 async function saveClosed(docId: string, state: OpenDocument, content: PmDoc): Promise<void> {
-  if (useProjectStore.getState().project?.readOnly) return
+  const project = useProjectStore.getState().project
+  if (!project || project.readOnly) return
   const written = await inflight.get(docId)
   try {
     const result = await invoke('doc:write', {
@@ -82,6 +83,8 @@ interface DocumentStore {
   /** Retitle a document — the envelope's `title`, not its filename. */
   renameTitle: (docId: string, title: string) => Promise<void>
   close: (docId: string) => void
+  /** Drop every open document without saving — the session they belonged to is gone. */
+  discardAll: () => void
   save: (docId: string) => Promise<void>
   saveAll: () => Promise<void>
   flushAll: () => Promise<void>
@@ -235,14 +238,25 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       set({ docs: rest, activeDocId: get().activeDocId === docId ? null : get().activeDocId })
     },
 
+    discardAll: () => {
+      for (const timer of timers.values()) clearTimeout(timer.timeout)
+      timers.clear()
+      for (const editor of editors.values()) editor.destroy()
+      editors.clear()
+      set(useDocumentStore.getInitialState(), true)
+    },
+
     save: async (docId) => {
       const state = get().docs[docId]
       const editor = editors.get(docId)
       if (!state || !editor || state.missing) return
+      // No session means nowhere to write; the editor is about to be torn down.
+      const project = useProjectStore.getState().project
+      if (!project) return
       // The manifest is newer than this build; the project opened read-only
       // rather than risk a save that can't round-trip it. Not this document's
       // problem to solve, but the project-level bar already says so.
-      if (useProjectStore.getState().project?.readOnly) return
+      if (project.readOnly) return
       if (saving.has(docId)) {
         // A save is already writing; make sure the newer content follows it.
         schedule(docId)

@@ -74,4 +74,22 @@ describe('documentStore.save', () => {
     expect(state.mtime).toBe(2)
     expect(getEditor('d1')).toBeDefined()
   })
+
+  it('does not write once the project is gone', async () => {
+    await openDoc('d1', 'a.pub')
+    useProjectStore.setState({ project: null })
+    await useDocumentStore.getState().save('d1')
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('documentStore.discardAll', () => {
+  it('destroys every editor and forgets every document', async () => {
+    await openDoc('d1', 'a.pub')
+    const editor = getEditor('d1')!
+    useDocumentStore.getState().discardAll()
+    expect(editor.destroy).toHaveBeenCalled()
+    expect(getEditor('d1')).toBeUndefined()
+    expect(useDocumentStore.getState().docs).toEqual({})
+  })
 })

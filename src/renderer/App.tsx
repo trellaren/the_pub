@@ -6,7 +6,7 @@ import { CommandPalette } from './commands/CommandPalette.js'
 import { useAppStore } from './stores/appStore.js'
 import { useProjectStore } from './stores/projectStore.js'
 import { useDocumentStore } from './stores/documentStore.js'
-import { useLayoutStore, restoreLayout } from './stores/layoutStore.js'
+import { useLayoutStore } from './stores/layoutStore.js'
 import type { DockLayout } from '@shared/model/layout.js'
 import { useEntityStore } from './stores/entityStore.js'
 import { useSourceStore } from './stores/sourceStore.js'
@@ -15,6 +15,7 @@ import { useMapStore } from './stores/mapStore.js'
 import { useChatStore } from './stores/chatStore.js'
 import { useStatsStore } from './stores/statsStore.js'
 import { flushPendingWrites, resetDocumentScopedStores } from './stores/pendingWrites.js'
+import { resetToNoProject } from './stores/resetToNoProject.js'
 import { isRegistered, registerCommand, runCommand } from './commands/registry.js'
 import { PromptHost, promptForName } from './ui/PromptDialog.js'
 import { invoke, on, onNotice, attempt, reportError, reportNotice, type Notice } from './lib/ipc.js'
@@ -441,21 +442,7 @@ async function closeProject(): Promise<void> {
   }
   const closed = await attempt(invoke('project:close', {}), 'Could not close the project')
   if (!closed) return
-  useProjectStore.setState({ project: null })
-  if (api) {
-    // Clearing and re-adding a panel id in one tick lets the old panel's
-    // overlay teardown land on the new one, leaving Welcome hidden; rebuild a
-    // frame after the clear instead.
-    api.clear()
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-    restoreLayout(api, null)
-  }
-  resetDocumentScopedStores()
-  useDocumentStore.setState(useDocumentStore.getInitialState(), true)
-  useEntityStore.setState(useEntityStore.getInitialState(), true)
-  useBeatStore.setState(useBeatStore.getInitialState(), true)
-  useMapStore.setState(useMapStore.getInitialState(), true)
-  useSourceStore.setState(useSourceStore.getInitialState(), true)
+  await resetToNoProject()
 }
 
 async function createDocument(): Promise<void> {

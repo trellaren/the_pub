@@ -28,6 +28,7 @@ import {
 /** Shared, because a fresh `[]` from a selector re-renders forever — see `WelcomePanel`. */
 const NO_THREADS: AssembledThread[] = []
 const NO_ENTRIES: ProvenanceEntry[] = []
+const SUGGESTION_LIST_DEBOUNCE_MS = 250
 
 export function ReviewPanel() {
   const docId = useDocumentStore((store) => store.activeDocId)
@@ -78,10 +79,35 @@ export function ReviewPanel() {
     selector: ({ editor: current }) => current?.state.doc ?? null,
     equalityFn: (a, b) => a === b
   })
+  // Serialising and walking a whole chapter per keystroke is what made typing
+  // with this panel open lag; the list only has to catch up once typing pauses.
+  const [settledDoc, setSettledDoc] = useState(currentDoc)
+  useEffect(() => {
+    if (currentDoc === settledDoc) return
+    if (!currentDoc || !settledDoc) {
+      setSettledDoc(currentDoc)
+      return
+    }
+    const timer = setTimeout(() => setSettledDoc(currentDoc), SUGGESTION_LIST_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [currentDoc, settledDoc])
   const suggestions = useMemo(
-    () => (currentDoc ? listSuggestions(currentDoc.toJSON() as PmDoc) : []),
-    [currentDoc]
+    () => (settledDoc ? listSuggestions(settledDoc.toJSON() as PmDoc) : []),
+    [settledDoc]
   )
+
+  // The list can trail the document by the debounce, and suggestions are
+  // resolved by index: refuse a row whose live counterpart has moved rather
+  // than accept the wrong edit, and catch the list up either way.
+  function resolveShown(accept: boolean, index: number): void {
+    if (!editor) return
+    const shown = suggestions[index]
+    const live = listSuggestions(editor.getJSON() as PmDoc)[index]
+    if (shown && live && shown.mark === live.mark && shown.text === live.text && shown.authorId === live.authorId) {
+      resolveSuggestion(editor, accept, index)
+    }
+    setSettledDoc(editor.state.doc)
+  }
 
   if (!docId) {
     return (
@@ -164,13 +190,13 @@ export function ReviewPanel() {
                 </button>
                 <ToolbarButton
                   label="Accept"
-                  onClick={() => editor && resolveSuggestion(editor, true, index)}
+                  onClick={() => resolveShown(true, index)}
                 >
                   ✓
                 </ToolbarButton>
                 <ToolbarButton
                   label="Reject"
-                  onClick={() => editor && resolveSuggestion(editor, false, index)}
+                  onClick={() => resolveShown(false, index)}
                 >
                   ✕
                 </ToolbarButton>

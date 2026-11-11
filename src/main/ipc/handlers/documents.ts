@@ -3,6 +3,7 @@ import { dialog } from 'electron'
 import type { IpcRes } from '../../../shared/ipc/contract.js'
 import type { ProjectSession } from '../../services/projectSession.js'
 import { assetUrl } from '../../protocol/assetProtocol.js'
+import { isImageAssetExtension } from '../assetTypes.js'
 import type { ExportItem } from '../../../shared/model/manuscript.js'
 import { exportWarnings, type PublishFormat } from '../../../shared/model/publish.js'
 import { requirePortableName, type HandlerContext } from '../context.js'
@@ -137,6 +138,7 @@ export function register(ctx: HandlerContext): void {
   )
 
   handle('doc:writeAsset', async ({ dataBase64, ext }, event) => {
+    if (!isImageAssetExtension(ext)) throw new Error(`Not an image type Quoth can show: .${ext}`)
     const session = requireSession(event)
     const assetPath = await session.documents.writeAsset(dataBase64, ext)
     return { path: assetPath, url: assetUrl(session, assetPath) }

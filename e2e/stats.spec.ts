@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor } from './helpers.js'
 import type { StatsFile } from '../src/shared/model/stats.js'
 
 let harness: Harness
@@ -8,12 +8,6 @@ let harness: Harness
 test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
-
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
 
 /** The one stats file a fresh project's local author writes to. */
 async function statsFiles(): Promise<string[]> {
@@ -27,9 +21,9 @@ test('typing persists today’s word count and the Progress panel shows it after
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  await (await editor()).click()
+  await (await editor(harness.page)).click()
   await harness.page.keyboard.type('The quick brown fox jumps over the lazy dog.')
-  await expect(await editor()).toContainText('jumps over the lazy dog')
+  await expect(await editor(harness.page)).toContainText('jumps over the lazy dog')
 
   // Wait for the autosave debounce, which is what triggers the stats record.
   await waitFor(async () => {

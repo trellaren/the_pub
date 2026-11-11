@@ -4,8 +4,8 @@ import path from 'node:path'
 import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { unzipSync, strFromU8 } from 'fflate'
-import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness, importPicked } from './helpers.js'
+import { unzipSync } from 'fflate'
+import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness, importPicked, write, documentXml } from './helpers.js'
 import { buildDocx, paragraph, run, WORD_STYLES } from '../src/main/docx/fixtures.js'
 import { writeTinyPng, tinyPngBytes } from './images.js'
 import type { ProjectManifest } from '../src/shared/model/manifest.js'
@@ -21,24 +21,6 @@ test.afterEach(async () => {
   if (harness) await cleanup(harness)
   await fs.rm(scratch, { recursive: true, force: true }).catch(() => {})
 })
-
-/**
- * Type some prose into the open editor and get it on disk.
- *
- * Scoped to the visible sheet: a second open document leaves its editor mounted
- * in the hidden dock panel, so an unqualified locator matches both.
- */
-async function write(text: string): Promise<void> {
-  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
-  await expect(editor).toBeVisible()
-  await editor.click()
-  await harness.page.keyboard.type(text)
-  await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
-}
-
-function documentXml(bytes: Uint8Array): string {
-  return strFromU8(unzipSync(bytes)['word/document.xml']!)
-}
 
 const execFileAsync = promisify(execFile)
 
@@ -101,7 +83,7 @@ test('a document exports to a .docx that carries the prose and the style', async
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await write('The lighthouse keeper counted the days.')
+  await write(harness.page, 'The lighthouse keeper counted the days.')
 
   const target = path.join(scratch, 'chapter.docx')
   const result = await harness.page.evaluate(
@@ -216,9 +198,9 @@ test('several documents export into one file, page-broken between', async () => 
   await openProject(harness.page, harness.projectDir)
 
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await write('The first chapter.')
+  await write(harness.page, 'The first chapter.')
   await createDocument(harness.page, 'chapter-02.pubdoc')
-  await write('The second chapter.')
+  await write(harness.page, 'The second chapter.')
 
   const target = path.join(scratch, 'book.docx')
   await harness.page.evaluate(
@@ -257,7 +239,7 @@ test('an exported .docx is accepted by a real OOXML reader', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await write('The lighthouse keeper counted the days.')
+  await write(harness.page, 'The lighthouse keeper counted the days.')
 
   const target = path.join(scratch, 'chapter.docx')
   await harness.page.evaluate(
@@ -322,7 +304,7 @@ test('an image inserted into a document survives the round trip to Word', async 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await write('A picture follows.')
+  await write(harness.page, 'A picture follows.')
 
   // Through the toolbar, as an author would: the button opens a file picker,
   // so this covers the renderer's own insert path as well as the exporter's.

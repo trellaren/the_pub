@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor, setText, selectRange } from './helpers.js'
 import type { HighlightFile } from '../src/shared/model/highlight.js'
 
 let harness: Harness
@@ -17,33 +17,12 @@ async function readHighlights(projectDir: string, docId: string): Promise<Highli
   return readJson<HighlightFile>(highlightsFile(projectDir, docId))
 }
 
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-async function setText(text: string): Promise<void> {
-  const el = await editor()
-  await el.click()
-  await harness.page.keyboard.press('ControlOrMeta+a')
-  await harness.page.keyboard.type(text)
-  await expect(el).toContainText(text)
-}
-
-async function selectRange(start: number, end: number): Promise<void> {
-  const el = await editor()
-  await el.press('Home')
-  for (let i = 0; i < start; i++) await el.press('ArrowRight')
-  for (let i = 0; i < end - start; i++) await el.press('Shift+ArrowRight')
-}
-
 test('a document highlight can be collected, categorised, and survives closing and reopening the project', async () => {
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   const docId = await createDocument(harness.page, 'chapter-01.pubdoc')
-  await setText('The quick brown fox jumps.')
-  await selectRange(4, 15)
+  await setText(harness.page, 'The quick brown fox jumps.')
+  await selectRange(harness.page, 4, 15)
 
   // Colour the selection, then collect it into the Research panel — mirroring
   // what a click on the toolbar's yellow swatch and its "Collect…" select do.
@@ -78,7 +57,7 @@ test('a document highlight can be collected, categorised, and survives closing a
   // so the layout persisted below restores with the document active, the
   // way it would be after a user actually finishes reading the panel.
   await harness.page.getByRole('tab', { name: /chapter-01/ }).click()
-  await expect(await editor()).toBeVisible()
+  await expect(await editor(harness.page)).toBeVisible()
 
   const layoutFile = path.join(harness.projectDir, '.thepub', 'layouts.json')
   await waitFor(async () => {

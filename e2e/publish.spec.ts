@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { launch, openProject, createDocument, cleanup, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, type Harness, write } from './helpers.js'
 
 let harness: Harness
 let scratch = ''
@@ -15,14 +15,6 @@ test.afterEach(async () => {
   if (harness) await cleanup(harness)
   await fs.rm(scratch, { recursive: true, force: true }).catch(() => {})
 })
-
-async function write(text: string): Promise<void> {
-  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
-  await expect(editor).toBeVisible()
-  await editor.click()
-  await harness.page.keyboard.type(text)
-  await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
-}
 
 /**
  * PDF via the unified `publish:export` channel.
@@ -40,7 +32,7 @@ test('exports a manuscript to PDF via publish:export and destroys the offscreen 
   harness = await launch()
   await openProject(harness.page, harness.projectDir)
   await createDocument(harness.page, 'chapter-01.pubdoc')
-  await write('The lighthouse keeper counted the days, one lantern at a time.')
+  await write(harness.page, 'The lighthouse keeper counted the days, one lantern at a time.')
 
   const before = await harness.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
 

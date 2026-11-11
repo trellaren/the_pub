@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, savedDocument, createSource as createSourceWith } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { CslItem } from '../src/shared/model/source.js'
 import type { PdfHighlightFile, ResearchAttachment } from '../src/shared/model/research.js'
@@ -14,22 +14,7 @@ test.afterEach(async () => {
 
 /** Create a source through the store, the way `citations.spec.ts` does. */
 async function createSource(title: string): Promise<CslItem> {
-  const result = await harness.page.evaluate(async (sourceTitle) => {
-    const source = await window.__pub.sources.getState().create('article-journal')
-    if (!source) return { error: 'create returned null' }
-    window.__pub.sources.getState().patch(source.id, { title: sourceTitle })
-    await window.__pub.sources.getState().flush()
-    const found = window.__pub.sources.getState().sources.find((candidate) => candidate.id === source.id)
-    return found ?? { error: 'not found after patch', createdId: source.id }
-  }, title)
-  if ((result as { error?: string }).error) {
-    throw new Error(`createSource failed: ${JSON.stringify(result)}`)
-  }
-  return result as CslItem
-}
-
-async function savedDocument(file: string): Promise<PubDocument> {
-  return readJson<PubDocument>(path.join(harness.projectDir, file))
+  return createSourceWith(harness.page, 'article-journal', { title })
 }
 
 function attachmentHighlightsFile(sourceId: string, attachmentId: string): string {
@@ -128,12 +113,12 @@ test('a PDF attachment can be highlighted and cited, with the citation carrying 
   )
 
   await waitFor(async () => {
-    const doc = await savedDocument(`chapter-01.pubdoc`).catch(() => null)
+    const doc = await savedDocument(harness.projectDir, `chapter-01.pubdoc`).catch(() => null)
     if (!doc) return false
     return JSON.stringify(doc).includes('"kind":"citation"')
   }, 'the citation field to be saved into the document')
 
-  const doc = await savedDocument('chapter-01.pubdoc')
+  const doc = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   const raw = JSON.stringify(doc)
   expect(raw).toContain('"kind":"citation"')
   expect(raw).toContain(`"sourceIds":["${source.id}"]`)
@@ -226,12 +211,12 @@ test('a web capture can be highlighted and cited, with no page locator', async (
   )
 
   await waitFor(async () => {
-    const doc = await savedDocument(`chapter-01.pubdoc`).catch(() => null)
+    const doc = await savedDocument(harness.projectDir, `chapter-01.pubdoc`).catch(() => null)
     if (!doc) return false
     return JSON.stringify(doc).includes('"kind":"citation"')
   }, 'the citation field to be saved into the document')
 
-  const doc = await savedDocument('chapter-01.pubdoc')
+  const doc = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
   const raw = JSON.stringify(doc)
   expect(raw).toContain('"kind":"citation"')
   expect(raw).toContain(`"sourceIds":["${source.id}"]`)

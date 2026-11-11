@@ -2,8 +2,7 @@ import { test, expect, type Page, type Locator } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { unzipSync, strFromU8 } from 'fflate'
-import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, waitFor, readJson, type Harness, write, documentXml } from './helpers.js'
 import type { ManuscriptFile, ManuscriptNode } from '../src/shared/model/manuscript.js'
 
 let harness: Harness
@@ -26,21 +25,8 @@ async function storedNodes(): Promise<ManuscriptNode[]> {
   return (await readJson<ManuscriptFile>(manuscriptFile())).nodes
 }
 
-/** Type into whichever editor is currently on screen, and get it to disk. */
-async function write(text: string): Promise<void> {
-  const editor = harness.page.locator('.pub-sheet:visible .ProseMirror')
-  await expect(editor).toBeVisible()
-  await editor.click()
-  await harness.page.keyboard.type(text)
-  await harness.page.evaluate(() => window.__pub.documents.getState().flushAll())
-}
-
 async function openManuscript(): Promise<void> {
   await harness.page.evaluate(() => window.__pub.layout.getState().showPanel('manuscript', 'Manuscript'))
-}
-
-function documentXml(bytes: Uint8Array): string {
-  return strFromU8(unzipSync(bytes)['word/document.xml']!)
 }
 
 /**
@@ -106,7 +92,7 @@ test.describe('building the book by clicking', () => {
     harness = await launch()
     await openProject(harness.page, harness.projectDir)
     await createDocument(harness.page, 'notes.pubdoc')
-    await write('Just some notes.')
+    await write(harness.page, 'Just some notes.')
     await openManuscript()
 
     await expect(harness.page.getByTestId('manuscript-document')).toHaveCount(0)
@@ -363,9 +349,9 @@ test.describe('compiling', () => {
     await openProject(harness.page, harness.projectDir)
 
     await createDocument(harness.page, 'dedication.pubdoc')
-    await write('For my cat.')
+    await write(harness.page, 'For my cat.')
     await createDocument(harness.page, 'chapter-one.pubdoc')
-    await write('It was a dark and stormy night.')
+    await write(harness.page, 'It was a dark and stormy night.')
 
     await openManuscript()
     await harness.page.evaluate(() => window.__pub.manuscript.getState().createPart('Front Matter'))

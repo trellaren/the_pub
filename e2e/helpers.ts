@@ -1,8 +1,11 @@
 import type { IpcReq, IpcRes } from '../src/shared/ipc/contract.js'
+import type { PubDocument } from '../src/shared/model/document.js'
+import type { CslItem } from '../src/shared/model/source.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { unzipSync, strFromU8 } from 'fflate'
+import { _electron as electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 
 export interface Harness {
   app: ElectronApplication
@@ -199,4 +202,101 @@ export async function importPicked<K extends PickerChannel>(
   )
   if (!result) throw new Error(`${channel} returned nothing`)
   return result as NonNullable<IpcRes<K>>
+}
+
+/**
+ * The editor on screen. Scoped to the visible sheet: a second open document
+ * leaves its editor mounted in the hidden dock panel, so an unqualified locator
+ * matches both.
+ */
+export async function editor(page: Page): Promise<Locator> {
+  const locator = page.locator('.pub-sheet:visible .ProseMirror').first()
+  await expect(locator).toBeVisible()
+  return locator
+}
+
+/**
+ * Replace the document's whole text, leaving the caret at the end.
+ *
+ * Waits for the typed text to actually land in the DOM before returning —
+ * under load, `selectRange`'s first keystroke can otherwise race a still-in-
+ * flight keystroke from typing, landing the selection a character or two off
+ * from where the test expects it.
+ */
+export async function setText(page: Page, text: string): Promise<void> {
+  const el = await editor(page)
+  await el.click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.type(text)
+  await expect(el).toContainText(text)
+}
+
+/**
+ * Select `[start, end)` of the (single-paragraph) document by keyboard.
+ *
+ * Presses through the locator, not the page-level keyboard: under load, ambient
+ * OS focus can slip away between keystrokes (an autosave-triggered re-render is
+ * enough), and a `page.keyboard.press` that lands on the wrong element fails
+ * silently rather than failing loudly. Re-focusing the editor on every press
+ * costs a little time and buys determinism.
+ */
+export async function selectRange(page: Page, start: number, end: number): Promise<void> {
+  const el = await editor(page)
+  await el.press('Home')
+  for (let i = 0; i < start; i++) await el.press('ArrowRight')
+  for (let i = 0; i < end - start; i++) await el.press('Shift+ArrowRight')
+}
+
+/**
+ * Type into the editor on screen and get it to disk. Flushing before the last
+ * keystroke has landed would save a truncated document, so it waits first.
+ */
+export async function write(page: Page, text: string): Promise<void> {
+  const el = await editor(page)
+  await el.click()
+  await page.keyboard.type(text)
+  await expect(el).toContainText(text)
+  await page.evaluate(() => window.__pub.documents.getState().flushAll())
+}
+
+export async function setStyle(page: Page, styleId: string): Promise<void> {
+  await page.locator('select[title="Paragraph style"]:visible').selectOption(styleId)
+}
+
+export async function savedDocument(projectDir: string, file: string): Promise<PubDocument> {
+  return readJson<PubDocument>(path.join(projectDir, file))
+}
+
+export function documentXml(bytes: Uint8Array): string {
+  return strFromU8(unzipSync(bytes)['word/document.xml']!)
+}
+
+/** Create a source the way the Sources panel does, and return it as stored. */
+export async function createSource(page: Page, type: string, fields: Partial<CslItem>): Promise<CslItem> {
+  const result = await page.evaluate(
+    async ({ type: sourceType, fields: patch }) => {
+      const store = window.__pub.sources.getState()
+      const source = await store.create(sourceType)
+      if (!source) return { error: 'create returned null' }
+      window.__pub.sources.getState().patch(source.id, patch)
+      await window.__pub.sources.getState().flush()
+      const found = window.__pub.sources.getState().sources.find((candidate) => candidate.id === source.id)
+      return found ?? { error: 'not found after patch', createdId: source.id }
+    },
+    { type, fields }
+  )
+  if ((result as { error?: string }).error) throw new Error(`createSource failed: ${JSON.stringify(result)}`)
+  return result as CslItem
+}
+
+/** Save a connection profile through the same channel the Connect dialog uses, returning its id. */
+export async function saveProfile(
+  page: Page,
+  profile: IpcReq<'connections:save'>['profile'],
+  secret: string
+): Promise<string> {
+  return page.evaluate(
+    async (body) => ((await window.pub.invoke('connections:save', body)) as { id: string }).id,
+    { profile, secret }
+  )
 }

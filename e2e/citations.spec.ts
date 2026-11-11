@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, importPicked, editor, savedDocument, createSource as createSourceWith } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 import type { CslItem } from '../src/shared/model/source.js'
 import type { SourceFile } from '../src/shared/model/source.js'
@@ -18,16 +18,7 @@ test.afterEach(async () => {
 
 /** Create a source the way the Sources panel does, and return it. */
 async function createSource(title: string, familyName: string, year: number): Promise<CslItem> {
-  return harness.page.evaluate(
-    async ({ title: sourceTitle, familyName: family, year: issuedYear }) => {
-      const store = window.__pub.sources.getState()
-      const source = await store.create('book')
-      store.patch(source!.id, { title: sourceTitle, author: [{ family }], issued: { 'date-parts': [[issuedYear]] } })
-      await store.flush()
-      return store.sources.find((candidate) => candidate.id === source!.id)!
-    },
-    { title, familyName, year }
-  )
+  return createSourceWith(harness.page, 'book', { title, author: [{ family: familyName }], issued: { 'date-parts': [[year]] } })
 }
 
 async function setCitationStyle(styleId: string): Promise<void> {
@@ -40,20 +31,10 @@ async function setCitationStyle(styleId: string): Promise<void> {
   )
 }
 
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
 async function citeSource(query: string): Promise<void> {
   await harness.page.keyboard.type(`[${query}`)
   await expect(harness.page.locator('[data-testid="citation-popup"]')).toBeVisible()
   await harness.page.keyboard.press('Enter')
-}
-
-async function savedDocument(file: string): Promise<PubDocument> {
-  return readJson<PubDocument>(path.join(harness.projectDir, file))
 }
 
 test('the New source button creates a source through the Sources panel, and editing its title persists', async () => {
@@ -81,7 +62,7 @@ test('citing a source via [ inserts a rendered citation, and the refresh button 
   await createSource('A Book About Ships', 'Smith', 2019)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('As shown ')
   await citeSource('Ships')
@@ -99,7 +80,7 @@ test('citing a source via [ inserts a rendered citation, and the refresh button 
   await expect(bibliography).toContainText('A Book About Ships')
 
   await waitFor(async () => {
-    const saved = await savedDocument('chapter-01.pubdoc')
+    const saved = await savedDocument(harness.projectDir, 'chapter-01.pubdoc')
     return JSON.stringify(saved.content).includes('"citation"')
   }, 'the citation to be saved')
 })
@@ -111,7 +92,7 @@ test('Chicago notes-bibliography places a citation in a footnote, and a repeat c
   await createSource('A Book About Ships', 'Smith', 2019)
   await createDocument(harness.page, 'chapter-01.pubdoc')
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.type('First claim ')
   await citeSource('Ships')

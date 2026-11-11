@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import FtpSrv from 'ftp-srv'
-import { launch, cleanup, waitFor, type Harness } from './helpers.js'
+import { launch, cleanup, waitFor, type Harness, saveProfile as saveProfileWith } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 
 let harness: Harness
@@ -53,24 +53,12 @@ test.afterEach(async () => {
  */
 async function saveProfile(remotePath = '/'): Promise<string> {
   if (remotePath !== '/') await fs.mkdir(path.join(serverRoot, remotePath), { recursive: true })
-  return harness.page.evaluate(
-    async ({ port: ftpPort, remotePath: root }) => {
-      const profile = await window.pub.invoke('connections:save', {
-        profile: {
-          name: 'Test server',
-          protocol: 'ftp',
-          host: '127.0.0.1',
-          port: ftpPort,
-          user: 'anonymous',
-          remotePath: root,
-          secure: false
-        },
-        secret: 'anonymous@'
-      })
-      return `ftp://${(profile as { id: string }).id}`
-    },
-    { port, remotePath }
+  const id = await saveProfileWith(
+    harness.page,
+    { name: 'Test server', protocol: 'ftp', host: '127.0.0.1', port, user: 'anonymous', remotePath, secure: false },
+    'anonymous@'
   )
+  return `ftp://${id}`
 }
 
 test('a saved server can be tested before a project is opened on it', async () => {

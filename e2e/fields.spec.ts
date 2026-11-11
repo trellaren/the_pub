@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness } from './helpers.js'
+import { launch, openProject, createDocument, cleanup, readJson, waitFor, type Harness, editor, setText, setStyle } from './helpers.js'
 import type { PubDocument } from '../src/shared/model/document.js'
 
 let harness: Harness
@@ -9,38 +9,20 @@ test.afterEach(async () => {
   if (harness) await cleanup(harness)
 })
 
-async function editor() {
-  const locator = harness.page.locator('.pub-sheet:visible .ProseMirror').first()
-  await expect(locator).toBeVisible()
-  return locator
-}
-
-async function setText(text: string): Promise<void> {
-  const el = await editor()
-  await el.click()
-  await harness.page.keyboard.press('ControlOrMeta+a')
-  await harness.page.keyboard.type(text)
-  await expect(el).toContainText(text)
-}
-
-async function setStyle(styleId: string): Promise<void> {
-  await harness.page.locator('select[title="Paragraph style"]:visible').selectOption(styleId)
-}
-
 /** Build a document with two headings and a paragraph, ready for TOC/reference tests. */
 async function buildOutline(): Promise<void> {
-  await setText('Chapter One')
-  await setStyle('heading-1')
+  await setText(harness.page, 'Chapter One')
+  await setStyle(harness.page, 'heading-1')
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
-  await setStyle('first-paragraph')
+  await setStyle(harness.page, 'first-paragraph')
   await harness.page.keyboard.type('Some prose here.')
   await harness.page.keyboard.press('Enter')
-  await setStyle('heading-2')
+  await setStyle(harness.page, 'heading-2')
   await harness.page.keyboard.type('A scene')
   await harness.page.keyboard.press('End')
   await harness.page.keyboard.press('Enter')
-  await setStyle('first-paragraph')
+  await setStyle(harness.page, 'first-paragraph')
   await harness.page.keyboard.type('More prose.')
 }
 
@@ -91,7 +73,7 @@ test('inserting a cross-reference embeds the target heading’s text, and clicki
 
   // Place the cursor at the end of the first paragraph, then insert a
   // reference to whichever heading the picker's first real option names.
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.press('ControlOrMeta+Home')
   await harness.page.getByText('Some prose here.').click()
@@ -121,7 +103,7 @@ test('a reference survives closing and reopening the project, still pointing at 
   await createDocument(harness.page, 'chapter-01.pubdoc')
   await buildOutline()
 
-  const el = await editor()
+  const el = await editor(harness.page)
   await el.click()
   await harness.page.keyboard.press('ControlOrMeta+Home')
   await harness.page.getByText('Some prose here.').click()

@@ -15,6 +15,7 @@ import { TemplateService } from './services/templateService.js'
 import { registerAssetProtocol, registerAssetSchemePrivileges } from './protocol/assetProtocol.js'
 import { buildMenu } from './menu.js'
 import { ModelStore } from './llm/modelStore.js'
+import { installPermissionPolicy } from './windows/permissions.js'
 import { LlmEngine } from './llm/engine.js'
 
 // Must run before `app.whenReady()`.
@@ -113,6 +114,8 @@ app.whenReady().then(async () => {
   windows.setProjectWindowHandler((window) => {
     window.on('closed', () => void sessions.close(window.id))
   })
+
+  installPermissionPolicy(session.defaultSession)
 
   // OS default until a project (or a document within it) says otherwise —
   // see `spellcheck:setLanguage`, which the renderer calls once it knows the

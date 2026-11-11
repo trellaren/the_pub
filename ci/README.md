@@ -22,8 +22,8 @@ bash ci/run-checks.sh --ref main   # check some other ref
 | `--skip-e2e` | Typecheck, unit tests and build only |
 | `--skip-package` | Skip packaging and the packaged smoke test |
 
-It runs, in order: `npm ci` → `npm run typecheck` → `npm test` → `npm run build`
-→ `npm run e2e` → `npm run package` → `npm run e2e:packaged`. A failure stops the
+It runs, in order: `npm ci` → `npm run typecheck` → `npm test` → `npm run build:only`
+→ `npm run e2e` → `npm run package:only` → `npm run e2e:packaged` (the `:only` scripts skip the typecheck and rebuild `build`/`package` chain, which earlier stages already did). A failure stops the
 run and marks everything after it *skipped* rather than passed.
 
 The last two are what separate "the code works" from "the thing someone installs

@@ -22,8 +22,14 @@ npm test             # vitest run (unit tests, colocated *.test.ts)
 npm run test:watch   # vitest watch mode
 npm run e2e          # Playwright driving the real built app (run `npm run build` first)
 npm run build        # typecheck + electron-vite build
+npm run build:mobile # typecheck + bundle the iOS build to dist/mobile
+npm run test:mobile  # the search index's tests, against the iOS build's WebAssembly SQLite
+npm run e2e:mobile   # Playwright driving the iOS build in Chromium (run `npm run build:mobile` first)
 bash ci/run-checks.sh --skip-package   # the pre-merge gate; see below
 ```
+
+`e2e:mobile` runs headless Chromium, not Electron, so it needs a browser the desktop suite never
+did: `npx playwright install chromium` once, or point `QUOTH_E2E_CHROMIUM` at one already installed.
 
 On a headless box, e2e needs a virtual display: `xvfb-run -a npm run e2e`. On a desktop, set
 `QUOTH_E2E_HIDDEN=1` so the app windows each test launches stay off-screen and unfocused.
@@ -51,8 +57,18 @@ src/
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
-└─ renderer/   React UI: window chrome, dock shell, panels, editor, stores
+├─ renderer/   React UI: window chrome, dock shell, panels, editor, stores
+└─ mobile/     the iOS build: main's services in a WebView worker, behind the same bridge
 ```
+
+**The iOS build shares `src/main` rather than porting it.** `src/mobile` bundles the handlers and
+services unchanged and answers the Node and Electron modules they import with stand-ins
+(`vite.mobile.config.ts` lists them; `docs/ios.md` explains them). So a change to a service or a
+handler is a change to both apps: if it adds a call into `node:fs`, `electron` or another Node
+module that `src/mobile/host/shims/` does not cover, `npm run build:mobile` or `npm run e2e:mobile`
+is where that shows — run them for anything touching `src/main`. Renderer code that only makes
+sense with desktop windows, a file manager or raw sockets asks `useIsDesktop()`
+(`renderer/lib/platform.ts`) rather than assuming it.
 
 `docs/ROADMAP.md` is the forward plan (phases, in dependency order, each meant to ship on its
 own); `docs/phase-0-plan.md` is a worked example of how a phase gets scoped into a build plan.

@@ -25,7 +25,7 @@ export interface HttpRequest {
   url: string
   method: string
   headers: Record<string, string>
-  body?: string
+  body?: string | Uint8Array
   /** False when the caller has to see a redirect itself rather than have it followed. */
   followRedirects: boolean
 }

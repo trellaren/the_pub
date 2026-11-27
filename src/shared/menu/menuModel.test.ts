@@ -140,3 +140,30 @@ describe('keybindableCommands', () => {
     expect(bindings).toHaveLength(new Set(expected.map((command) => command.commandId)).size)
   })
 })
+
+describe('the iOS menu', () => {
+  const commandIds = (platform: 'other' | 'ios'): string[] => {
+    const ids: string[] = []
+    const visit = (nodes: MenuNode[]): void => {
+      for (const node of nodes) {
+        if (node.kind === 'command') ids.push(node.commandId)
+        if (node.kind === 'role') ids.push(`role:${node.role}`)
+        if (node.kind === 'submenu') visit(node.items)
+      }
+    }
+    for (const entry of resolveMenu(platform)) if (entry.kind === 'menu') visit(entry.items)
+    return ids
+  }
+
+  it('leaves out what needs a second window, a quit, or developer tools', () => {
+    const ios = commandIds('ios')
+    for (const absent of ['window.new', 'layout.popout', 'role:toggleDevTools', 'role:togglefullscreen', 'role:quit']) {
+      expect(ios).not.toContain(absent)
+    }
+  })
+
+  it('is otherwise the desktop menu, command for command', () => {
+    const desktopOnly = new Set(['window.new', 'layout.popout', 'role:toggleDevTools', 'role:togglefullscreen', 'role:quit'])
+    expect(commandIds('ios')).toEqual(commandIds('other').filter((id) => !desktopOnly.has(id)))
+  })
+})

@@ -23,8 +23,17 @@ bash ci/run-checks.sh --ref main   # check some other ref
 | `--skip-package` | Skip packaging and the packaged smoke test |
 
 It runs, in order: `npm ci` → `npm run typecheck` → `npm test` → `npm run build`
-→ `npm run e2e` → `npm run package` → `npm run e2e:packaged`. A failure stops the
-run and marks everything after it *skipped* rather than passed.
+→ `npm run test:mobile` → `npm run build:mobile` → `npm run e2e` →
+`npm run e2e:mobile` → `npm run package` → `npm run e2e:packaged`. A failure
+stops the run and marks everything after it *skipped* rather than passed.
+
+The three `mobile` stages cover the iOS build as far as it can be covered
+without a Mac: it is the renderer and the main process's services bundled for a
+WebView, and `e2e:mobile` drives that bundle in headless Chromium. That stage
+needs a browser, which the Electron suite never did — the gate runs
+`npx playwright install chromium` first, or uses the one `QUOTH_E2E_CHROMIUM`
+points at. What it cannot reach is the native shell around the bundle; see
+[`docs/ios.md`](../docs/ios.md) for what that leaves to check on a device.
 
 The last two are what separate "the code works" from "the thing someone installs
 works". Nothing before them touches the asar archive, the pruned production

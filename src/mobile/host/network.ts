@@ -24,14 +24,19 @@ function headersOf(init: RequestInit | undefined): Record<string, string> {
   return headers
 }
 
-function textBody(body: BodyInit | null | undefined): string | undefined | null {
+type SendableBody = string | Uint8Array | undefined
+
+/** The body in a form that survives the trip to the shell, or null for one that would not (a stream). */
+function sendableBody(body: BodyInit | null | undefined): SendableBody | null {
   if (body === undefined || body === null) return undefined
   if (typeof body === 'string') return body
   if (body instanceof URLSearchParams) return body.toString()
+  if (body instanceof Uint8Array) return body
+  if (body instanceof ArrayBuffer) return new Uint8Array(body)
   return null
 }
 
-async function nativeFetch(url: string, init: RequestInit | undefined, body: string | undefined): Promise<Response> {
+async function nativeFetch(url: string, init: RequestInit | undefined, body: SendableBody): Promise<Response> {
   const result = await shell({
     op: 'http',
     request: {
@@ -49,7 +54,7 @@ async function nativeFetch(url: string, init: RequestInit | undefined, body: str
 export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (!current().init.native || typeof input !== 'string') return webFetch(input, init)
 
-  const body = textBody(init?.body)
+  const body = sendableBody(init?.body)
   const sendable = body !== null
   let host = ''
   try {

@@ -15,9 +15,13 @@ because they are useful on their own; step 3, where the permanent cost starts, i
 
 ## Two scoping decisions
 
-**Desktop only.** There is no mobile build on this roadmap. The shared-core extraction that a
-mobile app would have required is dropped with it — that work was only ever worth doing in
-service of a second platform.
+**Desktop first, and one codebase.** This roadmap was written desktop-only, on the grounds that a
+mobile app would need a shared core extracted from the main process. That turned out not to be
+true: the renderer already reaches the main process through one bridge, and every project through
+`VfsAdapter`, so the iOS build ([`ios.md`](./ios.md)) runs the main process's services unchanged in
+a WebView beside the renderer. The extraction stays dropped. What the decision still means is that
+no phase below is designed around a phone — each is built for the desktop and reaches iOS by being
+the same code.
 
 **Research papers without becoming a document processor.** Supporting a thesis or a research
 paper sounds like it demands pagination — page view, headers and footers, footnotes at the

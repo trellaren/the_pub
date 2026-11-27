@@ -114,6 +114,18 @@ export function authSession(url: string, redirect: string): Promise<{ url: strin
 
 const FORM = 'application/x-www-form-urlencoded'
 
+/** A request body in the shape the plugin takes it: bytes as base64, a form as an object, text as it is. */
+function nativeBody(
+  body: string | Uint8Array | undefined,
+  contentType: string | undefined
+): { data?: unknown; dataType?: 'file' } {
+  if (body === undefined) return {}
+  if (typeof body !== 'string') return { data: toBase64(body), dataType: 'file' }
+  // The plugin encodes a form body itself, and only from an object.
+  if (contentType?.startsWith(FORM)) return { data: Object.fromEntries(new URLSearchParams(body)) }
+  return { data: body }
+}
+
 /** A request made by the operating system rather than the page, so CORS does not apply to it. */
 export async function nativeHttp(request: HttpRequest): Promise<HttpResponse> {
   const contentType = Object.entries(request.headers).find(([name]) => name.toLowerCase() === 'content-type')?.[1]
@@ -121,11 +133,7 @@ export async function nativeHttp(request: HttpRequest): Promise<HttpResponse> {
     url: request.url,
     method: request.method,
     headers: request.headers,
-    // The plugin encodes a form body itself, and only from an object.
-    data:
-      request.body !== undefined && contentType?.startsWith(FORM)
-        ? Object.fromEntries(new URLSearchParams(request.body))
-        : request.body,
+    ...nativeBody(request.body, contentType),
     responseType: 'arraybuffer',
     disableRedirects: !request.followRedirects
   })

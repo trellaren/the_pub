@@ -222,8 +222,14 @@ export class BrowserWindow {
         (error: Error) => done(false, error.message)
       )
     },
+    /**
+     * A page cannot render itself to a PDF, but the print sheet can save one.
+     * So an export to PDF opens that sheet, and returns nothing to write: the
+     * host passes only non-empty exports on to the share sheet.
+     */
     printToPDF: async (): Promise<Buffer> => {
-      throw new Error('Use Print, then save as PDF from the print sheet.')
+      await askPage({ op: 'print', html: this.html })
+      return Buffer.alloc(0)
     }
   }
 

@@ -15,7 +15,14 @@ import { resolveAccelerator } from './keybindings.js'
  * shape, which is why nothing here imports Electron — the renderer reads this
  * same model to populate Settings.
  */
-export type MenuPlatform = 'mac' | 'other'
+export type MenuPlatform = 'mac' | 'other' | 'ios'
+
+/**
+ * Items that only mean something where the app owns windows: a second one, a
+ * pane torn off into its own, developer tools, full screen. The iOS build
+ * draws the same menu and leaves these out.
+ */
+type DesktopOnly = { desktop?: true }
 
 /**
  * The subset of Electron's built-in roles this menu uses. Spelled out rather
@@ -41,8 +48,8 @@ export type MenuRole =
 
 export type MenuNode =
   | { kind: 'separator'; platform?: MenuPlatform }
-  | { kind: 'role'; role: MenuRole; platform?: MenuPlatform }
-  | {
+  | ({ kind: 'role'; role: MenuRole; platform?: MenuPlatform } & DesktopOnly)
+  | ({
       kind: 'command'
       commandId: string
       label: string
@@ -57,7 +64,7 @@ export type MenuNode =
       target?: 'renderer' | 'main'
       /** Left out of the keybindings editor: one row per theme is noise. */
       bindable?: false
-    }
+    } & DesktopOnly)
   | { kind: 'submenu'; label: string; items: MenuNode[]; platform?: MenuPlatform }
 
 /**
@@ -85,7 +92,8 @@ export const MENU_MODEL: MenuTopLevel[] = [
         commandId: 'window.new',
         label: 'New Window',
         accelerator: 'CmdOrCtrl+Shift+N',
-        target: 'main'
+        target: 'main',
+        desktop: true
       },
       { kind: 'separator' },
       { kind: 'command', commandId: 'document.new', label: 'New Document', accelerator: 'CmdOrCtrl+N' },
@@ -184,7 +192,7 @@ export const MENU_MODEL: MenuTopLevel[] = [
       { kind: 'separator' },
       { kind: 'command', commandId: 'layout.savePreset', label: 'Save Layout As…' },
       { kind: 'command', commandId: 'layout.reset', label: 'Reset Layout' },
-      { kind: 'command', commandId: 'layout.popout', label: 'Move Tab to New Window' },
+      { kind: 'command', commandId: 'layout.popout', label: 'Move Tab to New Window', desktop: true },
       { kind: 'separator' },
       {
         kind: 'submenu',
@@ -203,12 +211,12 @@ export const MENU_MODEL: MenuTopLevel[] = [
       },
       // No Reload role: it bypasses the flush closing the window waits for, so
       // Ctrl+R would throw away the last few seconds of debounced typing.
-      { kind: 'role', role: 'toggleDevTools' },
+      { kind: 'role', role: 'toggleDevTools', desktop: true },
       { kind: 'separator' },
       { kind: 'role', role: 'resetZoom' },
       { kind: 'role', role: 'zoomIn' },
       { kind: 'role', role: 'zoomOut' },
-      { kind: 'role', role: 'togglefullscreen' }
+      { kind: 'role', role: 'togglefullscreen', desktop: true }
     ]
   },
   { kind: 'role', role: 'windowMenu' }
@@ -241,7 +249,7 @@ function resolveItems(
   overrides: KeybindingOverrides
 ): MenuNode[] {
   return items
-    .filter((item) => matches(item.platform, platform))
+    .filter((item) => matches(item.platform, platform) && !(platform === 'ios' && 'desktop' in item && item.desktop))
     .map((item) => {
       if (item.kind === 'submenu') {
         return { ...item, items: resolveItems(item.items, platform, overrides) }

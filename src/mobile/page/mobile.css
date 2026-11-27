@@ -1,0 +1,21 @@
+/*
+ * What a phone or tablet needs that a desktop window does not: room for the
+ * notch and the home indicator, and no rubber-banding of a layout that never
+ * scrolls as a whole.
+ */
+#root {
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A drag region means nothing here, and its `user-select: none` would cost the title bar its long-press. */
+:root .pub-drag {
+  -webkit-app-region: no-drag;
+}

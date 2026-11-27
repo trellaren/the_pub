@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { EMBEDDED_MODELS, formatBytes, isPinned, type VariantStatus } from '@shared/model/llm.js'
 import { useChatStore, listenForModelProgress } from '@renderer/stores/chatStore.js'
 import { ToolbarButton, SectionTitle } from '@renderer/ui/primitives.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 
 /**
  * The embedded models: what is on disk, what this machine can run, and what the
@@ -23,6 +24,20 @@ export function ModelManager() {
   }, [])
 
   useEffect(() => listenForModelProgress(), [])
+  const desktop = useIsDesktop()
+
+  if (!desktop) {
+    // Offering a download that could never be run would be worse than offering nothing.
+    return (
+      <div data-testid="model-manager">
+        <SectionTitle>Embedded models</SectionTitle>
+        <p className="mb-2 text-[11px] text-muted" data-testid="no-runtime">
+          An embedded model runs in the desktop app, not on this device. Choose another provider
+          above to use the assistant here; this project keeps its own setting for each.
+        </p>
+      </div>
+    )
+  }
 
   if (!llm) {
     return llmError ? (

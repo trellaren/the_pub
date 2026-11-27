@@ -5,6 +5,7 @@ import { invoke, on } from '@renderer/lib/ipc.js'
 import { RavenMark } from '@renderer/ui/RavenMark.js'
 import { cx } from '@renderer/ui/primitives.js'
 import { MenuBar } from './MenuBar.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 
 /**
  * The window's own title bar: raven, menus, search, window buttons.
@@ -23,6 +24,7 @@ export function TitleBar({ onSearch }: { onSearch: () => void }): React.JSX.Elem
   const project = useProjectStore((store) => store.project)
   const [chrome, setChrome] = useState({ maximized: false, fullScreen: false })
   const mac = platform === 'darwin'
+  const desktop = useIsDesktop()
 
   useEffect(() => {
     void invoke('window:chromeState', {}).then(setChrome)
@@ -75,7 +77,10 @@ export function TitleBar({ onSearch }: { onSearch: () => void }): React.JSX.Elem
         </button>
       </div>
 
-      {mac ? (
+      {!desktop ? (
+        // One full-screen window, which the system closes: there is nothing for these to do.
+        <div className="w-2 shrink-0" />
+      ) : mac ? (
         // The traffic lights are the platform's, and already on the left.
         <div className="w-20 shrink-0" />
       ) : (

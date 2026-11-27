@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { resolveMenu, type MenuNode } from '@shared/menu/menuModel.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 import { acceleratorLabel } from '@shared/menu/keybindings.js'
 import { ROLE_ITEMS, type MenuItemRole } from '@shared/menu/menuRoles.js'
 import { useAppStore } from '@renderer/stores/appStore.js'
@@ -21,6 +22,7 @@ import { cx } from '@renderer/ui/primitives.js'
  */
 export function MenuBar(): React.JSX.Element {
   const overrides = useAppStore((store) => store.state?.keybindings) ?? EMPTY_OVERRIDES
+  const desktop = useIsDesktop()
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   /** Which top-level item holds the bar's single Tab stop. */
   const [current, setCurrent] = useState(0)
@@ -31,7 +33,7 @@ export function MenuBar(): React.JSX.Element {
   // editor, whose selection Cut, Copy and Paste have to act on.
   const returnFocus = useRef<HTMLElement | null>(null)
 
-  const menus = resolveMenu('other', overrides).flatMap((entry) =>
+  const menus = resolveMenu(desktop ? 'other' : 'ios', overrides).flatMap((entry) =>
     entry.kind === 'menu' ? [entry] : []
   )
 

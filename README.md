@@ -125,6 +125,12 @@ slips through — because a noisy suggestion list is how a feature like this get
   single request — a map background, a photograph — uploads in chunks. Signing in needs an Azure app
   registration of your own; see below.
 
+- **An iOS app that opens the same projects.** The interface and the services are the desktop's
+  own, running in a WebView, so a project in OneDrive is one project on a Windows desktop and an
+  iPad: write on one, pick up on the other, with the same conflict bar if both saved the same
+  document. Built, and tested in a browser; not yet run on a device — [`docs/ios.md`](docs/ios.md)
+  says exactly what that leaves unchecked.
+
 - **Word documents in and out.** Import a `.docx` and its headings, indents, spacing, alignment,
   lists, tables, links and images come with it — and its named styles are matched against the
   project's own rather than duplicated, so an imported "Heading 1" *is* your Heading 1. Export one
@@ -167,6 +173,9 @@ In the [Azure portal](https://portal.azure.com), under **App registrations**:
    back to the app without a fixed port.
 3. Copy the **Application (client) ID** into Quoth's connect dialog, then press *sign in*.
 
+For the iOS app, add a second redirect URI, `quoth://auth`, under the same platform: a phone has no
+loopback listener for the sign-in to come back to, so it comes back through the app's URL scheme.
+
 The app asks for `Files.ReadWrite`, `offline_access` and `User.Read` — your drive, a refresh token
 so you are not signing in every hour, and your account name to show back to you. No client secret is
 involved: sign-in uses PKCE, which is what a desktop app is supposed to use because it cannot keep a
@@ -179,6 +188,17 @@ and no channel hands it to the interface.
 npm install
 npm run dev        # development, with hot reload
 npm run build      # typecheck and build
+```
+
+### On iOS
+
+The iOS app is this same interface and these same services in a WebView, so a project kept in
+OneDrive is one project on both devices. [`docs/ios.md`](docs/ios.md) covers how it is built, what
+differs from the desktop app, and what has yet to be checked on a device.
+
+```sh
+npm run dev:mobile    # the iOS build in a browser tab
+npm run ios:sync      # bundle it and copy it into ios/ — then `npm run ios:open`, on a Mac with Xcode
 ```
 
 ## Releasing
@@ -241,6 +261,8 @@ npm run typecheck    # main, renderer and e2e projects
 npm test             # unit tests (vitest)
 npm run e2e          # end-to-end tests driving the real app (Playwright + Electron)
 npm run e2e:packaged # the same, against a packaged build — run `npm run package` first
+npm run test:mobile  # the search index's own tests, against the iOS build's WebAssembly SQLite
+npm run e2e:mobile   # the iOS build, driven in Chromium — run `npm run build:mobile` first
 ```
 
 On a headless machine, run the end-to-end tests under a virtual display: `xvfb-run -a npm run e2e`.
@@ -292,7 +314,8 @@ src/
 │  ├─ services/  project session, documents, search, records, snapshots, layouts
 │  └─ server/  loopback server for the packaged renderer
 ├─ preload/    the single, allow-listed bridge between the two
-└─ renderer/   React UI: dock shell, panels, editor, stores
+├─ renderer/   React UI: dock shell, panels, editor, stores
+└─ mobile/     the iOS build: main's services in a WebView worker, behind the same bridge
 ```
 
 A few decisions worth knowing before changing things:

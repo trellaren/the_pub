@@ -9,6 +9,7 @@ import {
 import { panelComponents } from './panelRegistry.js'
 import { DockTab } from './DockTab.js'
 import { ensureDocumentOpen } from '@renderer/lib/firstDocument.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 import {
   useLayoutStore,
   restoreLayout,
@@ -247,6 +248,8 @@ export function DockRoot() {
  */
 function GroupActions(props: IDockviewHeaderActionsProps) {
   const isPopout = props.group.api.location.type === 'popout'
+  const desktop = useIsDesktop()
+  if (!desktop) return null
   return (
     <div className="flex h-full items-center pr-1">
       <button

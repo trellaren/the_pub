@@ -153,6 +153,12 @@ stage "Unit tests"       npm test
 # npm scripts enforces that ordering.
 stage "Build"            npm run build
 
+# The iOS build is the same renderer and the same services bundled for a
+# WebView, so it is built and tested here too: nothing about it needs a Mac
+# until the bundle is wrapped in the native shell, which this gate cannot do.
+stage "Unit tests (iOS)" npm run test:mobile
+stage "Build (iOS)"      npm run build:mobile
+
 # Windows and macOS always have a display; only Linux can be genuinely headless.
 case "$(uname -s 2>/dev/null || echo unknown)" in
   MINGW*|MSYS*|CYGWIN*|Darwin) HAS_DISPLAY=1 ;;
@@ -187,9 +193,16 @@ gui_stage() {
 
 if [ "$SKIP_E2E" -eq 1 ]; then
   record_skip "End-to-end tests"
+  record_skip "End-to-end tests (iOS)"
   warn "End-to-end tests skipped (--skip-e2e)."
 else
   gui_stage "End-to-end tests" npm run e2e
+  # Headless Chromium rather than Electron, so no display is needed — but a
+  # browser is, and the desktop suite never downloaded one. QUOTH_E2E_CHROMIUM
+  # names one already on the machine instead.
+  ios_browser() { [ -n "${QUOTH_E2E_CHROMIUM:-}" ] || npx playwright install chromium; }
+  stage "Browser for the iOS suite"  ios_browser
+  stage "End-to-end tests (iOS)"     npm run e2e:mobile
 fi
 
 # Packaging is the last thing between "the code works" and "the thing someone

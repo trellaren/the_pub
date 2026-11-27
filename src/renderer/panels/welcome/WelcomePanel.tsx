@@ -11,6 +11,7 @@ import type { DailyPrompt } from '@shared/model/writingPrompt.js'
 import { defaultVariantFor, findVariant, formatBytes } from '@shared/model/llm.js'
 import { aiSettingsSchema } from '@shared/model/ai.js'
 import { useChatStore, listenForModelProgress } from '@renderer/stores/chatStore.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 
 const NO_RECENTS: RecentProject[] = []
 
@@ -24,6 +25,7 @@ export function WelcomePanel() {
   // by identity, so a new array every render loops forever.
   const recents = useAppStore((store) => store.state?.recentProjects) ?? NO_RECENTS
   const [connecting, setConnecting] = useState(false)
+  const desktop = useIsDesktop()
 
   const openRecent = async (recent: RecentProject): Promise<void> => {
     if (await open(recent.uri, recent.name)) return
@@ -63,7 +65,7 @@ export function WelcomePanel() {
             disabled={opening}
             className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
           >
-            Open a project folder…
+            {desktop ? 'Open a project folder…' : 'Open a project on this device…'}
           </button>
           <button
             type="button"
@@ -72,10 +74,12 @@ export function WelcomePanel() {
             className="rounded border border-border px-3 py-1.5 text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
             data-testid="open-connect"
           >
-            Connect to a server…
+            {desktop ? 'Connect to a server…' : 'Connect to OneDrive…'}
           </button>
           <p className="text-[12px] text-faint">
-            Any folder becomes a project — on this machine, in OneDrive, or over SFTP or FTP. Quoth
+            {desktop
+              ? 'Any folder becomes a project — on this machine, in OneDrive, or over SFTP or FTP. Quoth'
+              : 'A project in OneDrive is the same one the desktop app opens, so work moves between the two. Quoth'}{' '}
             keeps its notes in <code>.thepub</code> beside your work.
           </p>
         </div>
@@ -123,6 +127,47 @@ export function WelcomePanel() {
 }
 
 /**
+ * The first-run card where no model can run on the device. The choice left is
+ * between a hosted provider and no assistant, so it offers those two and says
+ * why the third is missing.
+ */
+function HostedAssistantCard() {
+  return (
+    <div className="rounded border border-accent bg-accent-soft/40 p-3" data-testid="assistant-setup">
+      <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">The assistant</h2>
+      <p className="mb-2 text-[12px] text-text">
+        The assistant works here through a hosted provider and a key of your own. A model cannot
+        run on this device the way it can in the desktop app.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            void useAppStore.getState().setAssistantSetupDone()
+            void runCommand('panel.ai')
+          }}
+          className="rounded border border-accent bg-accent-soft px-3 py-1.5 text-[12px] text-accent hover:brightness-110"
+          data-testid="assistant-setup-other"
+        >
+          Choose a provider
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void useAppStore.getState().setAssistantSetupDone()
+            void useAppStore.getState().setAiEnabled(false)
+          }}
+          className="rounded border border-border px-3 py-1.5 text-[12px] text-muted hover:border-faint hover:text-text"
+          data-testid="assistant-setup-none"
+        >
+          No assistant for now
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * The one question a first launch asks: which model, if any, should answer.
  *
  * Shown until it is answered and then never again. The default is the model
@@ -139,6 +184,7 @@ function AssistantSetupCard() {
   const downloads = useChatStore((store) => store.downloads)
   const [error, setError] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
+  const desktop = useIsDesktop()
 
   useEffect(() => {
     if (aiEnabled && !done) void useChatStore.getState().refreshLlm()
@@ -146,6 +192,7 @@ function AssistantSetupCard() {
   useEffect(() => listenForModelProgress(), [])
 
   if (!aiEnabled || done) return null
+  if (!desktop) return <HostedAssistantCard />
 
   const variant = llm ? defaultVariantFor(llm.totalMemoryBytes) : null
   const model = variant ? findVariant(variant.id)?.model ?? null : null

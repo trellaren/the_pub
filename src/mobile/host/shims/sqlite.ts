@@ -67,6 +67,13 @@ export class StatementSync {
   }
 }
 
+const open = new Set<DatabaseSync>()
+
+/** Write every open database back to storage now, rather than a moment after its last change. */
+export function saveOpenDatabases(): void {
+  for (const database of open) database.saveNow()
+}
+
 export class DatabaseSync {
   private db: Database
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -75,6 +82,7 @@ export class DatabaseSync {
   constructor(private readonly file: string) {
     const { oo1, capi, wasm } = engine()
     this.db = new oo1.DB(':memory:')
+    open.add(this)
     const fs = current().fs
     if (!fs.existsSync(file)) return
     try {
@@ -108,10 +116,15 @@ export class DatabaseSync {
   }
 
   close(): void {
+    this.saveNow()
+    open.delete(this)
+    this.db.close()
+  }
+
+  saveNow(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     if (this.dirty) this.save()
-    this.db.close()
   }
 
   private touch(): void {

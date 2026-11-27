@@ -90,7 +90,10 @@ npm run test:mobile    # the desktop search index's tests, against the WebAssemb
 npm run e2e:mobile     # Playwright driving the bundle in Chromium (needs build:mobile first)
 ```
 
-The app itself needs a Mac with Xcode 16 or later:
+The app itself needs a Mac with Xcode 16 or later, and runs on iOS and iPadOS 16.4 and up — the
+first release whose WebKit has everything the shared code relies on. Regular-expression lookbehind
+is the one that decides it: mention scanning and whole-word find are built on it, and would throw
+on anything older:
 
 ```sh
 npm run ios:sync       # build:mobile, then copy the bundle and plugins into ios/
@@ -117,6 +120,11 @@ Everything not listed here is the same code doing the same thing.
 - **One window.** No "New Window", no tearing a pane off. The dock layout, tabs and splits are
   otherwise the desktop's.
 - **Deleting is permanent.** There is no trash to move a file to; the confirmation says so.
+- **On-device projects are managed in the app.** There is no file manager to find them in, so the
+  "Open a project on this device…" picker is also where one is deleted.
+- **Leaving the app is the only warning it gets.** iOS can end a backgrounded app without telling
+  it, so going to the background does what closing a desktop window does: pending edits are saved,
+  and the statistics and the search index are written down.
 - **Spelling is the system keyboard's.** The project's own word list is still kept and still
   syncs, but iOS does not let an app add to its dictionary.
 - **The web gate cannot resolve names.** The assistant's page fetches refuse private addresses by

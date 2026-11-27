@@ -6,7 +6,7 @@ import { installRuntime, settleShell } from '../runtime.js'
 import type { HostToPage, ShellRequest } from '../../protocol.js'
 import { addBase64Url } from '../base64url.js'
 import { createHash, randomBytes } from './crypto.js'
-import { dialog, safeStorage, shell, BrowserWindow, EXPORTS, TEMP, DOCUMENTS } from './electron.js'
+import { dialog, safeStorage, shell, BrowserWindow, deviceProjects, EXPORTS, TEMP, DOCUMENTS } from './electron.js'
 import { watch } from './chokidar.js'
 import { lookup } from './dns.js'
 
@@ -118,6 +118,21 @@ describe('dialog', () => {
     const result = await dialog.showOpenDialog(null, { title: 'Open project folder', properties: ['openDirectory'] })
     expect(asked[0]).toMatchObject({ op: 'pickFolder', purpose: 'open', existing: ['Harbour'] })
     expect(result.filePaths).toEqual([`${DOCUMENTS}/Harbour`])
+  })
+
+  it('deletes a project from the device when asked, then offers what is left', async () => {
+    fs.mkdirSync(`${DOCUMENTS}/Old/parts`, { recursive: true })
+    fs.writeFileSync(`${DOCUMENTS}/Old/parts/ch1.pubdoc`, 'x')
+    fs.mkdirSync(`${DOCUMENTS}/Kept`)
+    const forgotten: string[] = []
+    deviceProjects.removed = (folder) => void forgotten.push(folder)
+    answers.push({ name: 'Old', remove: true }, { name: 'Kept' })
+
+    const result = await dialog.showOpenDialog(null, { title: 'Open project folder', properties: ['openDirectory'] })
+    expect(fs.existsSync(`${DOCUMENTS}/Old`)).toBe(false)
+    expect(forgotten).toEqual([`${DOCUMENTS}/Old`])
+    expect(asked[1]).toMatchObject({ op: 'pickFolder', existing: ['Kept'] })
+    expect(result.filePaths).toEqual([`${DOCUMENTS}/Kept`])
   })
 
   it('creates the folder for a new project from a template', async () => {

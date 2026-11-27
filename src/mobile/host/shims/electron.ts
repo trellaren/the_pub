@@ -75,6 +75,13 @@ interface MessageBoxOptions {
 
 let pickCount = 0
 
+/** Set by the host, which knows what else has to forget a project deleted from the device. */
+export const deviceProjects = {
+  /** The folder of the project that is open, which the picker will not offer to delete. */
+  current: (): string | null => null,
+  removed: (_folder: string): void => {}
+}
+
 export const dialog = {
   async showMessageBox(_window: unknown, options: MessageBoxOptions): Promise<{ response: number }> {
     const buttons = options.buttons?.length ? options.buttons : ['OK']
@@ -100,17 +107,28 @@ export const dialog = {
     const fs = current().fs
 
     if (properties.includes('openDirectory')) {
+      // The one caller that wants an empty folder titles its dialog "New <template>".
       const creating = /^new /i.test(options.title ?? '')
-      const picked = await askPage({
-        op: 'pickFolder',
-        title: options.title ?? 'Open project',
-        purpose: creating ? 'create' : 'open',
-        existing: fs.readdirSync(DOCUMENTS).filter((name) => fs.statSync(`${DOCUMENTS}/${name}`).isDirectory())
-      })
-      if (!picked) return { canceled: true, filePaths: [] }
-      const folder = `${DOCUMENTS}/${picked.name}`
-      fs.mkdirSync(folder, { recursive: true })
-      return { canceled: false, filePaths: [folder] }
+      for (;;) {
+        const picked = await askPage({
+          op: 'pickFolder',
+          title: options.title ?? 'Open project',
+          purpose: creating ? 'create' : 'open',
+          existing: fs.readdirSync(DOCUMENTS).filter((name) => fs.statSync(`${DOCUMENTS}/${name}`).isDirectory()),
+          current: deviceProjects.current()?.slice(DOCUMENTS.length + 1) ?? null
+        })
+        if (!picked) return { canceled: true, filePaths: [] }
+        const folder = `${DOCUMENTS}/${picked.name}`
+        if (picked.remove) {
+          // The picker is the only file manager these projects have, so it is
+          // also where one is deleted; then it is shown again, one shorter.
+          fs.rmSync(folder, { recursive: true, force: true })
+          deviceProjects.removed(folder)
+          continue
+        }
+        fs.mkdirSync(folder, { recursive: true })
+        return { canceled: false, filePaths: [folder] }
+      }
     }
 
     const files = await askPage({

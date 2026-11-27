@@ -14,6 +14,9 @@ async function start(): Promise<void> {
     runShell
   )
   installAssetUrls(host)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') host.suspend()
+  })
   if (isNative) installLongPress()
   // After the bridge exists: the renderer's stores reach for `window.pub` as they load.
   await import('@renderer/main.js')

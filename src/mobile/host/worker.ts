@@ -3,10 +3,10 @@ import path from 'node:path'
 import { MobileFs, IndexedDbBlobStore, MemoryBlobStore, type BlobStore } from './mobileFs.js'
 import { installRuntime, settleShell, shell, current } from './runtime.js'
 import { loadStorageKey } from './storageKey.js'
-import { initSqlite } from './shims/sqlite.js'
+import { initSqlite, saveOpenDatabases } from './shims/sqlite.js'
 import { installHostFetch } from './network.js'
 import { MobileWindows } from './windows.js'
-import { DOCUMENTS, EXPORTS, TEMP, USER_DATA, dispatch } from './shims/electron.js'
+import { DOCUMENTS, EXPORTS, TEMP, USER_DATA, deviceProjects, dispatch } from './shims/electron.js'
 import { MobileRedirect } from './signIn.js'
 import { readAsset } from './assets.js'
 import type { HostInit, HostToPage, PageToHost } from '../protocol.js'
@@ -60,29 +60,31 @@ async function openStore(): Promise<BlobStore> {
   }
 }
 
+const NO_MODEL = 'A model cannot run on this device. Use a hosted provider here.'
+
 /**
  * An embedded model is a native binary and gigabytes of weights; neither
  * exists here. Reporting "no runtime" is what the desktop app does on a
  * platform it has no binary for, and every caller already handles it.
  */
-const noEngine = {
-  status: () => ({ state: 'stopped', model: null, url: null, message: '' }),
+const noEngine: Pick<LlmEngine, 'status' | 'available' | 'runningUrl' | 'ensure' | 'keepAlive' | 'setIdleMs' | 'stop'> = {
+  status: () => ({ state: 'stopped', model: '', message: '' }),
   available: () => false,
   runningUrl: () => null,
   ensure: async () => null,
   keepAlive: () => {},
   setIdleMs: () => {},
   stop: async () => {}
-} as unknown as LlmEngine
+}
 
-const noModels = {
+const noModels: Pick<ModelStore, 'resolve' | 'resolveSideloaded' | 'status' | 'download' | 'cancel' | 'remove'> = {
   resolve: () => null,
   resolveSideloaded: () => null,
   status: async () => [],
-  download: async () => ({ ok: false, reason: 'unavailable' }),
+  download: async () => ({ ok: false, verify: 'unverified', bytes: 0, error: NO_MODEL }),
   cancel: () => {},
   remove: async () => {}
-} as unknown as ModelStore
+}
 
 async function start(init: HostInit): Promise<SessionRegistry> {
   const [fs, storageKey] = await Promise.all([
@@ -120,10 +122,13 @@ async function start(init: HostInit): Promise<SessionRegistry> {
     appState,
     oneDrive,
     templates: new TemplateService({ builtin: TEMPLATES, user: `${USER_DATA}/templates` }),
-    models: noModels,
-    engine: noEngine
+    models: noModels as ModelStore,
+    engine: noEngine as LlmEngine
   })
   appState.onChange((state) => emit('app:stateChanged', state))
+  deviceProjects.current = () => sessions.all().find((session) => session.uri.startsWith(`${DOCUMENTS}/`))?.uri ?? null
+  // Otherwise it stays under Recent, and opening it there would quietly create an empty project of the same name.
+  deviceProjects.removed = (folder) => void appState.removeRecent(folder)
   return sessions
 }
 
@@ -138,7 +143,10 @@ async function deliverExports(): Promise<void> {
   const fs = current().fs
   for (const folder of fs.readdirSync(EXPORTS)) {
     const dir = `${EXPORTS}/${folder}`
-    for (const name of fs.readdirSync(dir)) {
+    const names = fs.readdirSync(dir)
+    // Still empty means its export is still being written by another request: leave the folder for it.
+    if (names.length === 0) continue
+    for (const name of names) {
       const bytes = fs.readFileSync(`${dir}/${name}`) as Uint8Array
       if (bytes.byteLength > 0) await shell({ op: 'saveFile', name, bytes }).catch(() => {})
     }
@@ -166,6 +174,17 @@ scope.onmessage = ({ data: message }) => {
     return
   }
   if (!starting) return
+
+  if (message.type === 'suspend') {
+    // What a desktop quit does before the process exits, as far as it applies
+    // to an app that may be resumed instead: nothing is closed, only written.
+    void starting.then(async (sessions) => {
+      await Promise.allSettled(sessions.all().map((session) => session.stats.flush()))
+      saveOpenDatabases()
+      await current().fs.flush().catch(() => {})
+    })
+    return
+  }
 
   if (message.type === 'asset') {
     void starting

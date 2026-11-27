@@ -6,6 +6,13 @@ type Listener = (payload: unknown) => void
 export interface Host {
   /** The bytes behind a `pub-asset:` URL, or null if the project it names is not open. */
   asset(url: string): Promise<{ bytes: Uint8Array; mime: string } | null>
+  /**
+   * The app is leaving the foreground. iOS may end it there without another
+   * word, so this is the only "about to quit" there is: the renderer is asked
+   * to save as it is before a desktop window closes, and the host to write
+   * down what it holds in memory.
+   */
+  suspend(): void
 }
 
 /**
@@ -53,6 +60,10 @@ export function startHost(
       switch (message.type) {
         case 'ready':
           resolve({
+            suspend() {
+              for (const listener of listeners.get('window:requestClose') ?? []) listener({})
+              send({ type: 'suspend' })
+            },
             asset(url) {
               const id = nextId++
               return new Promise((settle) => {

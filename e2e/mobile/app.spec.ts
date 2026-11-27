@@ -33,7 +33,7 @@ test('a project made on the device is still there after the app restarts', async
   await page.waitForFunction(() => Boolean(window.__pub))
   // Found again by name, in the list the picker draws from the device's storage.
   await page.getByRole('button', { name: 'Open a project on this device…' }).click()
-  await page.getByTestId('shell-folder-list').getByRole('button', { name: 'Harbour' }).click()
+  await page.getByTestId('shell-folder-list').getByRole('button', { name: 'Harbour', exact: true }).click()
   await page.waitForFunction(() => window.__pub.project.getState().project !== null)
 
   const reopened = await page.evaluate(async () => {
@@ -107,4 +107,34 @@ test('Word export goes to the share sheet, and Word import comes from the file p
     result!.imported[0]!.path
   )
   expect(text).toContain('Sent by the evening post.')
+})
+
+test('leaving the app saves what autosave had not got to yet', async ({ page }) => {
+  await openApp(page)
+  await openDeviceProject(page, 'Interrupted')
+  // Autosave pushed out of reach, so only the suspend can be what writes the file.
+  await page.evaluate(() =>
+    window.__pub.project.getState().updateManifest((manifest) => ({
+      ...manifest,
+      settings: { ...manifest.settings, autosaveDebounceMs: 30_000, autosaveMaxWaitMs: 30_000 }
+    }))
+  )
+  await createDocument(page, 'mid-sentence.pubdoc')
+  const editor = page.locator(EDITOR)
+  await editor.click()
+  await editor.pressSequentially('The phone rang before the sentence was')
+  await expect(editor).toContainText('before the sentence was')
+
+  const onDisk = (): Promise<string> =>
+    page.evaluate(async () =>
+      JSON.stringify((await window.pub.invoke('doc:read', { path: 'mid-sentence.pubdoc' })).doc.content)
+    )
+  expect(await onDisk()).not.toContain('The phone rang')
+
+  // What iOS does when the home indicator is swiped: the page is hidden, and may never be shown again.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(onDisk).toContain('The phone rang before the sentence was')
 })

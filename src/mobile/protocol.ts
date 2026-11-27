@@ -41,7 +41,7 @@ export type EditRole = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'
 export type ShellRequest =
   | { op: 'messageBox'; message: string; detail?: string; buttons: string[]; cancelId: number }
   | { op: 'pickFiles'; title: string; extensions: string[]; multiple: boolean }
-  | { op: 'pickFolder'; title: string; purpose: 'open' | 'create'; existing: string[] }
+  | { op: 'pickFolder'; title: string; purpose: 'open' | 'create'; existing: string[]; current: string | null }
   | { op: 'saveFile'; name: string; bytes: Uint8Array }
   | { op: 'openExternal'; url: string }
   | { op: 'authSession'; url: string; redirectUri: string }
@@ -55,7 +55,8 @@ export type ShellRequest =
 export interface ShellResults {
   messageBox: { response: number }
   pickFiles: PickedFile[] | null
-  pickFolder: { name: string } | null
+  /** `remove` asks for the named project to be deleted from the device instead of opened. */
+  pickFolder: { name: string; remove?: true } | null
   saveFile: null
   openExternal: null
   authSession: { url: string }
@@ -73,6 +74,8 @@ export type PageToHost =
   | { type: 'init'; init: HostInit }
   | { type: 'invoke'; id: number; channel: string; payload: unknown }
   | { type: 'asset'; id: number; url: string }
+  /** The app is leaving the foreground and may not come back: write down whatever is only in memory. */
+  | { type: 'suspend' }
   | { type: 'shellResult'; id: number; ok: true; value: unknown }
   | { type: 'shellResult'; id: number; ok: false; error: string }
 

@@ -105,9 +105,29 @@ function FolderPicker({ request }: { request: Extract<ShellRequest, { op: 'pickF
             <li className="text-[13px] text-muted">No projects are stored on this device yet.</li>
           ) : null}
           {request.existing.map((folder) => (
-            <li key={folder}>
-              <button type="button" className={cx(QUIET, 'w-full text-left')} onClick={() => close({ name: folder })}>
+            <li key={folder} className="flex gap-1">
+              <button
+                type="button"
+                className={cx(QUIET, 'min-w-0 flex-1 truncate text-left')}
+                onClick={() => close({ name: folder })}
+              >
                 {folder}
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete ${folder} from this device`}
+                // Deleting the folder under an open project would leave every save recreating pieces of it.
+                disabled={folder === request.current}
+                title={folder === request.current ? 'Close this project before deleting it.' : undefined}
+                className={cx(QUIET, 'shrink-0 px-3 hover:text-danger disabled:opacity-40')}
+                onClick={() => {
+                  const sure = window.confirm(
+                    `Delete “${folder}” from this device? Everything in it goes, and this cannot be undone.`
+                  )
+                  if (sure) close({ name: folder, remove: true })
+                }}
+              >
+                Delete
               </button>
             </li>
           ))}

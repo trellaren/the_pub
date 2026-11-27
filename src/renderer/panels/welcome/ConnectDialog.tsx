@@ -5,6 +5,7 @@ import { Field, TextInput, Select, ToolbarButton, cx } from '@renderer/ui/primit
 import { useModalFocusTrap } from '@renderer/ui/useModalFocusTrap.js'
 import { useConnectionDraft, defaultName } from './useConnectionDraft.js'
 import { OneDriveSignIn } from './OneDriveSignIn.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 import { ServerCredentialsFields, FtpTlsField } from './ServerCredentialsFields.js'
 
 /**
@@ -45,6 +46,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     forget
   } = useConnectionDraft(onClose)
 
+  const desktop = useIsDesktop()
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalFocusTrap(dialogRef, onClose)
 
@@ -115,10 +117,10 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                   }}
                   data-testid="connect-protocol"
                 >
-                  <option value="sftp">SFTP (SSH)</option>
-                  <option value="ftp">FTP</option>
+                  {desktop ? <option value="sftp">SFTP (SSH)</option> : null}
+                  {desktop ? <option value="ftp">FTP</option> : null}
                   <option value="onedrive">OneDrive</option>
-                  <option value="db">Database</option>
+                  {desktop ? <option value="db">Database</option> : null}
                 </Select>
               </Field>
               {isDb ? (

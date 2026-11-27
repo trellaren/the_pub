@@ -10,7 +10,7 @@ import {
   type Fetcher
 } from '../onedrive/oauth.js'
 import { TokenCache } from '../onedrive/tokens.js'
-import { listenOnLoopback, type Loopback } from '../onedrive/loopback.js'
+import { listenOnLoopback } from '../onedrive/loopback.js'
 import { GraphClient, GRAPH_BASE, type TokenSource } from '../onedrive/graph.js'
 
 /** How long the loopback listener waits for the browser before giving up. */
@@ -25,6 +25,43 @@ const REFUSED_PAGE = `<!doctype html><meta charset="utf-8"><title>Not signed in<
 <body style="font:14px system-ui;padding:3rem;text-align:center">
 <h1 style="font-size:1.1rem">The sign-in did not go through.</h1>
 <p>Go back to Quoth, where it says what Microsoft refused.</p>`
+
+/** One sign-in's wait for the browser to come back. */
+export interface RedirectCatcher {
+  /** What Microsoft is asked to send the browser to, and must match the registration. */
+  redirectUri: string
+  /** The URL the browser was sent to. */
+  redirect: Promise<string>
+  open: (url: string) => Promise<void>
+  /** Give up on a redirect that is not coming, with something to show for it. */
+  abort: (message: string) => void
+  close: () => Promise<void>
+}
+
+/**
+ * How a sign-in reaches a browser and hears back from it. A desktop listens on
+ * loopback; a device that cannot is handed the redirect some other way.
+ */
+export interface SignInBrowser {
+  listen: () => Promise<RedirectCatcher>
+}
+
+const loopbackBrowser: SignInBrowser = {
+  async listen() {
+    const listener = await listenOnLoopback({
+      page: CLOSE_PAGE,
+      failurePage: REFUSED_PAGE,
+      timeoutMs: SIGN_IN_TIMEOUT_MS
+    })
+    return {
+      redirectUri: loopbackRedirectUri(listener.port),
+      redirect: listener.redirect,
+      open: (url) => shell.openExternal(url),
+      abort: listener.abort,
+      close: listener.close
+    }
+  }
+}
 
 /**
  * Signing in to OneDrive, and keeping what comes of it.
@@ -45,11 +82,12 @@ const REFUSED_PAGE = `<!doctype html><meta charset="utf-8"><title>Not signed in<
 export class OneDriveAuth {
   private readonly cache: TokenCache
   /** Sign-ins still waiting on a browser, so one can be given up on. */
-  private readonly waiting = new Map<string, Loopback>()
+  private readonly waiting = new Map<string, RedirectCatcher>()
 
   constructor(
     private readonly store: ConnectionStore,
-    private readonly fetcher: Fetcher = (url, init) => fetch(url, init)
+    private readonly fetcher: Fetcher = (url, init) => fetch(url, init),
+    private readonly browser: SignInBrowser = loopbackBrowser
   ) {
     this.cache = new TokenCache(
       {
@@ -90,12 +128,12 @@ export class OneDriveAuth {
     // Pressing sign in again after a redirect that never arrived has to start a
     // fresh attempt rather than queue behind the one still holding a port.
     this.cancel(profileId)
-    const listener = await listen()
+    const listener = await this.browser.listen()
     this.waiting.set(profileId, listener)
 
     try {
-      const redirectUri = loopbackRedirectUri(listener.port)
-      await shell.openExternal(
+      const { redirectUri } = listener
+      await listener.open(
         authorizeUrl({
           clientId: profile.clientId,
           tenant: profile.tenant,
@@ -154,12 +192,4 @@ export class OneDriveAuth {
     )
     return me.userPrincipalName || me.mail || me.displayName || ''
   }
-}
-
-function listen(): Promise<Loopback> {
-  return listenOnLoopback({
-    page: CLOSE_PAGE,
-    failurePage: REFUSED_PAGE,
-    timeoutMs: SIGN_IN_TIMEOUT_MS
-  })
 }

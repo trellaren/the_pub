@@ -1,7 +1,12 @@
 import { TextInput, Field } from '@renderer/ui/primitives.js'
 import type { Draft, SetDraft } from './useConnectionDraft.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
+
+/** The redirect the iOS app registers as its URL scheme; the desktop app listens on loopback instead. */
+const IOS_REDIRECT_URI = 'quoth://auth'
 
 export function OneDriveSignIn({ draft, setDraft }: { draft: Draft; setDraft: SetDraft }) {
+  const desktop = useIsDesktop()
   return (
     <>
       {/*
@@ -14,7 +19,7 @@ export function OneDriveSignIn({ draft, setDraft }: { draft: Draft; setDraft: Se
       <p className="mb-2 text-[11px] text-muted">
         OneDrive needs an app registration of your own. In the Azure portal, register an
         application, add a <em>Mobile and desktop</em> platform with the redirect URI{' '}
-        <code className="text-text">http://localhost</code>, and paste its Application
+        <code className="text-text">{desktop ? 'http://localhost' : IOS_REDIRECT_URI}</code>, and paste its Application
         (client) ID below.
       </p>
 
@@ -43,7 +48,9 @@ export function OneDriveSignIn({ draft, setDraft }: { draft: Draft; setDraft: Se
       <p className="mb-2 text-[11px] text-muted" data-testid="connect-account">
         {draft.signedIn
           ? `Signed in${draft.account ? ` as ${draft.account}` : ''}.`
-          : 'Not signed in on this machine.'}
+          : desktop
+            ? 'Not signed in on this machine.'
+            : 'Not signed in on this device.'}
       </p>
     </>
   )

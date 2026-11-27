@@ -8,7 +8,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   // The packaged suite needs an artifact from `npm run package`, which is not
-  // there by default. It runs from playwright.packaged.config.ts instead.
-  testIgnore: '**/packaged.spec.ts',
+  // there by default. It runs from playwright.packaged.config.ts instead. The
+  // iOS build's suite drives a browser, not Electron: playwright.mobile.config.ts.
+  testIgnore: ['**/packaged.spec.ts', '**/mobile/**'],
   reporter: [['list']]
 })

@@ -8,6 +8,7 @@ import type {
 import { defaultPort, projectUri } from '@shared/model/connection.js'
 import { invoke, attempt, errorMessage } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 
 export interface Draft {
   id?: string
@@ -49,6 +50,9 @@ export const BLANK: Draft = {
   schema: 'thepub'
 }
 
+/** Where a new server starts on iOS, which can reach OneDrive and nothing that needs a raw socket. */
+const BLANK_ONEDRIVE: Draft = { ...BLANK, protocol: 'onedrive', port: defaultPort('onedrive', BLANK.engine), remotePath: '' }
+
 /** What a server is called when nobody has named it. */
 export function defaultName(draft: Draft): string {
   if (draft.protocol === 'onedrive') {
@@ -67,7 +71,8 @@ export type SetDraft = Dispatch<SetStateAction<Draft>>
 export function useConnectionDraft(onClose: () => void) {
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([])
   const [secureStorage, setSecureStorage] = useState(true)
-  const [draft, setDraft] = useState<Draft>(BLANK)
+  const blank = useIsDesktop() ? BLANK : BLANK_ONEDRIVE
+  const [draft, setDraft] = useState<Draft>(blank)
   const [secret, setSecret] = useState('')
   const [status, setStatusText] = useState<string | null>(null)
   const [statusIsError, setStatusIsError] = useState(false)
@@ -306,7 +311,7 @@ export function useConnectionDraft(onClose: () => void) {
   }
 
   const startNew = (): void => {
-    setDraft(BLANK)
+    setDraft(blank)
     setSecret('')
     setStatus(null)
     setHostKey(null)
@@ -318,7 +323,7 @@ export function useConnectionDraft(onClose: () => void) {
     if (!window.confirm(`Forget "${label}"? This removes the saved server and ${what} from this machine.`)) return
     const deleted = await attempt(invoke('connections:delete', { id: draft.id! }), 'Could not forget it')
     if (deleted === null) return
-    setDraft(BLANK)
+    setDraft(blank)
     await load()
   }
 

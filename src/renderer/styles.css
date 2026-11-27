@@ -2,6 +2,14 @@
 @import 'dockview-react/dist/styles/dockview.css';
 
 /*
+ * Tailwind finds class names by scanning from the build's root, which for the
+ * iOS build is `src/mobile` rather than this folder. Naming both here keeps the
+ * two builds generating the same utilities from one stylesheet.
+ */
+@source './';
+@source '../mobile';
+
+/*
  * "Raven" — the brand palette, black feathers and the cold blue that comes off
  * them — is the default, so it lives in `@theme` rather than in a
  * [data-theme] block: a window paints it before app state has been read, and a

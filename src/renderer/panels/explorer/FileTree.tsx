@@ -5,6 +5,7 @@ import { DOC_EXT, IGNORED_DIRS } from '@shared/constants.js'
 import { validateFileName } from '@shared/model/filename.js'
 import { invoke, attempt, on } from '@renderer/lib/ipc.js'
 import { useProjectStore } from '@renderer/stores/projectStore.js'
+import { useIsDesktop } from '@renderer/lib/platform.js'
 import { useDocumentStore } from '@renderer/stores/documentStore.js'
 import { useLayoutStore } from '@renderer/stores/layoutStore.js'
 import { PanelShell, PanelHeader, EmptyState, ToolbarButton, cx } from '@renderer/ui/primitives.js'
@@ -23,6 +24,8 @@ const IGNORED = new Set(IGNORED_DIRS)
  */
 export function FileTree() {
   const project = useProjectStore((store) => store.project)
+  // A trash to delete into and a file manager to reveal in: a local project on a desktop, and nowhere else.
+  const onDesktopDisk = useIsDesktop() && Boolean(project?.isLocal)
   const openPath = useDocumentStore((store) => store.openPath)
   const openEditor = useLayoutStore((store) => store.openEditor)
   const [children, setChildren] = useState<Record<string, VfsEntry[]>>({})
@@ -231,9 +234,10 @@ export function FileTree() {
     async (entry: VfsEntry) => {
       // A local delete goes to the OS trash and can be taken back. On a server
       // there is no trash: the delete is permanent, and a folder's is recursive.
-      if (project && !project.isLocal) {
+      if (project && !onDesktopDisk) {
         const what = entry.kind === 'dir' ? `the folder “${entry.name}” and everything in it` : `“${entry.name}”`
-        if (!window.confirm(`Permanently delete ${what} from the server? This cannot be undone.`)) return
+        const where = project.isLocal ? 'this device' : 'the server'
+        if (!window.confirm(`Permanently delete ${what} from ${where}? This cannot be undone.`)) return
       } else {
         const what = entry.kind === 'dir' ? `the folder “${entry.name}” and everything in it` : `“${entry.name}”`
         if (!window.confirm(`Move ${what} to the Trash?`)) return
@@ -247,7 +251,7 @@ export function FileTree() {
         void loadDirectory(parent)
       }
     },
-    [loadDirectory, project]
+    [loadDirectory, project, onDesktopDisk]
   )
 
   if (!project) {
@@ -334,7 +338,7 @@ export function FileTree() {
                     setDraftProblem(null)
                   }}
                   onDelete={() => void remove(node)}
-                  isLocal={project.isLocal}
+                  isLocal={onDesktopDisk}
                   onReveal={() => void invoke('vfs:revealInOs', { path: node.path })}
                 />
               )}
@@ -354,7 +358,7 @@ export function FileTree() {
           items={[
             { label: 'New Document', run: () => void beginCreate('', 'file') },
             { label: 'New Folder', run: () => void beginCreate('', 'dir') },
-            ...(project.isLocal
+            ...(onDesktopDisk
               ? [
                   { separator: true as const },
                   {

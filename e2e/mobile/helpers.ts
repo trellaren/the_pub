@@ -39,8 +39,10 @@ export const ACCOUNT = 'writer@example.com'
  * over Graph's own URL shapes, so the app under test runs its real sign-in and
  * its real adapter — only the network's far end is ours.
  */
-export async function serveOneDrive(context: BrowserContext): Promise<FakeDrive> {
+export async function serveOneDrive(context: BrowserContext, folder: string): Promise<FakeDrive> {
   const drive = new FakeDrive()
+  // The folder a project is opened in is one the person already has in their drive.
+  folder.split('/').forEach((_, index, parts) => drive.folders.add(parts.slice(0, index + 1).join('/')))
 
   const answer = async (route: Route): Promise<void> => {
     const request = route.request()

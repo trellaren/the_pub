@@ -7,7 +7,7 @@ test('starts as the iOS app, not as a desktop window', async ({ page }) => {
   // One full-screen window that the system closes, and nowhere to tear a pane off to.
   await expect(page.getByTestId('window-controls')).toHaveCount(0)
   await expect(page.getByTestId('popout-group')).toHaveCount(0)
-  expect(await page.evaluate(() => window.pub.invoke('app:getState', {}).then((state) => state.platform))).toBe('ios')
+  expect(await page.evaluate(async () => (await window.pub.invoke('app:getState', {})).platform)).toBe('ios')
 
   // Only what a WebView can reach is offered as somewhere to keep a project.
   await page.getByTestId('open-connect').click()
@@ -47,7 +47,7 @@ test('a project made on the device is still there after the app restarts', async
 
   // The index is rebuilt from storage too, not from a session that no longer exists.
   await expect
-    .poll(() => page.evaluate(() => window.pub.invoke('search:query', { text: 'harbour' }).then((hits) => hits.length)))
+    .poll(() => page.evaluate(async () => (await window.pub.invoke('search:query', { text: 'harbour' })).length))
     .toBeGreaterThan(0)
 })
 
@@ -61,12 +61,12 @@ test('an image in a document loads, and the document still names it by its asset
   const docId = await createDocument(page, 'plate.pubdoc')
 
   const url = await page.evaluate(
-    (data) => window.pub.invoke('doc:writeAsset', { dataBase64: data, ext: 'png' }).then((asset) => asset.url),
+    async (data) => (await window.pub.invoke('doc:writeAsset', { dataBase64: data, ext: 'png' })).url,
     PIXEL
   )
   expect(url).toMatch(/^pub-asset:\/\//)
   await page.evaluate(
-    ([id, src]) => window.__pub.getEditor(id!)!.chain().focus().setImage({ src: src! }).run(),
+    ([id, src]) => window.__pub.getEditor(id!)!.commands.insertContent({ type: 'image', attrs: { src } }),
     [docId, url]
   )
 
@@ -103,7 +103,7 @@ test('Word export goes to the share sheet, and Word import comes from the file p
   expect(result?.imported).toHaveLength(1)
 
   const text = await page.evaluate(
-    (path) => window.pub.invoke('doc:read', { path }).then((loaded) => JSON.stringify(loaded.doc.content)),
+    async (path) => JSON.stringify((await window.pub.invoke('doc:read', { path })).doc.content),
     result!.imported[0]!.path
   )
   expect(text).toContain('Sent by the evening post.')
